@@ -4,6 +4,195 @@ declare(strict_types=1);
 
 if (!function_exists('loadInventory')) {
     /**
+     * @return list<string>
+     */
+    function inventoryFinishOptions(): array
+    {
+        return ['BL', 'C2', 'DB', '0R'];
+    }
+
+    /**
+     * Parse a SKU into its base part number and optional finish code.
+     *
+     * @return array{part_number:string,finish:?string}
+     */
+    function inventoryParseSku(string $sku): array
+    {
+        $normalized = trim($sku);
+
+        if ($normalized === '') {
+            return [
+                'part_number' => '',
+                'finish' => null,
+            ];
+        }
+
+        $segments = preg_split('/-+/', $normalized) ?: [$normalized];
+        $segments = array_values(array_filter(
+            $segments,
+            static fn (string $segment): bool => $segment !== ''
+        ));
+
+        if ($segments === []) {
+            return [
+                'part_number' => '',
+                'finish' => null,
+            ];
+        }
+
+        $finish = null;
+        $options = inventoryFinishOptions();
+
+        if (count($segments) > 1) {
+            $last = strtoupper(end($segments));
+            if (in_array($last, $options, true)) {
+                $finish = $last;
+                array_pop($segments);
+            }
+        }
+
+        $partNumber = implode('-', $segments);
+
+        return [
+            'part_number' => $partNumber,
+            'finish' => $finish,
+        ];
+    }
+
+    /**
+     * Build a SKU string from the provided part number and finish code.
+     */
+    function inventoryComposeSku(string $partNumber, ?string $finish): string
+    {
+        $segments = [trim($partNumber)];
+        $finish = inventoryNormalizeFinish($finish);
+
+        if ($finish !== null) {
+            $segments[] = $finish;
+        }
+
+        $segments = array_values(array_filter(
+            $segments,
+            static fn (string $segment): bool => $segment !== ''
+        ));
+
+        return implode('-', $segments);
+    }
+
+    function inventoryFormatFinish(?string $finish): string
+    {
+        return $finish !== null && $finish !== '' ? strtoupper($finish) : '—';
+    }
+
+    function inventoryNormalizeFinish(?string $finish): ?string
+    {
+        if ($finish === null) {
+            return null;
+        }
+
+        $normalized = strtoupper(trim($finish));
+
+        return in_array($normalized, inventoryFinishOptions(), true) ? $normalized : null;
+    }
+
+    /**
+     * Backfill part numbers and finish codes for legacy rows and remove deprecated columns.
+     */
+    function inventoryBackfillFinishColumn(\PDO $db, bool $hasVariantPrimary, bool $hasVariantSecondary): void
+    {
+        $columns = ['id', 'sku', 'part_number', 'finish'];
+
+        if ($hasVariantPrimary) {
+            $columns[] = 'variant_primary';
+        }
+
+        if ($hasVariantSecondary) {
+            $columns[] = 'variant_secondary';
+        }
+
+        $statement = $db->query('SELECT ' . implode(', ', $columns) . ' FROM inventory_items');
+
+        if ($statement === false) {
+            return;
+        }
+
+        $rows = $statement->fetchAll();
+
+        if ($rows === []) {
+            return;
+        }
+
+        $update = $db->prepare(
+            'UPDATE inventory_items SET part_number = :part_number, finish = :finish, sku = :sku WHERE id = :id'
+        );
+
+        foreach ($rows as $row) {
+            $partNumber = (string) $row['part_number'];
+            $currentFinish = isset($row['finish']) && $row['finish'] !== null ? inventoryNormalizeFinish((string) $row['finish']) : null;
+            $variantPrimary = $hasVariantPrimary && $row['variant_primary'] !== null ? (string) $row['variant_primary'] : null;
+            $variantSecondary = $hasVariantSecondary && $row['variant_secondary'] !== null ? (string) $row['variant_secondary'] : null;
+            $components = inventoryParseSku((string) $row['sku']);
+
+            $finish = $currentFinish ?? inventoryNormalizeFinish($variantPrimary) ?? inventoryNormalizeFinish($variantSecondary) ?? $components['finish'];
+
+            $partSegments = $partNumber !== '' ? preg_split('/-+/', $partNumber) : [];
+            $partSegments = is_array($partSegments) ? array_values(array_filter($partSegments, static fn ($segment) => $segment !== '')) : [];
+
+            $appendSegments = [];
+
+            if ($variantPrimary !== null && inventoryNormalizeFinish($variantPrimary) === null) {
+                $appendSegments[] = trim($variantPrimary);
+            }
+
+            if ($variantSecondary !== null && inventoryNormalizeFinish($variantSecondary) === null) {
+                $appendSegments[] = trim($variantSecondary);
+            }
+
+            foreach ($appendSegments as $segment) {
+                if ($segment === '') {
+                    continue;
+                }
+
+                if (!in_array($segment, $partSegments, true)) {
+                    $partSegments[] = $segment;
+                }
+            }
+
+            if ($partSegments === []) {
+                $partSegments = $components['part_number'] !== ''
+                    ? preg_split('/-+/', $components['part_number']) ?: []
+                    : [];
+                $partSegments = array_values(array_filter(
+                    is_array($partSegments) ? $partSegments : [],
+                    static fn ($segment) => $segment !== ''
+                ));
+            }
+
+            $newPartNumber = implode('-', $partSegments);
+            $newSku = inventoryComposeSku($newPartNumber, $finish);
+
+            if ($newPartNumber === $partNumber && $finish === $currentFinish && $newSku === (string) $row['sku']) {
+                continue;
+            }
+
+            $update->execute([
+                ':id' => (int) $row['id'],
+                ':part_number' => $newPartNumber,
+                ':finish' => $finish,
+                ':sku' => $newSku,
+            ]);
+        }
+
+        if ($hasVariantPrimary) {
+            $db->exec('ALTER TABLE inventory_items DROP COLUMN IF EXISTS variant_primary');
+        }
+
+        if ($hasVariantSecondary) {
+            $db->exec('ALTER TABLE inventory_items DROP COLUMN IF EXISTS variant_secondary');
+        }
+    }
+
+    /**
      * Ensure the inventory_items table has the extended inventory columns.
      */
     function ensureInventorySchema(\PDO $db): void
@@ -27,6 +216,8 @@ if (!function_exists('loadInventory')) {
             'supplier_contact' => 'ALTER TABLE inventory_items ADD COLUMN supplier_contact TEXT NULL',
             'reorder_point' => 'ALTER TABLE inventory_items ADD COLUMN reorder_point INTEGER NOT NULL DEFAULT 0',
             'lead_time_days' => 'ALTER TABLE inventory_items ADD COLUMN lead_time_days INTEGER NOT NULL DEFAULT 0',
+            'part_number' => "ALTER TABLE inventory_items ADD COLUMN part_number TEXT NOT NULL DEFAULT ''",
+            'finish' => 'ALTER TABLE inventory_items ADD COLUMN finish TEXT NULL',
         ];
 
         foreach ($required as $column => $sql) {
@@ -35,13 +226,18 @@ if (!function_exists('loadInventory')) {
             }
         }
 
+        $hasVariantPrimary = in_array('variant_primary', $existing, true);
+        $hasVariantSecondary = in_array('variant_secondary', $existing, true);
+
+        inventoryBackfillFinishColumn($db, $hasVariantPrimary, $hasVariantSecondary);
+
         $ensured = true;
     }
 
     /**
      * Fetch inventory rows ordered by item name.
      *
-     * @return array<int, array{item:string,sku:string,location:string,stock:int,status:string,supplier:string,supplier_contact:?string,reorder_point:int,lead_time_days:int,id:int}>
+     * @return array<int, array{item:string,sku:string,part_number:string,finish:?string,location:string,stock:int,status:string,supplier:string,supplier_contact:?string,reorder_point:int,lead_time_days:int,id:int}>
      */
     function loadInventory(\PDO $db): array
     {
@@ -49,7 +245,7 @@ if (!function_exists('loadInventory')) {
 
         try {
             $statement = $db->query(
-                'SELECT id, item, sku, location, stock, status, supplier, supplier_contact, reorder_point, lead_time_days FROM inventory_items ORDER BY item ASC'
+                'SELECT id, item, sku, part_number, finish, location, stock, status, supplier, supplier_contact, reorder_point, lead_time_days FROM inventory_items ORDER BY item ASC'
             );
 
             $rows = $statement->fetchAll();
@@ -59,6 +255,8 @@ if (!function_exists('loadInventory')) {
                     'id' => (int) $row['id'],
                     'item' => (string) $row['item'],
                     'sku' => (string) $row['sku'],
+                    'part_number' => (string) $row['part_number'],
+                    'finish' => $row['finish'] !== null ? inventoryNormalizeFinish((string) $row['finish']) : null,
                     'location' => (string) $row['location'],
                     'stock' => (int) $row['stock'],
                     'status' => (string) $row['status'],
@@ -77,13 +275,13 @@ if (!function_exists('loadInventory')) {
     /**
      * Retrieve a single inventory item or null if it does not exist.
      *
-     * @return array{item:string,sku:string,location:string,stock:int,status:string,supplier:string,supplier_contact:?string,reorder_point:int,lead_time_days:int,id:int}|null
+     * @return array{item:string,sku:string,part_number:string,finish:?string,location:string,stock:int,status:string,supplier:string,supplier_contact:?string,reorder_point:int,lead_time_days:int,id:int}|null
      */
     function findInventoryItem(\PDO $db, int $id): ?array
     {
         ensureInventorySchema($db);
 
-        $statement = $db->prepare('SELECT id, item, sku, location, stock, status, supplier, supplier_contact, reorder_point, lead_time_days FROM inventory_items WHERE id = :id');
+        $statement = $db->prepare('SELECT id, item, sku, part_number, finish, location, stock, status, supplier, supplier_contact, reorder_point, lead_time_days FROM inventory_items WHERE id = :id');
         $statement->bindValue(':id', $id, \PDO::PARAM_INT);
         $statement->execute();
 
@@ -98,6 +296,44 @@ if (!function_exists('loadInventory')) {
             'id' => (int) $row['id'],
             'item' => (string) $row['item'],
             'sku' => (string) $row['sku'],
+            'part_number' => (string) $row['part_number'],
+            'finish' => $row['finish'] !== null ? inventoryNormalizeFinish((string) $row['finish']) : null,
+            'location' => (string) $row['location'],
+            'stock' => (int) $row['stock'],
+            'status' => (string) $row['status'],
+            'supplier' => (string) $row['supplier'],
+            'supplier_contact' => $row['supplier_contact'] !== null ? (string) $row['supplier_contact'] : null,
+            'reorder_point' => (int) $row['reorder_point'],
+            'lead_time_days' => (int) $row['lead_time_days'],
+        ];
+    }
+
+    /**
+     * Retrieve an inventory item by SKU.
+     *
+     * @return array{item:string,sku:string,part_number:string,finish:?string,location:string,stock:int,status:string,supplier:string,supplier_contact:?string,reorder_point:int,lead_time_days:int,id:int}|null
+     */
+    function findInventoryItemBySku(\PDO $db, string $sku): ?array
+    {
+        ensureInventorySchema($db);
+
+        $statement = $db->prepare('SELECT id, item, sku, part_number, finish, location, stock, status, supplier, supplier_contact, reorder_point, lead_time_days FROM inventory_items WHERE sku = :sku LIMIT 1');
+        $statement->bindValue(':sku', $sku, \PDO::PARAM_STR);
+        $statement->execute();
+
+        /** @var array<string,mixed>|false $row */
+        $row = $statement->fetch();
+
+        if ($row === false) {
+            return null;
+        }
+
+        return [
+            'id' => (int) $row['id'],
+            'item' => (string) $row['item'],
+            'sku' => (string) $row['sku'],
+            'part_number' => (string) $row['part_number'],
+            'finish' => $row['finish'] !== null ? inventoryNormalizeFinish((string) $row['finish']) : null,
             'location' => (string) $row['location'],
             'stock' => (int) $row['stock'],
             'status' => (string) $row['status'],
@@ -111,20 +347,22 @@ if (!function_exists('loadInventory')) {
     /**
      * Insert a new inventory item.
      *
-     * @param array{item:string,sku:string,location:string,stock:int,status:string,supplier:string,supplier_contact:?string,reorder_point:int,lead_time_days:int} $payload
+     * @param array{item:string,sku:string,part_number:string,finish:?string,location:string,stock:int,status:string,supplier:string,supplier_contact:?string,reorder_point:int,lead_time_days:int} $payload
      */
     function createInventoryItem(\PDO $db, array $payload): int
     {
         ensureInventorySchema($db);
 
         $statement = $db->prepare(
-            'INSERT INTO inventory_items (item, sku, location, stock, status, supplier, supplier_contact, reorder_point, lead_time_days) '
-            . 'VALUES (:item, :sku, :location, :stock, :status, :supplier, :supplier_contact, :reorder_point, :lead_time_days) RETURNING id'
+            'INSERT INTO inventory_items (item, sku, part_number, finish, location, stock, status, supplier, supplier_contact, reorder_point, lead_time_days) '
+            . 'VALUES (:item, :sku, :part_number, :finish, :location, :stock, :status, :supplier, :supplier_contact, :reorder_point, :lead_time_days) RETURNING id'
         );
 
         $statement->execute([
             ':item' => $payload['item'],
             ':sku' => $payload['sku'],
+            ':part_number' => $payload['part_number'],
+            ':finish' => $payload['finish'],
             ':location' => $payload['location'],
             ':stock' => $payload['stock'],
             ':status' => $payload['status'],
@@ -140,21 +378,24 @@ if (!function_exists('loadInventory')) {
     /**
      * Update an existing inventory item.
      *
-     * @param array{item:string,sku:string,location:string,stock:int,status:string,supplier:string,supplier_contact:?string,reorder_point:int,lead_time_days:int} $payload
+     * @param array{item:string,sku:string,part_number:string,finish:?string,location:string,stock:int,status:string,supplier:string,supplier_contact:?string,reorder_point:int,lead_time_days:int} $payload
      */
     function updateInventoryItem(\PDO $db, int $id, array $payload): void
     {
         ensureInventorySchema($db);
 
         $statement = $db->prepare(
-            'UPDATE inventory_items SET item = :item, sku = :sku, location = :location, stock = :stock, status = :status, supplier = :supplier, '
-            . 'supplier_contact = :supplier_contact, reorder_point = :reorder_point, lead_time_days = :lead_time_days WHERE id = :id'
+            'UPDATE inventory_items SET item = :item, sku = :sku, part_number = :part_number, finish = :finish, '
+            . 'location = :location, stock = :stock, status = :status, supplier = :supplier, supplier_contact = :supplier_contact, '
+            . 'reorder_point = :reorder_point, lead_time_days = :lead_time_days WHERE id = :id'
         );
 
         $statement->execute([
             ':id' => $id,
             ':item' => $payload['item'],
             ':sku' => $payload['sku'],
+            ':part_number' => $payload['part_number'],
+            ':finish' => $payload['finish'],
             ':location' => $payload['location'],
             ':stock' => $payload['stock'],
             ':status' => $payload['status'],

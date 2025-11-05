@@ -149,6 +149,8 @@ function nav_href(array $item): string
             <thead>
               <tr>
                 <th scope="col">Item</th>
+                <th scope="col">Part Number</th>
+                <th scope="col">Finish</th>
                 <th scope="col">SKU</th>
                 <th scope="col">Location</th>
                 <th scope="col">Stock</th>
@@ -158,12 +160,14 @@ function nav_href(array $item): string
             <tbody>
               <?php if ($inventory === []): ?>
                 <tr>
-                  <td colspan="5" class="small">No inventory items found. Add rows to the <code>inventory_items</code> table.</td>
+                  <td colspan="7" class="small">No inventory items found. Add rows to the <code>inventory_items</code> table.</td>
                 </tr>
               <?php else: ?>
                 <?php foreach ($inventory as $row): ?>
                   <tr>
                     <td><?= e($row['item']) ?></td>
+                    <td><?= e($row['part_number']) ?></td>
+                    <td><?= e(inventoryFormatFinish($row['finish'])) ?></td>
                     <td><?= e($row['sku']) ?></td>
                     <td><?= e($row['location']) ?></td>
                     <td><?= e((string) $row['stock']) ?></td>
