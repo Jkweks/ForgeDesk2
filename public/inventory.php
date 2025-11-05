@@ -39,6 +39,9 @@ $statuses = ['In Stock', 'Low', 'Reorder', 'Critical', 'Discontinued'];
 
 $formData = [
     'item' => '',
+    'part_number' => '',
+    'variant_primary' => '',
+    'variant_secondary' => '',
     'sku' => '',
     'location' => '',
     'stock' => '0',
@@ -68,7 +71,9 @@ if ($dbError === null) {
 
         $payload = [
             'item' => trim((string) ($_POST['item'] ?? '')),
-            'sku' => trim((string) ($_POST['sku'] ?? '')),
+            'part_number' => trim((string) ($_POST['part_number'] ?? '')),
+            'variant_primary' => trim((string) ($_POST['variant_primary'] ?? '')),
+            'variant_secondary' => trim((string) ($_POST['variant_secondary'] ?? '')),
             'location' => trim((string) ($_POST['location'] ?? '')),
             'status' => trim((string) ($_POST['status'] ?? '')),
             'supplier' => trim((string) ($_POST['supplier'] ?? '')),
@@ -81,7 +86,10 @@ if ($dbError === null) {
 
         $formData = [
             'item' => $payload['item'],
-            'sku' => $payload['sku'],
+            'part_number' => $payload['part_number'],
+            'variant_primary' => $payload['variant_primary'],
+            'variant_secondary' => $payload['variant_secondary'],
+            'sku' => '',
             'location' => $payload['location'],
             'stock' => $stockRaw,
             'status' => $payload['status'],
@@ -95,8 +103,8 @@ if ($dbError === null) {
             $errors['item'] = 'Item name is required.';
         }
 
-        if ($payload['sku'] === '') {
-            $errors['sku'] = 'SKU is required.';
+        if ($payload['part_number'] === '') {
+            $errors['part_number'] = 'Part number is required.';
         }
 
         if ($payload['location'] === '') {
@@ -130,6 +138,14 @@ if ($dbError === null) {
         $payload['reorder_point'] = $reorderPoint === false ? 0 : $reorderPoint;
         $payload['lead_time_days'] = $leadTimeDays === false ? 0 : $leadTimeDays;
         $payload['supplier_contact'] = $payload['supplier_contact'] !== '' ? $payload['supplier_contact'] : null;
+
+        $variantPrimary = $payload['variant_primary'] !== '' ? $payload['variant_primary'] : null;
+        $variantSecondary = $payload['variant_secondary'] !== '' ? $payload['variant_secondary'] : null;
+
+        $payload['variant_primary'] = $variantPrimary;
+        $payload['variant_secondary'] = $variantSecondary;
+        $payload['sku'] = inventoryComposeSku($payload['part_number'], $variantPrimary, $variantSecondary);
+        $formData['sku'] = $payload['sku'];
 
         if ($action === 'update') {
             $idRaw = $_POST['id'] ?? '';
@@ -172,6 +188,9 @@ if ($dbError === null) {
                 $formData = [
                     'item' => $existing['item'],
                     'sku' => $existing['sku'],
+                    'part_number' => $existing['part_number'],
+                    'variant_primary' => $existing['variant_primary'] ?? '',
+                    'variant_secondary' => $existing['variant_secondary'] ?? '',
                     'location' => $existing['location'],
                     'stock' => (string) $existing['stock'],
                     'status' => $existing['status'],
@@ -180,6 +199,11 @@ if ($dbError === null) {
                     'reorder_point' => (string) $existing['reorder_point'],
                     'lead_time_days' => (string) $existing['lead_time_days'],
                 ];
+                $formData['sku'] = inventoryComposeSku(
+                    $formData['part_number'],
+                    $existing['variant_primary'],
+                    $existing['variant_secondary']
+                );
             } else {
                 $successMessage = null;
                 $errors['general'] = 'The requested inventory item could not be found.';
@@ -197,6 +221,14 @@ if (isset($_GET['success'])) {
     } elseif ($_GET['success'] === 'updated') {
         $successMessage = 'Inventory item updated successfully.';
     }
+}
+
+if ($formData['sku'] === '' && $formData['part_number'] !== '') {
+    $formData['sku'] = inventoryComposeSku(
+        $formData['part_number'],
+        $formData['variant_primary'] !== '' ? $formData['variant_primary'] : null,
+        $formData['variant_secondary'] !== '' ? $formData['variant_secondary'] : null
+    );
 }
 ?>
 <!doctype html>
@@ -273,6 +305,8 @@ if (isset($_GET['success'])) {
               <thead>
                 <tr>
                   <th scope="col">Item</th>
+                  <th scope="col">Part Number</th>
+                  <th scope="col">Variants</th>
                   <th scope="col">SKU</th>
                   <th scope="col">Location</th>
                   <th scope="col">Stock</th>
@@ -287,12 +321,14 @@ if (isset($_GET['success'])) {
               <tbody>
                 <?php if ($inventory === []): ?>
                   <tr>
-                    <td colspan="10" class="small">No inventory items found. Use the form to create a part.</td>
+                    <td colspan="12" class="small">No inventory items found. Use the form to create a part.</td>
                   </tr>
                 <?php else: ?>
                   <?php foreach ($inventory as $row): ?>
                     <tr>
                       <td><?= e($row['item']) ?></td>
+                      <td><?= e($row['part_number']) ?></td>
+                      <td><?= e(inventoryFormatVariantCodes($row['variant_primary'], $row['variant_secondary'])) ?></td>
                       <td><?= e($row['sku']) ?></td>
                       <td><?= e($row['location']) ?></td>
                       <td><?= e((string) $row['stock']) ?></td>
@@ -332,8 +368,30 @@ if (isset($_GET['success'])) {
               </div>
 
               <div class="field">
-                <label for="sku">SKU<span aria-hidden="true">*</span></label>
-                <input type="text" id="sku" name="sku" value="<?= e($formData['sku']) ?>" required />
+                <label for="part_number">Part Number<span aria-hidden="true">*</span></label>
+                <input type="text" id="part_number" name="part_number" value="<?= e($formData['part_number']) ?>" required />
+                <?php if (!empty($errors['part_number'])): ?>
+                  <p class="field-error"><?= e($errors['part_number']) ?></p>
+                <?php endif; ?>
+              </div>
+
+              <div class="field-grid">
+                <div class="field">
+                  <label for="variant_primary">Variant Code 1</label>
+                  <input type="text" id="variant_primary" name="variant_primary" value="<?= e($formData['variant_primary']) ?>" />
+                </div>
+
+                <div class="field">
+                  <label for="variant_secondary">Variant Code 2</label>
+                  <input type="text" id="variant_secondary" name="variant_secondary" value="<?= e($formData['variant_secondary']) ?>" />
+                  <p class="field-help">Leave variant codes blank if the part has no finish, size, or color options.</p>
+                </div>
+              </div>
+
+              <div class="field">
+                <label for="sku">Generated SKU</label>
+                <input type="text" id="sku" name="sku" value="<?= e($formData['sku']) ?>" readonly />
+                <p class="field-help">SKU is automatically built from the part number and variant codes.</p>
                 <?php if (!empty($errors['sku'])): ?>
                   <p class="field-error"><?= e($errors['sku']) ?></p>
                 <?php endif; ?>
