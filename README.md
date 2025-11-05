@@ -36,6 +36,8 @@ docker-compose.yml  Two-service stack (PHP + PostgreSQL) for local development.
 
 The `database/init.sql` script seeds sample inventory items and metrics. You can modify this file or connect with your preferred SQL client to adjust values in real time.
 
+> Upgrading from an earlier clone? Existing PostgreSQL volumes may still reflect the original inventory schema. The application now auto-patches missing supplier and lead-time columns on first use, but you can also reset the database with `docker compose down -v` before re-running `docker compose up --build` if you prefer a clean reseed.
+
 ## Environment configuration
 
 The PHP container reads environment variables defined in `docker-compose.yml` and surfaces them through `app/config/app.php`. Override these values in the Compose file or via a `.env` file to customize branding or point to an external database.
