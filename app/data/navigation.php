@@ -13,4 +13,7 @@ return [
         ['icon' => 'clipboard', 'label' => 'Work Orders', 'badge' => 'soon'],
         ['icon' => 'settings', 'label' => 'Door Assembly'],
     ],
+    'System' => [
+        ['icon' => 'database', 'label' => 'Database Health', 'badge' => 'beta'],
+    ],
 ];

@@ -1,9 +1,26 @@
 <?php
+declare(strict_types=1);
+
 $app = require __DIR__ . '/../app/config/app.php';
 $nav = require __DIR__ . '/../app/data/navigation.php';
-$metrics = require __DIR__ . '/../app/data/metrics.php';
-$inventory = require __DIR__ . '/../app/data/inventory.php';
+
 require_once __DIR__ . '/../app/helpers/icons.php';
+require_once __DIR__ . '/../app/helpers/database.php';
+require_once __DIR__ . '/../app/data/metrics.php';
+require_once __DIR__ . '/../app/data/inventory.php';
+
+$databaseConfig = $app['database'];
+$metrics = [];
+$inventory = [];
+$dbError = null;
+
+try {
+    $db = db($databaseConfig);
+    $metrics = loadMetrics($db);
+    $inventory = loadInventory($db);
+} catch (\Throwable $exception) {
+    $dbError = $exception->getMessage();
+}
 
 function e(string $value): string
 {
@@ -59,21 +76,51 @@ function e(string $value): string
     </header>
 
     <main class="content">
+      <section class="panel message <?= $dbError === null ? 'success' : 'error' ?>" id="database-health" role="<?= $dbError === null ? 'status' : 'alert' ?>">
+        <?php if ($dbError === null): ?>
+          <header>
+            <h2>PostgreSQL connected</h2>
+            <span class="small"><?= e($databaseConfig['host'] . ':' . (string) $databaseConfig['port']) ?></span>
+          </header>
+          <p><strong>Live data</strong> is backing this dashboard using the <code><?= e($databaseConfig['name']) ?></code> database. Update the records to see changes instantly.</p>
+        <?php else: ?>
+          <header>
+            <h2>Database connection issue</h2>
+            <span class="small">Check container logs for details</span>
+          </header>
+          <p>We couldn't reach PostgreSQL. The UI is still available but data will appear empty until the connection is restored.</p>
+          <details>
+            <summary>Error message</summary>
+            <pre><?= e($dbError) ?></pre>
+          </details>
+        <?php endif; ?>
+      </section>
+
       <section class="metrics" aria-label="Inventory health metrics">
-        <?php foreach ($metrics as $metric): ?>
-          <article class="metric<?= !empty($metric['accent']) ? ' accent' : '' ?>">
+        <?php if ($metrics === []): ?>
+          <article class="metric">
             <div class="metric-header">
-              <span><?= e($metric['label']) ?></span>
-              <?php if (!empty($metric['time'])): ?>
-                <span class="metric-time"><?= e($metric['time']) ?></span>
-              <?php endif; ?>
+              <span>No metrics yet</span>
             </div>
-            <p class="metric-value"><?= e((string) $metric['value']) ?></p>
-            <?php if (!empty($metric['delta'])): ?>
-              <p class="metric-delta"><?= e($metric['delta']) ?></p>
-            <?php endif; ?>
+            <p class="metric-value">--</p>
+            <p class="metric-delta small">Populate the database to see live KPIs.</p>
           </article>
-        <?php endforeach; ?>
+        <?php else: ?>
+          <?php foreach ($metrics as $metric): ?>
+            <article class="metric<?= !empty($metric['accent']) ? ' accent' : '' ?>">
+              <div class="metric-header">
+                <span><?= e($metric['label']) ?></span>
+                <?php if (!empty($metric['time'])): ?>
+                  <span class="metric-time"><?= e($metric['time']) ?></span>
+                <?php endif; ?>
+              </div>
+              <p class="metric-value"><?= e((string) $metric['value']) ?></p>
+              <?php if (!empty($metric['delta'])): ?>
+                <p class="metric-delta"><?= e($metric['delta']) ?></p>
+              <?php endif; ?>
+            </article>
+          <?php endforeach; ?>
+        <?php endif; ?>
       </section>
 
       <section class="panel" id="stock-levels" aria-labelledby="inventory-title">
@@ -93,19 +140,25 @@ function e(string $value): string
               </tr>
             </thead>
             <tbody>
-              <?php foreach ($inventory as $row): ?>
+              <?php if ($inventory === []): ?>
                 <tr>
-                  <td><?= e($row['item']) ?></td>
-                  <td><?= e($row['sku']) ?></td>
-                  <td><?= e($row['location']) ?></td>
-                  <td><?= e((string) $row['stock']) ?></td>
-                  <td>
-                    <span class="status" data-level="<?= e($row['status']) ?>">
-                      <?= e($row['status']) ?>
-                    </span>
-                  </td>
+                  <td colspan="5" class="small">No inventory items found. Add rows to the <code>inventory_items</code> table.</td>
                 </tr>
-              <?php endforeach; ?>
+              <?php else: ?>
+                <?php foreach ($inventory as $row): ?>
+                  <tr>
+                    <td><?= e($row['item']) ?></td>
+                    <td><?= e($row['sku']) ?></td>
+                    <td><?= e($row['location']) ?></td>
+                    <td><?= e((string) $row['stock']) ?></td>
+                    <td>
+                      <span class="status" data-level="<?= e($row['status']) ?>">
+                        <?= e($row['status']) ?>
+                      </span>
+                    </td>
+                  </tr>
+                <?php endforeach; ?>
+              <?php endif; ?>
             </tbody>
           </table>
         </div>

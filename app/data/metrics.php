@@ -1,7 +1,34 @@
 <?php
-return [
-    ['label' => 'SKUs Tracked', 'value' => 128, 'delta' => '+12%', 'time' => 'Today'],
-    ['label' => 'Units In Stock', 'value' => 2416, 'delta' => '+4%', 'time' => 'This week'],
-    ['label' => 'Pending Reorders', 'value' => 8, 'delta' => '▼ 2', 'time' => 'This month'],
-    ['label' => 'Low Inventory', 'value' => 5, 'delta' => '▲1', 'time' => 'Requires action', 'accent' => true],
-];
+
+declare(strict_types=1);
+
+if (!function_exists('loadMetrics')) {
+    /**
+     * Fetch dashboard metrics ordered by their configured sort weight.
+     *
+     * @return array<int, array{label:string,value:string|int,delta:?string,time:?string,accent:bool}>
+     */
+    function loadMetrics(\PDO $db): array
+    {
+        try {
+            $statement = $db->query(
+                'SELECT label, value, delta, timeframe, accent FROM inventory_metrics ORDER BY sort_order ASC, id ASC'
+            );
+
+            $rows = $statement->fetchAll();
+
+            return array_map(
+                static fn (array $row): array => [
+                    'label' => (string) $row['label'],
+                    'value' => is_numeric($row['value']) ? (int) $row['value'] : (string) $row['value'],
+                    'delta' => $row['delta'] !== null ? (string) $row['delta'] : null,
+                    'time' => $row['timeframe'] !== null ? (string) $row['timeframe'] : null,
+                    'accent' => filter_var($row['accent'], FILTER_VALIDATE_BOOLEAN),
+                ],
+                $rows
+            );
+        } catch (\PDOException $exception) {
+            throw new \PDOException('Unable to load metrics: ' . $exception->getMessage(), (int) $exception->getCode(), $exception);
+        }
+    }
+}

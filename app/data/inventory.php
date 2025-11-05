@@ -1,8 +1,34 @@
 <?php
-return [
-    ['item' => 'Aluminum Stile - 2"', 'sku' => 'AL-ST-02', 'location' => 'Aisle 1 / Bin 4', 'stock' => 86, 'status' => 'In Stock'],
-    ['item' => 'Tempered Glass Panel 36x84', 'sku' => 'GL-3684-T', 'location' => 'Aisle 3 / Rack 2', 'stock' => 24, 'status' => 'Reorder'],
-    ['item' => 'Hinge Set - Heavy Duty', 'sku' => 'HD-HG-SET', 'location' => 'Aisle 2 / Bin 8', 'stock' => 140, 'status' => 'In Stock'],
-    ['item' => 'Threshold Extrusion', 'sku' => 'AL-TH-10', 'location' => 'Aisle 5 / Bin 1', 'stock' => 12, 'status' => 'Low'],
-    ['item' => 'Exit Device Kit', 'sku' => 'EX-KT-44', 'location' => 'Aisle 4 / Shelf 6', 'stock' => 6, 'status' => 'Critical'],
-];
+
+declare(strict_types=1);
+
+if (!function_exists('loadInventory')) {
+    /**
+     * Fetch inventory rows ordered by item name.
+     *
+     * @return array<int, array{item:string,sku:string,location:string,stock:int,status:string}>
+     */
+    function loadInventory(\PDO $db): array
+    {
+        try {
+            $statement = $db->query(
+                'SELECT item, sku, location, stock, status FROM inventory_items ORDER BY item ASC'
+            );
+
+            $rows = $statement->fetchAll();
+
+            return array_map(
+                static fn (array $row): array => [
+                    'item' => (string) $row['item'],
+                    'sku' => (string) $row['sku'],
+                    'location' => (string) $row['location'],
+                    'stock' => (int) $row['stock'],
+                    'status' => (string) $row['status'],
+                ],
+                $rows
+            );
+        } catch (\PDOException $exception) {
+            throw new \PDOException('Unable to load inventory data: ' . $exception->getMessage(), (int) $exception->getCode(), $exception);
+        }
+    }
+}
