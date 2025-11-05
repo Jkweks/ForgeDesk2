@@ -38,8 +38,7 @@ if (!function_exists('seedInventoryFromXlsx')) {
         $definitions = [
             'item' => ['labels' => ['item', 'item name', 'name', 'part name'], 'required' => true],
             'part_number' => ['labels' => ['part number', 'part', 'part #', 'partno'], 'required' => true],
-            'variant_primary' => ['labels' => ['variant 1', 'variant', 'variant primary', 'finish', 'finish code', 'variant code 1'], 'required' => false],
-            'variant_secondary' => ['labels' => ['variant 2', 'variant secondary', 'variant code 2', 'length', 'size', 'color'], 'required' => false],
+            'finish' => ['labels' => ['finish', 'finish code'], 'required' => false],
             'location' => ['labels' => ['location', 'bin', 'shelf', 'warehouse location'], 'required' => true],
             'stock' => ['labels' => ['stock', 'qty', 'quantity', 'on hand'], 'required' => false, 'default' => '0'],
             'reorder_point' => ['labels' => ['reorder point', 'reorder', 'min qty', 'minimum quantity'], 'required' => false, 'default' => '0'],
@@ -161,18 +160,25 @@ if (!function_exists('seedInventoryFromXlsx')) {
                 $matchedStatus = $statuses[0] ?? 'In Stock';
             }
 
-            $variantPrimary = ($values['variant_primary'] ?? '') !== '' ? $values['variant_primary'] : null;
-            $variantSecondary = ($values['variant_secondary'] ?? '') !== '' ? $values['variant_secondary'] : null;
+            $finishRaw = $values['finish'] ?? '';
+            $finish = $finishRaw !== '' ? inventoryNormalizeFinish($finishRaw) : null;
+
+            if ($finishRaw !== '' && $finish === null) {
+                $result['messages'][] = [
+                    'type' => 'warning',
+                    'text' => sprintf('Row %d finish "%s" is not recognised; ignored.', $rowNumber, $finishRaw),
+                ];
+            }
+
             $supplierContact = ($values['supplier_contact'] ?? '') !== '' ? $values['supplier_contact'] : null;
 
-            $sku = inventoryComposeSku($values['part_number'], $variantPrimary, $variantSecondary);
+            $sku = inventoryComposeSku($values['part_number'], $finish);
 
             $payload = [
                 'item' => $values['item'],
                 'sku' => $sku,
                 'part_number' => $values['part_number'],
-                'variant_primary' => $variantPrimary,
-                'variant_secondary' => $variantSecondary,
+                'finish' => $finish,
                 'location' => $values['location'],
                 'stock' => $stock,
                 'status' => $matchedStatus,

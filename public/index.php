@@ -150,7 +150,7 @@ function nav_href(array $item): string
               <tr>
                 <th scope="col">Item</th>
                 <th scope="col">Part Number</th>
-                <th scope="col">Variants</th>
+                <th scope="col">Finish</th>
                 <th scope="col">SKU</th>
                 <th scope="col">Location</th>
                 <th scope="col">Stock</th>
@@ -167,7 +167,7 @@ function nav_href(array $item): string
                   <tr>
                     <td><?= e($row['item']) ?></td>
                     <td><?= e($row['part_number']) ?></td>
-                    <td><?= e(inventoryFormatVariantCodes($row['variant_primary'], $row['variant_secondary'])) ?></td>
+                    <td><?= e(inventoryFormatFinish($row['finish'])) ?></td>
                     <td><?= e($row['sku']) ?></td>
                     <td><?= e($row['location']) ?></td>
                     <td><?= e((string) $row['stock']) ?></td>

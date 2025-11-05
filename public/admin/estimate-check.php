@@ -8,7 +8,7 @@ $nav = require __DIR__ . '/../../app/data/navigation.php';
 require_once __DIR__ . '/../../app/helpers/icons.php';
 require_once __DIR__ . '/../../app/helpers/database.php';
 require_once __DIR__ . '/../../app/data/inventory.php';
-require_once __DIR__ . '/../../app/services/inventory_seed.php';
+require_once __DIR__ . '/../../app/services/estimate_check.php';
 
 function e(string $value): string
 {
@@ -16,8 +16,6 @@ function e(string $value): string
 }
 
 /**
- * Resolve the URL for a navigation item, defaulting to an in-page anchor when no explicit href is provided.
- *
  * @param array{label:string,href?:string} $item
  */
 function nav_href(array $item): string
@@ -31,11 +29,9 @@ function nav_href(array $item): string
     return '#' . $anchor;
 }
 
-$statuses = ['In Stock', 'Low', 'Reorder', 'Critical', 'Discontinued'];
-
 foreach ($nav as &$groupItems) {
     foreach ($groupItems as &$item) {
-        $item['active'] = ($item['label'] === 'Data Seeding');
+        $item['active'] = ($item['label'] === 'EZ Estimate Check');
     }
 }
 unset($groupItems, $item);
@@ -43,7 +39,7 @@ unset($groupItems, $item);
 $databaseConfig = $app['database'];
 $dbError = null;
 $errors = [];
-$importResult = null;
+$analysis = null;
 $uploadedName = null;
 
 try {
@@ -53,11 +49,11 @@ try {
 }
 
 if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!isset($_FILES['spreadsheet']) || !is_uploaded_file($_FILES['spreadsheet']['tmp_name'])) {
-        $errors[] = 'Select an Excel workbook to import.';
+    if (!isset($_FILES['estimate']) || !is_uploaded_file($_FILES['estimate']['tmp_name'])) {
+        $errors[] = 'Select an EZ Estimate workbook to review.';
     } else {
         /** @var array{tmp_name:string,name:string,error:int} $file */
-        $file = $_FILES['spreadsheet'];
+        $file = $_FILES['estimate'];
         $uploadedName = $file['name'];
 
         if ($file['error'] !== UPLOAD_ERR_OK) {
@@ -68,17 +64,17 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 UPLOAD_ERR_NO_FILE => 'No file was uploaded.',
             ];
 
-            $errors[] = $uploadErrors[$file['error']] ?? 'Failed to upload the spreadsheet. Please try again.';
+            $errors[] = $uploadErrors[$file['error']] ?? 'Failed to upload the workbook. Please try again.';
         } else {
             $extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
 
             if ($extension !== 'xlsx') {
-                $errors[] = 'Please upload an .xlsx workbook exported from Microsoft Excel.';
+                $errors[] = 'Please upload an .xlsx workbook exported from Excel.';
             } else {
                 try {
-                    $importResult = seedInventoryFromXlsx($db, $file['tmp_name'], $statuses);
+                    $analysis = analyzeEstimateRequirements($db, $file['tmp_name']);
                 } catch (\Throwable $exception) {
-                    $errors[] = 'Import failed: ' . $exception->getMessage();
+                    $errors[] = 'Unable to process the workbook: ' . $exception->getMessage();
                 }
             }
         }
@@ -90,7 +86,7 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title><?= e($app['name']) ?> · Data Seeding</title>
+  <title><?= e($app['name']) ?> · EZ Estimate Check</title>
   <link rel="stylesheet" href="../css/dashboard.css" />
 </head>
 <body>
@@ -122,11 +118,11 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
     </aside>
 
     <main class="content">
-      <section class="panel" aria-labelledby="import-title">
+      <section class="panel" aria-labelledby="estimate-title">
         <header class="panel-header">
           <div>
-            <h1 id="import-title">Seed Inventory from Excel</h1>
-            <p class="small">Load part masters, finish codes, and stocking targets in bulk.</p>
+            <h1 id="estimate-title">EZ Estimate Review</h1>
+            <p class="small">Upload a job takeoff to see what inventory can ship today.</p>
           </div>
         </header>
 
@@ -142,83 +138,95 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
           </div>
         <?php endforeach; ?>
 
-        <?php if ($importResult !== null && $errors === []): ?>
+        <?php if ($analysis !== null && $errors === []): ?>
           <div class="alert success" role="status">
-            <?= e(($uploadedName ?? 'Your workbook') . ' processed successfully.') ?>
+            <?= e(($uploadedName ?? 'Workbook') . ' analysed successfully.') ?>
           </div>
         <?php endif; ?>
 
-        <p>Use the importer to load existing catalogs without manual data entry. The spreadsheet should include headers for:</p>
-        <ul>
-          <li>Item, Part Number, Finish</li>
-          <li>Location, Stock, Reorder Point, Lead Time (days)</li>
-          <li>Supplier, Supplier Contact, Status</li>
-        </ul>
+        <p>Upload the EZ Estimate spreadsheet generated for a project. The tool reads the Accessories and Stock Lengths tabs and compares the requested quantities and finishes with current on-hand stock.</p>
 
         <form method="post" enctype="multipart/form-data" class="form" novalidate>
           <div class="field">
-            <label for="spreadsheet">Excel Workbook<span aria-hidden="true">*</span></label>
-            <input type="file" id="spreadsheet" name="spreadsheet" accept=".xlsx" required <?= $dbError !== null ? 'disabled' : '' ?> />
-            <p class="field-help">Accepted format: .xlsx (Excel 2007+). The first worksheet will be imported.</p>
+            <label for="estimate">EZ Estimate Workbook<span aria-hidden="true">*</span></label>
+            <input type="file" id="estimate" name="estimate" accept=".xlsx" required <?= $dbError !== null ? 'disabled' : '' ?> />
+            <p class="field-help">Accepted format: .xlsx. Pages checked: Accessories (1-3) and Stock Lengths (1-3).</p>
           </div>
 
           <div class="field submit">
-            <button type="submit" class="button primary" <?= $dbError !== null ? 'disabled' : '' ?>>Import Inventory</button>
+            <button type="submit" class="button primary" <?= $dbError !== null ? 'disabled' : '' ?>>Analyze Requirements</button>
           </div>
         </form>
 
-        <?php if ($importResult !== null): ?>
+        <?php if ($analysis !== null): ?>
           <div class="import-summary">
             <div class="summary-card">
-              <h3>Processed Rows</h3>
-              <strong><?= e((string) $importResult['processed']) ?></strong>
+              <h3>Lines Reviewed</h3>
+              <strong><?= e((string) $analysis['counts']['total']) ?></strong>
             </div>
             <div class="summary-card">
-              <h3>Inserted</h3>
-              <strong><?= e((string) $importResult['inserted']) ?></strong>
+              <h3>Ready to Fulfill</h3>
+              <strong><?= e((string) $analysis['counts']['available']) ?></strong>
             </div>
             <div class="summary-card">
-              <h3>Updated</h3>
-              <strong><?= e((string) $importResult['updated']) ?></strong>
+              <h3>Need Attention</h3>
+              <strong><?= e((string) $analysis['counts']['short']) ?></strong>
             </div>
             <div class="summary-card">
-              <h3>Skipped</h3>
-              <strong><?= e((string) $importResult['skipped']) ?></strong>
+              <h3>Missing Items</h3>
+              <strong><?= e((string) $analysis['counts']['missing']) ?></strong>
             </div>
           </div>
 
-          <?php if ($importResult['messages'] !== []): ?>
+          <?php if ($analysis['messages'] !== []): ?>
             <ul class="message-list">
-              <?php foreach ($importResult['messages'] as $message): ?>
+              <?php foreach ($analysis['messages'] as $message): ?>
                 <li data-type="<?= e($message['type']) ?>"><?= e($message['text']) ?></li>
               <?php endforeach; ?>
             </ul>
           <?php endif; ?>
 
-          <?php if ($importResult['preview'] !== []): ?>
-            <table class="preview-table" aria-label="Imported rows preview">
+          <div class="table-wrapper">
+            <table class="table" aria-label="EZ Estimate comparison results">
               <thead>
                 <tr>
-                  <th scope="col">Row</th>
-                  <th scope="col">Item</th>
+                  <th scope="col">Part Number</th>
+                  <th scope="col">Finish</th>
                   <th scope="col">SKU</th>
+                  <th scope="col">Required Qty</th>
+                  <th scope="col">Available Qty</th>
+                  <th scope="col">Shortfall</th>
                   <th scope="col">Status</th>
-                  <th scope="col">Action</th>
                 </tr>
               </thead>
               <tbody>
-                <?php foreach ($importResult['preview'] as $entry): ?>
+                <?php if ($analysis['items'] === []): ?>
                   <tr>
-                    <td><?= e((string) $entry['row']) ?></td>
-                    <td><?= e($entry['item']) ?></td>
-                    <td><?= e($entry['sku']) ?></td>
-                    <td><?= e($entry['status']) ?></td>
-                    <td><?= e($entry['action']) ?></td>
+                    <td colspan="7" class="small">No material requests were found in the provided ranges.</td>
                   </tr>
-                <?php endforeach; ?>
+                <?php else: ?>
+                  <?php foreach ($analysis['items'] as $item): ?>
+                    <?php
+                    $finishLabel = $item['finish'] !== null ? $item['finish'] : '—';
+                    $available = $item['available'];
+                    $statusLabel = ucfirst($item['status']);
+                    ?>
+                    <tr>
+                      <td><?= e($item['part_number']) ?></td>
+                      <td><?= e($finishLabel) ?></td>
+                      <td><?= e($item['sku'] ?? '—') ?></td>
+                      <td><?= e((string) $item['required']) ?></td>
+                      <td><?= e($available !== null ? (string) $available : '—') ?></td>
+                      <td><?= e((string) $item['shortfall']) ?></td>
+                      <td>
+                        <span class="status" data-level="<?= e($statusLabel) ?>"><?= e($statusLabel) ?></span>
+                      </td>
+                    </tr>
+                  <?php endforeach; ?>
+                <?php endif; ?>
               </tbody>
             </table>
-          <?php endif; ?>
+          </div>
         <?php endif; ?>
       </section>
     </main>

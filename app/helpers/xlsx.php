@@ -4,32 +4,21 @@ declare(strict_types=1);
 
 if (!function_exists('xlsxReadRows')) {
     /**
-     * Read the first worksheet of an XLSX file and return the cell values as row arrays.
+     * Read a worksheet from an XLSX file and return the cell values as row arrays.
      *
      * @return list<list<string>>
      */
-    function xlsxReadRows(string $filePath): array
+    function xlsxReadRows(string $filePath, ?string $sheetName = null): array
     {
-        if (!is_file($filePath)) {
-            throw new \RuntimeException('Spreadsheet not found.');
-        }
-
-        $archive = new \ZipArchive();
-        if ($archive->open($filePath) !== true) {
-            throw new \RuntimeException('Unable to open XLSX archive.');
-        }
+        $archive = xlsxOpenArchive($filePath);
 
         try {
             $sharedStrings = xlsxReadSharedStrings($archive);
-            $sheetIndex = $archive->locateName('xl/worksheets/sheet1.xml');
+            $sheetPath = xlsxResolveSheetPath($archive, $sheetName);
+            $sheetXml = $archive->getFromName($sheetPath);
 
-            if ($sheetIndex === false) {
-                throw new \RuntimeException('The workbook is missing Sheet1.');
-            }
-
-            $sheetXml = $archive->getFromIndex($sheetIndex);
             if ($sheetXml === false) {
-                throw new \RuntimeException('Unable to read worksheet data.');
+                throw new \RuntimeException(sprintf('Unable to read worksheet "%s".', $sheetName ?? 'Sheet1'));
             }
 
             $sheet = simplexml_load_string($sheetXml);
@@ -49,7 +38,7 @@ if (!function_exists('xlsxReadRows')) {
 
                 foreach ($row->c as $cell) {
                     $reference = (string) ($cell['r'] ?? '');
-                    $column = preg_replace('/\d+/', '', $reference);
+                    [$column] = xlsxSplitCellReference($reference);
                     $index = xlsxColumnToIndex($column);
 
                     if ($index === null) {
@@ -72,6 +61,183 @@ if (!function_exists('xlsxReadRows')) {
         } finally {
             $archive->close();
         }
+    }
+
+    /**
+     * Extract a range of cells from a named worksheet.
+     *
+     * @return list<list<string>>
+     */
+    function xlsxReadRange(string $filePath, string $sheetName, string $startCell, string $endCell): array
+    {
+        $archive = xlsxOpenArchive($filePath);
+
+        try {
+            $sharedStrings = xlsxReadSharedStrings($archive);
+            $sheetPath = xlsxResolveSheetPath($archive, $sheetName);
+            $sheetXml = $archive->getFromName($sheetPath);
+
+            if ($sheetXml === false) {
+                throw new \RuntimeException(sprintf('Unable to read worksheet "%s".', $sheetName));
+            }
+
+            $sheet = simplexml_load_string($sheetXml);
+            if ($sheet === false || !isset($sheet->sheetData)) {
+                return [];
+            }
+
+            [$startColumn, $startRow] = xlsxSplitCellReference($startCell);
+            [$endColumn, $endRow] = xlsxSplitCellReference($endCell);
+
+            $startIndex = xlsxColumnToIndex($startColumn);
+            $endIndex = xlsxColumnToIndex($endColumn);
+
+            if ($startIndex === null || $endIndex === null) {
+                throw new \RuntimeException('Invalid column reference provided for range extraction.');
+            }
+
+            if ($startRow === 0 || $endRow === 0) {
+                throw new \RuntimeException('Invalid row reference provided for range extraction.');
+            }
+
+            if ($endRow < $startRow || $endIndex < $startIndex) {
+                return [];
+            }
+
+            $width = ($endIndex - $startIndex) + 1;
+            $rows = [];
+
+            foreach ($sheet->sheetData->row as $row) {
+                $rowNumber = isset($row['r']) ? (int) $row['r'] : null;
+
+                if ($rowNumber === null || $rowNumber < $startRow || $rowNumber > $endRow) {
+                    continue;
+                }
+
+                $columns = [];
+
+                foreach ($row->c as $cell) {
+                    $reference = (string) ($cell['r'] ?? '');
+                    [$column] = xlsxSplitCellReference($reference);
+                    $index = xlsxColumnToIndex($column);
+
+                    if ($index === null || $index < $startIndex || $index > $endIndex) {
+                        continue;
+                    }
+
+                    $columns[$index] = xlsxReadCell($cell, $sharedStrings);
+                }
+
+                $rowCells = [];
+                for ($i = $startIndex; $i <= $endIndex; $i++) {
+                    $rowCells[] = $columns[$i] ?? '';
+                }
+
+                $rows[$rowNumber] = $rowCells;
+            }
+
+            $output = [];
+            for ($rowNumber = $startRow; $rowNumber <= $endRow; $rowNumber++) {
+                $output[] = $rows[$rowNumber] ?? array_fill(0, $width, '');
+            }
+
+            return $output;
+        } finally {
+            $archive->close();
+        }
+    }
+
+    function xlsxOpenArchive(string $filePath): \ZipArchive
+    {
+        if (!is_file($filePath)) {
+            throw new \RuntimeException('Spreadsheet not found.');
+        }
+
+        $archive = new \ZipArchive();
+        if ($archive->open($filePath) !== true) {
+            throw new \RuntimeException('Unable to open XLSX archive.');
+        }
+
+        return $archive;
+    }
+
+    function xlsxResolveSheetPath(\ZipArchive $archive, ?string $sheetName): string
+    {
+        if ($sheetName === null) {
+            return 'xl/worksheets/sheet1.xml';
+        }
+
+        $workbookIndex = $archive->locateName('xl/workbook.xml');
+
+        if ($workbookIndex === false) {
+            throw new \RuntimeException('Workbook manifest not found.');
+        }
+
+        $workbookXml = $archive->getFromIndex($workbookIndex);
+        if ($workbookXml === false) {
+            throw new \RuntimeException('Unable to read workbook manifest.');
+        }
+
+        $document = simplexml_load_string($workbookXml);
+        if ($document === false || !isset($document->sheets)) {
+            throw new \RuntimeException('Workbook manifest is malformed.');
+        }
+
+        $relationships = [];
+        $relsIndex = $archive->locateName('xl/_rels/workbook.xml.rels');
+        if ($relsIndex !== false) {
+            $relsXml = $archive->getFromIndex($relsIndex);
+            if ($relsXml !== false) {
+                $relsDocument = simplexml_load_string($relsXml);
+                if ($relsDocument !== false) {
+                    foreach ($relsDocument->Relationship as $relationship) {
+                        $id = (string) ($relationship['Id'] ?? '');
+                        $target = (string) ($relationship['Target'] ?? '');
+                        if ($id !== '' && $target !== '') {
+                            $relationships[$id] = $target;
+                        }
+                    }
+                }
+            }
+        }
+
+        foreach ($document->sheets->sheet as $sheet) {
+            $name = (string) ($sheet['name'] ?? '');
+            $relId = (string) ($sheet['r:id'] ?? '');
+
+            if (strcasecmp($name, $sheetName) !== 0) {
+                continue;
+            }
+
+            if ($relId === '' || !isset($relationships[$relId])) {
+                throw new \RuntimeException(sprintf('Worksheet "%s" is missing a relationship target.', $sheetName));
+            }
+
+            $target = $relationships[$relId];
+            $normalized = str_starts_with($target, 'xl/') ? $target : 'xl/' . ltrim($target, '/');
+
+            return $normalized;
+        }
+
+        throw new \RuntimeException(sprintf('Worksheet "%s" was not found in the workbook.', $sheetName));
+    }
+
+    /**
+     * @return array{0:string,1:int}
+     */
+    function xlsxSplitCellReference(string $reference): array
+    {
+        $reference = strtoupper(trim($reference));
+
+        if ($reference === '') {
+            return ['', 0];
+        }
+
+        if (!preg_match('/^([A-Z]+)(\d+)$/', $reference, $matches)) {
+            return ['', 0];
+        }
+
+        return [$matches[1], (int) $matches[2]];
     }
 
     /**

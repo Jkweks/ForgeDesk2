@@ -297,6 +297,10 @@ a{color:inherit;text-decoration:none}
   color:#d3d9e5;
 }
 
+.status[data-level="Available"]{background:rgba(90,200,166,.18);color:var(--accent);font-weight:600}
+.status[data-level="Short"]{background:rgba(255,179,71,.2);color:var(--warning)}
+.status[data-level="Missing"]{background:rgba(255,107,107,.2);color:var(--danger)}
+
 .status[data-level="Reorder"]{background:rgba(255,159,67,.2);color:var(--brand)}
 .status[data-level="Low"]{background:rgba(255,179,71,.2);color:var(--warning)}
 .status[data-level="Critical"]{background:rgba(255,107,107,.2);color:var(--danger)}

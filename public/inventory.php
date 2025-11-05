@@ -37,11 +37,12 @@ $inventory = [];
 $editingId = null;
 $statuses = ['In Stock', 'Low', 'Reorder', 'Critical', 'Discontinued'];
 
+$finishOptions = inventoryFinishOptions();
+
 $formData = [
     'item' => '',
     'part_number' => '',
-    'variant_primary' => '',
-    'variant_secondary' => '',
+    'finish' => '',
     'sku' => '',
     'location' => '',
     'stock' => '0',
@@ -72,8 +73,7 @@ if ($dbError === null) {
         $payload = [
             'item' => trim((string) ($_POST['item'] ?? '')),
             'part_number' => trim((string) ($_POST['part_number'] ?? '')),
-            'variant_primary' => trim((string) ($_POST['variant_primary'] ?? '')),
-            'variant_secondary' => trim((string) ($_POST['variant_secondary'] ?? '')),
+            'finish' => trim((string) ($_POST['finish'] ?? '')),
             'location' => trim((string) ($_POST['location'] ?? '')),
             'status' => trim((string) ($_POST['status'] ?? '')),
             'supplier' => trim((string) ($_POST['supplier'] ?? '')),
@@ -87,8 +87,7 @@ if ($dbError === null) {
         $formData = [
             'item' => $payload['item'],
             'part_number' => $payload['part_number'],
-            'variant_primary' => $payload['variant_primary'],
-            'variant_secondary' => $payload['variant_secondary'],
+            'finish' => $payload['finish'],
             'sku' => '',
             'location' => $payload['location'],
             'stock' => $stockRaw,
@@ -139,12 +138,15 @@ if ($dbError === null) {
         $payload['lead_time_days'] = $leadTimeDays === false ? 0 : $leadTimeDays;
         $payload['supplier_contact'] = $payload['supplier_contact'] !== '' ? $payload['supplier_contact'] : null;
 
-        $variantPrimary = $payload['variant_primary'] !== '' ? $payload['variant_primary'] : null;
-        $variantSecondary = $payload['variant_secondary'] !== '' ? $payload['variant_secondary'] : null;
+        $finishRaw = $payload['finish'];
+        $finish = $finishRaw !== '' ? inventoryNormalizeFinish($finishRaw) : null;
+        if ($finishRaw !== '' && $finish === null) {
+            $errors['finish'] = 'Choose a valid finish option.';
+        }
 
-        $payload['variant_primary'] = $variantPrimary;
-        $payload['variant_secondary'] = $variantSecondary;
-        $payload['sku'] = inventoryComposeSku($payload['part_number'], $variantPrimary, $variantSecondary);
+        $payload['finish'] = $finish;
+        $formData['finish'] = $finishRaw;
+        $payload['sku'] = inventoryComposeSku($payload['part_number'], $finish);
         $formData['sku'] = $payload['sku'];
 
         if ($action === 'update') {
@@ -189,8 +191,7 @@ if ($dbError === null) {
                     'item' => $existing['item'],
                     'sku' => $existing['sku'],
                     'part_number' => $existing['part_number'],
-                    'variant_primary' => $existing['variant_primary'] ?? '',
-                    'variant_secondary' => $existing['variant_secondary'] ?? '',
+                    'finish' => $existing['finish'] ?? '',
                     'location' => $existing['location'],
                     'stock' => (string) $existing['stock'],
                     'status' => $existing['status'],
@@ -201,8 +202,7 @@ if ($dbError === null) {
                 ];
                 $formData['sku'] = inventoryComposeSku(
                     $formData['part_number'],
-                    $existing['variant_primary'],
-                    $existing['variant_secondary']
+                    $existing['finish'] ?? null
                 );
             } else {
                 $successMessage = null;
@@ -226,8 +226,7 @@ if (isset($_GET['success'])) {
 if ($formData['sku'] === '' && $formData['part_number'] !== '') {
     $formData['sku'] = inventoryComposeSku(
         $formData['part_number'],
-        $formData['variant_primary'] !== '' ? $formData['variant_primary'] : null,
-        $formData['variant_secondary'] !== '' ? $formData['variant_secondary'] : null
+        $formData['finish'] !== '' ? $formData['finish'] : null
     );
 }
 
@@ -280,6 +279,7 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
           </div>
           <div class="header-actions">
             <a class="button secondary" href="cycle-count.php">Start cycle count</a>
+            <a class="button secondary" href="admin/estimate-check.php">Analyze EZ Estimate</a>
             <a class="button primary" href="inventory.php?modal=open">Add Inventory Item</a>
             <?php if ($editingId !== null): ?>
               <a class="button secondary" href="inventory.php">Exit edit</a>
@@ -311,7 +311,7 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
               <tr>
                 <th scope="col">Item</th>
                 <th scope="col">Part Number</th>
-                <th scope="col">Variants</th>
+                <th scope="col">Finish</th>
                 <th scope="col">SKU</th>
                 <th scope="col">Location</th>
                 <th scope="col">Stock</th>
@@ -333,7 +333,7 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
                   <tr>
                     <td><?= e($row['item']) ?></td>
                     <td><?= e($row['part_number']) ?></td>
-                    <td><?= e(inventoryFormatVariantCodes($row['variant_primary'], $row['variant_secondary'])) ?></td>
+                    <td><?= e(inventoryFormatFinish($row['finish'])) ?></td>
                     <td><?= e($row['sku']) ?></td>
                     <td><?= e($row['location']) ?></td>
                     <td><?= e((string) $row['stock']) ?></td>
@@ -363,8 +363,8 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
   $modalClasses = 'modal' . ($modalOpen ? ' open' : '');
   $modalTitle = $editingId === null ? 'Add Inventory Item' : 'Edit Inventory Item';
   $modalDescription = $editingId === null
-      ? 'Define the base part, variant codes, and stocking targets before onboarding data.'
-      : 'Update the part details, variant codes, and stocking targets for this item.';
+      ? 'Define the base part, finish, and stocking targets before onboarding data.'
+      : 'Update the part details, finish, and stocking targets for this item.';
   ?>
   <div id="inventory-modal" class="<?= e($modalClasses) ?>" role="dialog" aria-modal="true" aria-labelledby="inventory-modal-title" aria-hidden="<?= $modalOpen ? 'false' : 'true' ?>" data-close-url="inventory.php">
     <div class="modal-dialog">
@@ -398,23 +398,24 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
           <?php endif; ?>
         </div>
 
-        <div class="field-grid">
-          <div class="field">
-            <label for="variant_primary">Variant Code 1</label>
-            <input type="text" id="variant_primary" name="variant_primary" value="<?= e($formData['variant_primary']) ?>" />
-          </div>
-
-          <div class="field">
-            <label for="variant_secondary">Variant Code 2</label>
-            <input type="text" id="variant_secondary" name="variant_secondary" value="<?= e($formData['variant_secondary']) ?>" />
-            <p class="field-help">Leave these blank if the part has no finish, size, or color options.</p>
-          </div>
+        <div class="field">
+          <label for="finish">Finish</label>
+          <select id="finish" name="finish">
+            <option value="">No finish specified</option>
+            <?php foreach ($finishOptions as $option): ?>
+              <option value="<?= e($option) ?>"<?= strtoupper($formData['finish']) === $option ? ' selected' : '' ?>><?= e($option) ?></option>
+            <?php endforeach; ?>
+          </select>
+          <p class="field-help">Choose the finish code used when composing SKUs.</p>
+          <?php if (!empty($errors['finish'])): ?>
+            <p class="field-error"><?= e($errors['finish']) ?></p>
+          <?php endif; ?>
         </div>
 
         <div class="field">
           <label for="sku">Generated SKU</label>
           <input type="text" id="sku" name="sku" value="<?= e($formData['sku']) ?>" readonly />
-          <p class="field-help">The SKU is automatically built from the part number and variant codes.</p>
+          <p class="field-help">The SKU is automatically built from the part number and finish.</p>
           <?php if (!empty($errors['sku'])): ?>
             <p class="field-error"><?= e($errors['sku']) ?></p>
           <?php endif; ?>
