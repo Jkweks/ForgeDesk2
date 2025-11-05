@@ -1,0 +1,37 @@
+version: "3.9"
+
+services:
+  web:
+    build: .
+    ports:
+      - "8046:80"
+    environment:
+      APP_NAME: "ForgeDesk ERP"
+      APP_TAGLINE: "Inventory control for fabrication teams"
+      APP_USER_EMAIL: "inventory@forgedesk.io"
+      APP_USER_AVATAR: "FD"
+      APP_USER_NAME: "Inventory Lead"
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: forge_desk
+      DB_USERNAME: forge
+      DB_PASSWORD: forgepass
+    volumes:
+      - ./:/var/www/html
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: forge_desk
+      POSTGRES_USER: forge
+      POSTGRES_PASSWORD: forgepass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+
+volumes:
+  postgres_data:
