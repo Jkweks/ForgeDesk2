@@ -33,6 +33,36 @@ CREATE TABLE IF NOT EXISTS inventory_metrics (
     sort_order INTEGER NOT NULL DEFAULT 100
 );
 
+CREATE TABLE IF NOT EXISTS cycle_count_sessions (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'in_progress',
+    started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP NULL,
+    location_filter TEXT NULL,
+    total_lines INTEGER NOT NULL DEFAULT 0,
+    completed_lines INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS cycle_count_lines (
+    id SERIAL PRIMARY KEY,
+    session_id INTEGER NOT NULL REFERENCES cycle_count_sessions(id) ON DELETE CASCADE,
+    inventory_item_id INTEGER NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
+    sequence INTEGER NOT NULL,
+    expected_qty INTEGER NOT NULL DEFAULT 0,
+    counted_qty INTEGER NULL,
+    variance INTEGER NULL,
+    counted_at TIMESTAMP NULL,
+    note TEXT NULL,
+    UNIQUE(session_id, sequence)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cycle_count_lines_session_sequence
+    ON cycle_count_lines (session_id, sequence);
+
+CREATE INDEX IF NOT EXISTS idx_cycle_count_lines_inventory
+    ON cycle_count_lines (inventory_item_id);
+
 INSERT INTO inventory_items (item, sku, part_number, variant_primary, variant_secondary, location, stock, status, supplier, supplier_contact, reorder_point, lead_time_days) VALUES
     ('Aluminum Stile - 2"', 'AL-ST-02', 'AL', 'ST', '02', 'Aisle 1 / Bin 4', 86, 'In Stock', 'DoorCraft Metals', 'sales@doorcraftmetals.com', 40, 7),
     ('Tempered Glass Panel 36x84', 'GL-3684-T', 'GL', '3684', 'T', 'Aisle 3 / Rack 2', 24, 'Reorder', 'ClearView Glass', 'orders@clearviewglass.com', 30, 14),

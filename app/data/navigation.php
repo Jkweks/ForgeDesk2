@@ -6,6 +6,7 @@ return [
     ],
     'Inventory' => [
         ['icon' => 'edit', 'label' => 'Manage Inventory', 'href' => '/inventory.php'],
+        ['icon' => 'checklist', 'label' => 'Cycle Counts', 'href' => '/cycle-count.php'],
         ['icon' => 'box', 'label' => 'Stock Levels'],
         ['icon' => 'layers', 'label' => 'Kitting'],
         ['icon' => 'tag', 'label' => 'Suppliers'],
