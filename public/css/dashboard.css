@@ -447,6 +447,12 @@ a{color:inherit;text-decoration:none}
   margin:0 0 18px;
 }
 
+.modal-header-actions{
+  display:flex;
+  align-items:center;
+  gap:14px;
+}
+
 .modal header h2{margin:0;font-size:1.2rem}
 .modal header p{margin:4px 0 0;font-size:.85rem;color:var(--muted)}
 

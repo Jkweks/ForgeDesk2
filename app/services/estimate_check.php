@@ -20,15 +20,39 @@ if (!function_exists('analyzeEstimateRequirements')) {
 
         // ---- helpers -------------------------------------------------------
 
-        // normalize header text (e.g., " Part # " -> "part #")
-        $norm = static function (?string $s): string {
-            $s = strtolower(trim((string)$s));
-            $s = preg_replace('/\s+/', ' ', $s ?? '');
-            return $s ?? '';
+        $findHeaderIndex = static function (array $map, array $candidates): ?int {
+            foreach ($map as $index => $value) {
+                $normalized = strtolower(trim((string) $value));
+                $normalized = (string) preg_replace('/\s+/', ' ', $normalized);
+
+                foreach ($candidates as $candidate) {
+                    if ($normalized === $candidate) {
+                        return $index;
+                    }
+
+                    if ($candidate === 'part' && str_contains($normalized, 'part')) {
+                        return $index;
+                    }
+
+                    if ($candidate === 'qty' && ($normalized === 'qty' || $normalized === 'quantity')) {
+                        return $index;
+                    }
+
+                    if ($candidate === 'finish' && str_contains($normalized, 'finish')) {
+                        return $index;
+                    }
+
+                    if ($candidate === 'color' && str_contains($normalized, 'color')) {
+                        return $index;
+                    }
+                }
+            }
+
+            return null;
         };
 
         // try to find header row + column indexes for qty/part/finish
-        $findTable = static function(array $rows): ?array {
+        $findTable = static function(array $rows) use ($findHeaderIndex): ?array {
             // scan first 20 rows for headers
             $headerRowIndex = null;
             $idxQty = $idxPart = $idxFinish = null;
@@ -42,13 +66,13 @@ if (!function_exists('analyzeEstimateRequirements')) {
 
                 $map = [];
                 foreach ($row as $c => $val) {
-                    $map[$c] = strtolower(trim((string)$val));
+                    $map[$c] = strtolower(trim((string) $val));
                 }
 
                 // candidates with common variants
-                $cQty    = self::findHeaderIndex($map, ['qty', 'quantity']);
-                $cPart   = self::findHeaderIndex($map, ['part #', 'part#', 'part no', 'part', 'item']);
-                $cFinish = self::findHeaderIndex($map, ['finish', 'color']); // accept color as finish fallback
+                $cQty    = $findHeaderIndex($map, ['qty', 'quantity']);
+                $cPart   = $findHeaderIndex($map, ['part #', 'part#', 'part no', 'part', 'item']);
+                $cFinish = $findHeaderIndex($map, ['finish', 'color']); // accept color as finish fallback
 
                 if ($cQty !== null && $cPart !== null) {
                     $headerRowIndex = $r;
@@ -70,26 +94,6 @@ if (!function_exists('analyzeEstimateRequirements')) {
                 'finishCol' => $idxFinish,
             ];
         };
-
-        // static method holder to keep the closure above clean
-        if (!method_exists(__CLASS__, 'findHeaderIndex')) {
-            class_alias(get_class(new class {
-                public static function findHeaderIndex(array $map, array $candidates): ?int {
-                    foreach ($map as $i => $v) {
-                        $vv = strtolower(trim((string)$v));
-                        foreach ($candidates as $cand) {
-                            // loose match: allow #, spaces, punctuation wiggle
-                            if ($vv === $cand) return $i;
-                            if ($cand === 'part' && str_contains($vv, 'part')) return $i;
-                            if ($cand === 'qty' && ($vv === 'qty' || $vv === 'quantity')) return $i;
-                            if ($cand === 'finish' && str_contains($vv, 'finish')) return $i;
-                            if ($cand === 'color' && str_contains($vv, 'color')) return $i;
-                        }
-                    }
-                    return null;
-                }
-            }), __CLASS__);
-        }
 
         // Read a broad range and return rows (arrays of scalar cell values)
         $readBroad = static function(string $file, string $sheet): array {
