@@ -14,6 +14,7 @@ database/
 public/
   css/            Styles extracted from the original single-file template.
   index.php       Entry point that composes the dashboard from modular pieces.
+  inventory.php   CRUD workspace for managing inventory parts and suppliers.
 Dockerfile        PHP Apache image with PDO_PGSQL support.
 docker-compose.yml  Two-service stack (PHP + PostgreSQL) for local development.
 ```
@@ -28,7 +29,10 @@ docker-compose.yml  Two-service stack (PHP + PostgreSQL) for local development.
    docker compose up --build
    ```
 
-4. Visit [http://localhost:8080](http://localhost:8080) to view the dashboard. The PostgreSQL service is exposed on port `5432` with default credentials (`forge` / `forgepass`).
+4. Visit [http://localhost:8046](http://localhost:8046) to view the dashboard. The PostgreSQL service is exposed on port `5432` with default credentials (`forge` / `forgepass`).
+
+   - The dashboard summary lives at `/index.php`.
+   - The inventory management workspace (view, insert, and edit) lives at `/inventory.php`.
 
 The `database/init.sql` script seeds sample inventory items and metrics. You can modify this file or connect with your preferred SQL client to adjust values in real time.
 
@@ -44,5 +48,5 @@ Key variables:
 ## Next steps
 
 * Expand the schema with work order and assembly tables to power the roadmap modules.
-* Introduce CRUD interfaces for inventory adjustments and supplier collaboration.
+* Extend the inventory workspace with delete/bulk adjustments and supplier collaboration tools.
 * Add authentication and audit trails to support production deployments.

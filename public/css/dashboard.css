@@ -277,6 +277,15 @@ a{color:inherit;text-decoration:none}
   padding:14px 0;
 }
 
+.table tbody td.actions{
+  text-align:right;
+}
+
+.table tbody td.actions .button{
+  padding:6px 12px;
+  font-size:.85rem;
+}
+
 .status{
   display:inline-flex;
   align-items:center;
@@ -307,6 +316,138 @@ a{color:inherit;text-decoration:none}
 
 .roadmap-card h3{margin:0 0 12px;font-size:1.05rem}
 .roadmap-card p{margin:0;color:var(--muted);font-size:.9rem}
+
+.panel-header .header-actions{display:flex;align-items:center;gap:12px}
+
+.button{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  padding:10px 16px;
+  border-radius:10px;
+  font-weight:600;
+  border:1px solid transparent;
+  cursor:pointer;
+  transition:background .2s ease,transform .2s ease,border .2s ease,color .2s ease;
+}
+
+.button.primary{
+  background:linear-gradient(180deg,#ffb14a,#ff8b25);
+  color:#2d1a08;
+  border-color:rgba(255,139,37,.4);
+}
+
+.button.primary:hover{
+  transform:translateY(-1px);
+  box-shadow:0 8px 16px rgba(255,139,37,.25);
+}
+
+.button.secondary{
+  background:transparent;
+  color:var(--muted);
+  border-color:rgba(255,255,255,.12);
+}
+
+.button.secondary:hover{
+  border-color:rgba(255,255,255,.24);
+  color:var(--text);
+}
+
+.button.ghost{
+  background:transparent;
+  color:var(--muted);
+  border-color:rgba(255,255,255,.1);
+}
+
+.button.ghost:hover{
+  color:var(--text);
+  border-color:rgba(255,255,255,.18);
+}
+
+.button:focus-visible{
+  outline:2px solid var(--brand);
+  outline-offset:2px;
+}
+
+.inventory-grid{
+  display:grid;
+  grid-template-columns:2fr minmax(320px,360px);
+  gap:var(--gap);
+  align-items:start;
+}
+
+.form-card{
+  background:var(--panel-3);
+  border-radius:var(--radius);
+  padding:22px;
+  box-shadow:var(--shadow);
+}
+
+.form-card h2{margin-top:0;margin-bottom:18px;font-size:1.15rem}
+
+.form{
+  display:grid;
+  gap:16px;
+}
+
+.field{display:flex;flex-direction:column;gap:6px}
+.field label{font-weight:600;font-size:.9rem;color:var(--muted)}
+.field input,.field select{
+  background:var(--panel);
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:10px;
+  padding:10px 12px;
+  color:var(--text);
+  font:inherit;
+}
+
+.field input:focus,.field select:focus{
+  outline:2px solid var(--brand);
+  outline-offset:2px;
+}
+
+.field-grid{
+  display:grid;
+  gap:var(--gap);
+  grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+}
+
+.field-error{
+  margin:0;
+  font-size:.8rem;
+  color:var(--danger);
+}
+
+.field.submit{margin-top:8px}
+
+.alert{
+  padding:12px 16px;
+  border-radius:12px;
+  margin-bottom:16px;
+  font-size:.9rem;
+  display:flex;
+  gap:8px;
+  align-items:center;
+}
+
+.alert.success{
+  background:rgba(90,200,166,.12);
+  color:var(--accent);
+  border:1px solid rgba(90,200,166,.35);
+}
+
+.alert.error{
+  background:rgba(255,107,107,.12);
+  color:var(--danger);
+  border:1px solid rgba(255,107,107,.35);
+}
+
+.alert strong{font-weight:700}
+
+@media (max-width:1200px){
+  .inventory-grid{grid-template-columns:1fr}
+}
 
 @media (max-width:960px){
   .layout{
