@@ -16,5 +16,6 @@ return [
     ],
     'System' => [
         ['icon' => 'database', 'label' => 'Database Health', 'badge' => 'beta'],
+        ['icon' => 'upload', 'label' => 'Data Seeding', 'href' => '/admin/import.php'],
     ],
 ];

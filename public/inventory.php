@@ -230,6 +230,10 @@ if ($formData['sku'] === '' && $formData['part_number'] !== '') {
         $formData['variant_secondary'] !== '' ? $formData['variant_secondary'] : null
     );
 }
+
+$modalRequested = isset($_GET['modal']) && $_GET['modal'] === 'open';
+$modalOpen = $modalRequested || $editingId !== null || ($errors !== [] && $_SERVER['REQUEST_METHOD'] === 'POST');
+$bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
 ?>
 <!doctype html>
 <html lang="en">
@@ -239,7 +243,7 @@ if ($formData['sku'] === '' && $formData['part_number'] !== '') {
   <title><?= e($app['name']) ?> Inventory Manager</title>
   <link rel="stylesheet" href="css/dashboard.css" />
 </head>
-<body>
+<body<?= $bodyAttributes ?>>
   <div class="layout">
     <aside class="sidebar">
       <div class="brand">
@@ -275,8 +279,9 @@ if ($formData['sku'] === '' && $formData['part_number'] !== '') {
             <p class="small">Track suppliers, lead times, and stock levels in one place.</p>
           </div>
           <div class="header-actions">
+            <a class="button primary" href="inventory.php?modal=open">Add Inventory Item</a>
             <?php if ($editingId !== null): ?>
-              <a class="button secondary" href="inventory.php">Clear selection</a>
+              <a class="button secondary" href="inventory.php">Exit edit</a>
             <?php endif; ?>
           </div>
         </header>
@@ -299,171 +304,234 @@ if ($formData['sku'] === '' && $formData['part_number'] !== '') {
           </div>
         <?php endif; ?>
 
-        <div class="inventory-grid">
-          <div class="table-wrapper">
-            <table class="table">
-              <thead>
+        <div class="table-wrapper">
+          <table class="table">
+            <thead>
+              <tr>
+                <th scope="col">Item</th>
+                <th scope="col">Part Number</th>
+                <th scope="col">Variants</th>
+                <th scope="col">SKU</th>
+                <th scope="col">Location</th>
+                <th scope="col">Stock</th>
+                <th scope="col">Reorder Point</th>
+                <th scope="col">Supplier</th>
+                <th scope="col">Contact</th>
+                <th scope="col">Lead Time (days)</th>
+                <th scope="col">Status</th>
+                <th scope="col" class="actions">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php if ($inventory === []): ?>
                 <tr>
-                  <th scope="col">Item</th>
-                  <th scope="col">Part Number</th>
-                  <th scope="col">Variants</th>
-                  <th scope="col">SKU</th>
-                  <th scope="col">Location</th>
-                  <th scope="col">Stock</th>
-                  <th scope="col">Reorder Point</th>
-                  <th scope="col">Supplier</th>
-                  <th scope="col">Contact</th>
-                  <th scope="col">Lead Time (days)</th>
-                  <th scope="col">Status</th>
-                  <th scope="col" class="actions">Actions</th>
+                  <td colspan="12" class="small">No inventory items found. Use the button above to add your first part.</td>
                 </tr>
-              </thead>
-              <tbody>
-                <?php if ($inventory === []): ?>
+              <?php else: ?>
+                <?php foreach ($inventory as $row): ?>
                   <tr>
-                    <td colspan="12" class="small">No inventory items found. Use the form to create a part.</td>
+                    <td><?= e($row['item']) ?></td>
+                    <td><?= e($row['part_number']) ?></td>
+                    <td><?= e(inventoryFormatVariantCodes($row['variant_primary'], $row['variant_secondary'])) ?></td>
+                    <td><?= e($row['sku']) ?></td>
+                    <td><?= e($row['location']) ?></td>
+                    <td><?= e((string) $row['stock']) ?></td>
+                    <td><?= e((string) $row['reorder_point']) ?></td>
+                    <td><?= e($row['supplier']) ?></td>
+                    <td><?= e($row['supplier_contact'] ?? '—') ?></td>
+                    <td><?= e((string) $row['lead_time_days']) ?></td>
+                    <td>
+                      <span class="status" data-level="<?= e($row['status']) ?>">
+                        <?= e($row['status']) ?>
+                      </span>
+                    </td>
+                    <td class="actions">
+                      <a class="button ghost" href="inventory.php?id=<?= e((string) $row['id']) ?>">Edit</a>
+                    </td>
                   </tr>
-                <?php else: ?>
-                  <?php foreach ($inventory as $row): ?>
-                    <tr>
-                      <td><?= e($row['item']) ?></td>
-                      <td><?= e($row['part_number']) ?></td>
-                      <td><?= e(inventoryFormatVariantCodes($row['variant_primary'], $row['variant_secondary'])) ?></td>
-                      <td><?= e($row['sku']) ?></td>
-                      <td><?= e($row['location']) ?></td>
-                      <td><?= e((string) $row['stock']) ?></td>
-                      <td><?= e((string) $row['reorder_point']) ?></td>
-                      <td><?= e($row['supplier']) ?></td>
-                      <td><?= e($row['supplier_contact'] ?? '—') ?></td>
-                      <td><?= e((string) $row['lead_time_days']) ?></td>
-                      <td>
-                        <span class="status" data-level="<?= e($row['status']) ?>">
-                          <?= e($row['status']) ?>
-                        </span>
-                      </td>
-                      <td class="actions">
-                        <a class="button ghost" href="inventory.php?id=<?= e((string) $row['id']) ?>">Edit</a>
-                      </td>
-                    </tr>
-                  <?php endforeach; ?>
-                <?php endif; ?>
-              </tbody>
-            </table>
-          </div>
-
-          <div class="form-card">
-            <h2><?= $editingId === null ? 'Add Inventory Item' : 'Edit Inventory Item' ?></h2>
-            <form method="post" class="form" novalidate>
-              <input type="hidden" name="action" value="<?= $editingId === null ? 'create' : 'update' ?>" />
-              <?php if ($editingId !== null): ?>
-                <input type="hidden" name="id" value="<?= e((string) $editingId) ?>" />
+                <?php endforeach; ?>
               <?php endif; ?>
-
-              <div class="field">
-                <label for="item">Item<span aria-hidden="true">*</span></label>
-                <input type="text" id="item" name="item" value="<?= e($formData['item']) ?>" required />
-                <?php if (!empty($errors['item'])): ?>
-                  <p class="field-error"><?= e($errors['item']) ?></p>
-                <?php endif; ?>
-              </div>
-
-              <div class="field">
-                <label for="part_number">Part Number<span aria-hidden="true">*</span></label>
-                <input type="text" id="part_number" name="part_number" value="<?= e($formData['part_number']) ?>" required />
-                <?php if (!empty($errors['part_number'])): ?>
-                  <p class="field-error"><?= e($errors['part_number']) ?></p>
-                <?php endif; ?>
-              </div>
-
-              <div class="field-grid">
-                <div class="field">
-                  <label for="variant_primary">Variant Code 1</label>
-                  <input type="text" id="variant_primary" name="variant_primary" value="<?= e($formData['variant_primary']) ?>" />
-                </div>
-
-                <div class="field">
-                  <label for="variant_secondary">Variant Code 2</label>
-                  <input type="text" id="variant_secondary" name="variant_secondary" value="<?= e($formData['variant_secondary']) ?>" />
-                  <p class="field-help">Leave variant codes blank if the part has no finish, size, or color options.</p>
-                </div>
-              </div>
-
-              <div class="field">
-                <label for="sku">Generated SKU</label>
-                <input type="text" id="sku" name="sku" value="<?= e($formData['sku']) ?>" readonly />
-                <p class="field-help">SKU is automatically built from the part number and variant codes.</p>
-                <?php if (!empty($errors['sku'])): ?>
-                  <p class="field-error"><?= e($errors['sku']) ?></p>
-                <?php endif; ?>
-              </div>
-
-              <div class="field">
-                <label for="location">Location<span aria-hidden="true">*</span></label>
-                <input type="text" id="location" name="location" value="<?= e($formData['location']) ?>" required />
-                <?php if (!empty($errors['location'])): ?>
-                  <p class="field-error"><?= e($errors['location']) ?></p>
-                <?php endif; ?>
-              </div>
-
-              <div class="field">
-                <label for="supplier">Supplier<span aria-hidden="true">*</span></label>
-                <input type="text" id="supplier" name="supplier" value="<?= e($formData['supplier']) ?>" required />
-                <?php if (!empty($errors['supplier'])): ?>
-                  <p class="field-error"><?= e($errors['supplier']) ?></p>
-                <?php endif; ?>
-              </div>
-
-              <div class="field">
-                <label for="supplier_contact">Supplier Contact</label>
-                <input type="email" id="supplier_contact" name="supplier_contact" value="<?= e($formData['supplier_contact']) ?>" />
-              </div>
-
-              <div class="field-grid">
-                <div class="field">
-                  <label for="stock">Stock<span aria-hidden="true">*</span></label>
-                  <input type="number" id="stock" name="stock" min="0" value="<?= e($formData['stock']) ?>" required />
-                  <?php if (!empty($errors['stock'])): ?>
-                    <p class="field-error"><?= e($errors['stock']) ?></p>
-                  <?php endif; ?>
-                </div>
-
-                <div class="field">
-                  <label for="reorder_point">Reorder Point<span aria-hidden="true">*</span></label>
-                  <input type="number" id="reorder_point" name="reorder_point" min="0" value="<?= e($formData['reorder_point']) ?>" required />
-                  <?php if (!empty($errors['reorder_point'])): ?>
-                    <p class="field-error"><?= e($errors['reorder_point']) ?></p>
-                  <?php endif; ?>
-                </div>
-
-                <div class="field">
-                  <label for="lead_time_days">Lead Time (days)<span aria-hidden="true">*</span></label>
-                  <input type="number" id="lead_time_days" name="lead_time_days" min="0" value="<?= e($formData['lead_time_days']) ?>" required />
-                  <?php if (!empty($errors['lead_time_days'])): ?>
-                    <p class="field-error"><?= e($errors['lead_time_days']) ?></p>
-                  <?php endif; ?>
-                </div>
-              </div>
-
-              <div class="field">
-                <label for="status">Status<span aria-hidden="true">*</span></label>
-                <select id="status" name="status" required>
-                  <?php foreach ($statuses as $status): ?>
-                    <option value="<?= e($status) ?>"<?= $formData['status'] === $status ? ' selected' : '' ?>><?= e($status) ?></option>
-                  <?php endforeach; ?>
-                </select>
-                <?php if (!empty($errors['status'])): ?>
-                  <p class="field-error"><?= e($errors['status']) ?></p>
-                <?php endif; ?>
-              </div>
-
-              <div class="field submit">
-                <button type="submit" class="button primary"><?= $editingId === null ? 'Create Item' : 'Update Item' ?></button>
-              </div>
-            </form>
-          </div>
+            </tbody>
+          </table>
         </div>
       </section>
     </main>
   </div>
+
+  <?php
+  $modalClasses = 'modal' . ($modalOpen ? ' open' : '');
+  $modalTitle = $editingId === null ? 'Add Inventory Item' : 'Edit Inventory Item';
+  $modalDescription = $editingId === null
+      ? 'Define the base part, variant codes, and stocking targets before onboarding data.'
+      : 'Update the part details, variant codes, and stocking targets for this item.';
+  ?>
+  <div id="inventory-modal" class="<?= e($modalClasses) ?>" role="dialog" aria-modal="true" aria-labelledby="inventory-modal-title" aria-hidden="<?= $modalOpen ? 'false' : 'true' ?>" data-close-url="inventory.php">
+    <div class="modal-dialog">
+      <header>
+        <div>
+          <h2 id="inventory-modal-title"><?= e($modalTitle) ?></h2>
+          <p><?= e($modalDescription) ?></p>
+        </div>
+        <a class="modal-close" href="inventory.php" aria-label="Close inventory form">&times;</a>
+      </header>
+
+      <form method="post" class="form" novalidate>
+        <input type="hidden" name="action" value="<?= $editingId === null ? 'create' : 'update' ?>" />
+        <?php if ($editingId !== null): ?>
+          <input type="hidden" name="id" value="<?= e((string) $editingId) ?>" />
+        <?php endif; ?>
+
+        <div class="field">
+          <label for="item">Item<span aria-hidden="true">*</span></label>
+          <input type="text" id="item" name="item" value="<?= e($formData['item']) ?>" required data-modal-focus="true" />
+          <?php if (!empty($errors['item'])): ?>
+            <p class="field-error"><?= e($errors['item']) ?></p>
+          <?php endif; ?>
+        </div>
+
+        <div class="field">
+          <label for="part_number">Part Number<span aria-hidden="true">*</span></label>
+          <input type="text" id="part_number" name="part_number" value="<?= e($formData['part_number']) ?>" required />
+          <?php if (!empty($errors['part_number'])): ?>
+            <p class="field-error"><?= e($errors['part_number']) ?></p>
+          <?php endif; ?>
+        </div>
+
+        <div class="field-grid">
+          <div class="field">
+            <label for="variant_primary">Variant Code 1</label>
+            <input type="text" id="variant_primary" name="variant_primary" value="<?= e($formData['variant_primary']) ?>" />
+          </div>
+
+          <div class="field">
+            <label for="variant_secondary">Variant Code 2</label>
+            <input type="text" id="variant_secondary" name="variant_secondary" value="<?= e($formData['variant_secondary']) ?>" />
+            <p class="field-help">Leave these blank if the part has no finish, size, or color options.</p>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="sku">Generated SKU</label>
+          <input type="text" id="sku" name="sku" value="<?= e($formData['sku']) ?>" readonly />
+          <p class="field-help">The SKU is automatically built from the part number and variant codes.</p>
+          <?php if (!empty($errors['sku'])): ?>
+            <p class="field-error"><?= e($errors['sku']) ?></p>
+          <?php endif; ?>
+        </div>
+
+        <div class="field">
+          <label for="location">Location<span aria-hidden="true">*</span></label>
+          <input type="text" id="location" name="location" value="<?= e($formData['location']) ?>" required />
+          <?php if (!empty($errors['location'])): ?>
+            <p class="field-error"><?= e($errors['location']) ?></p>
+          <?php endif; ?>
+        </div>
+
+        <div class="field">
+          <label for="supplier">Supplier<span aria-hidden="true">*</span></label>
+          <input type="text" id="supplier" name="supplier" value="<?= e($formData['supplier']) ?>" required />
+          <?php if (!empty($errors['supplier'])): ?>
+            <p class="field-error"><?= e($errors['supplier']) ?></p>
+          <?php endif; ?>
+        </div>
+
+        <div class="field">
+          <label for="supplier_contact">Supplier Contact</label>
+          <input type="email" id="supplier_contact" name="supplier_contact" value="<?= e($formData['supplier_contact']) ?>" />
+        </div>
+
+        <div class="field-grid">
+          <div class="field">
+            <label for="stock">Stock<span aria-hidden="true">*</span></label>
+            <input type="number" id="stock" name="stock" min="0" value="<?= e($formData['stock']) ?>" required />
+            <?php if (!empty($errors['stock'])): ?>
+              <p class="field-error"><?= e($errors['stock']) ?></p>
+            <?php endif; ?>
+          </div>
+
+          <div class="field">
+            <label for="reorder_point">Reorder Point<span aria-hidden="true">*</span></label>
+            <input type="number" id="reorder_point" name="reorder_point" min="0" value="<?= e($formData['reorder_point']) ?>" required />
+            <?php if (!empty($errors['reorder_point'])): ?>
+              <p class="field-error"><?= e($errors['reorder_point']) ?></p>
+            <?php endif; ?>
+          </div>
+
+          <div class="field">
+            <label for="lead_time_days">Lead Time (days)<span aria-hidden="true">*</span></label>
+            <input type="number" id="lead_time_days" name="lead_time_days" min="0" value="<?= e($formData['lead_time_days']) ?>" required />
+            <?php if (!empty($errors['lead_time_days'])): ?>
+              <p class="field-error"><?= e($errors['lead_time_days']) ?></p>
+            <?php endif; ?>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="status">Status<span aria-hidden="true">*</span></label>
+          <select id="status" name="status" required>
+            <?php foreach ($statuses as $status): ?>
+              <option value="<?= e($status) ?>"<?= $formData['status'] === $status ? ' selected' : '' ?>><?= e($status) ?></option>
+            <?php endforeach; ?>
+          </select>
+          <?php if (!empty($errors['status'])): ?>
+            <p class="field-error"><?= e($errors['status']) ?></p>
+          <?php endif; ?>
+        </div>
+
+        <footer>
+          <a class="button secondary" href="inventory.php">Cancel</a>
+          <button type="submit" class="button primary"><?= $editingId === null ? 'Create Item' : 'Update Item' ?></button>
+        </footer>
+      </form>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    const modal = document.getElementById('inventory-modal');
+    if (!modal) {
+      return;
+    }
+
+    const body = document.body;
+    const closeUrl = modal.getAttribute('data-close-url') || 'inventory.php';
+    const closeModal = () => {
+      window.location.href = closeUrl;
+    };
+
+    if (modal.classList.contains('open')) {
+      modal.setAttribute('aria-hidden', 'false');
+      if (!body.classList.contains('modal-open')) {
+        body.classList.add('modal-open');
+      }
+      const focusTarget = modal.querySelector('[data-modal-focus]');
+      if (focusTarget instanceof HTMLElement) {
+        window.requestAnimationFrame(() => focusTarget.focus());
+      }
+    } else {
+      modal.setAttribute('aria-hidden', 'true');
+    }
+
+    const closeButton = modal.querySelector('.modal-close');
+    if (closeButton) {
+      closeButton.addEventListener('click', function (event) {
+        event.preventDefault();
+        closeModal();
+      });
+    }
+
+    modal.addEventListener('click', function (event) {
+      if (event.target === modal) {
+        closeModal();
+      }
+    });
+
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape' && modal.classList.contains('open')) {
+        closeModal();
+      }
+    });
+  })();
+  </script>
 </body>
 </html>

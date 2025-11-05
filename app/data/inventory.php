@@ -258,6 +258,43 @@ if (!function_exists('loadInventory')) {
     }
 
     /**
+     * Retrieve an inventory item by SKU.
+     *
+     * @return array{item:string,sku:string,part_number:string,variant_primary:?string,variant_secondary:?string,location:string,stock:int,status:string,supplier:string,supplier_contact:?string,reorder_point:int,lead_time_days:int,id:int}|null
+     */
+    function findInventoryItemBySku(\PDO $db, string $sku): ?array
+    {
+        ensureInventorySchema($db);
+
+        $statement = $db->prepare('SELECT id, item, sku, part_number, variant_primary, variant_secondary, location, stock, status, supplier, supplier_contact, reorder_point, lead_time_days FROM inventory_items WHERE sku = :sku LIMIT 1');
+        $statement->bindValue(':sku', $sku, \PDO::PARAM_STR);
+        $statement->execute();
+
+        /** @var array<string,mixed>|false $row */
+        $row = $statement->fetch();
+
+        if ($row === false) {
+            return null;
+        }
+
+        return [
+            'id' => (int) $row['id'],
+            'item' => (string) $row['item'],
+            'sku' => (string) $row['sku'],
+            'part_number' => (string) $row['part_number'],
+            'variant_primary' => $row['variant_primary'] !== null ? (string) $row['variant_primary'] : null,
+            'variant_secondary' => $row['variant_secondary'] !== null ? (string) $row['variant_secondary'] : null,
+            'location' => (string) $row['location'],
+            'stock' => (int) $row['stock'],
+            'status' => (string) $row['status'],
+            'supplier' => (string) $row['supplier'],
+            'supplier_contact' => $row['supplier_contact'] !== null ? (string) $row['supplier_contact'] : null,
+            'reorder_point' => (int) $row['reorder_point'],
+            'lead_time_days' => (int) $row['lead_time_days'],
+        ];
+    }
+
+    /**
      * Insert a new inventory item.
      *
      * @param array{item:string,sku:string,part_number:string,variant_primary:?string,variant_secondary:?string,location:string,stock:int,status:string,supplier:string,supplier_contact:?string,reorder_point:int,lead_time_days:int} $payload
