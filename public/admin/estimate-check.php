@@ -8,6 +8,7 @@ $nav = require __DIR__ . '/../../app/data/navigation.php';
 require_once __DIR__ . '/../../app/helpers/icons.php';
 require_once __DIR__ . '/../../app/helpers/database.php';
 require_once __DIR__ . '/../../app/data/inventory.php';
+require_once __DIR__ . '/../../app/helpers/estimate_uploads.php';
 require_once __DIR__ . '/../../app/services/estimate_check.php';
 
 function e(string $value): string
@@ -57,50 +58,95 @@ try {
 }
 
 if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!isset($_FILES['estimate'])) {
-        $errors[] = 'Select an EZ Estimate workbook to review.';
-        $logUpload('Upload payload did not include an "estimate" file field.');
-    } else {
-        /** @var array{tmp_name?:string,name?:string,error?:int} $file */
-        $file = $_FILES['estimate'];
-        $uploadedName = $file['name'] ?? null;
-        $errorCode = $file['error'] ?? UPLOAD_ERR_NO_FILE;
+    $rawUploadId = isset($_POST['upload_id']) ? (string) $_POST['upload_id'] : null;
+    $normalizedUploadId = null;
 
-        if ($errorCode !== UPLOAD_ERR_OK) {
-            $logUpload(sprintf('Upload rejected with PHP error code %d.', $errorCode));
+    if ($rawUploadId !== null && trim($rawUploadId) !== '') {
+        $normalizedUploadId = estimate_upload_sanitize_id($rawUploadId);
 
-            $limit = ini_get('upload_max_filesize');
-            $uploadErrors = [
-                UPLOAD_ERR_INI_SIZE => sprintf('The uploaded file exceeds the server upload limit (%s).', $limit ?: 'unknown'),
-                UPLOAD_ERR_FORM_SIZE => 'The uploaded file is larger than the form allows.',
-                UPLOAD_ERR_PARTIAL => 'The file upload did not complete. Try again.',
-                UPLOAD_ERR_NO_FILE => 'Select an EZ Estimate workbook to review.',
-            ];
+        if ($normalizedUploadId === null) {
+            $errors[] = 'The uploaded workbook reference was invalid. Please try again.';
+            $logUpload(sprintf('Received invalid upload identifier "%s".', $rawUploadId));
+        }
+    }
 
-            $errors[] = $uploadErrors[$errorCode] ?? 'Failed to upload the workbook. Please try again.';
-        } elseif (empty($file['tmp_name']) || !is_string($file['tmp_name'])) {
-            $errors[] = 'The uploaded file could not be accessed. Please try again.';
-            $logUpload('Upload metadata did not include a valid tmp_name for the workbook.');
-        } elseif (!is_uploaded_file($file['tmp_name'])) {
-            $errors[] = 'The uploaded file could not be verified. Please try again.';
-            $logUpload(sprintf('tmp_name "%s" failed the is_uploaded_file check.', $file['tmp_name']));
+    $runAnalyzer = static function (string $path) use (&$analysis, &$analysisLog, &$errors, &$uploadedName, $db, $logUpload): void {
+        try {
+            $analysis = analyzeEstimateRequirements($db, $path);
+            $analysisLog = $analysis['log'] ?? [];
+        } catch (\Throwable $exception) {
+            if ($exception instanceof EstimateAnalysisException) {
+                $analysisLog = $exception->getLog();
+            }
+
+            $errors[] = 'Unable to process the workbook: ' . $exception->getMessage();
+            $logUpload('Analyzer exception: ' . $exception->getMessage());
+        }
+    };
+
+    if ($normalizedUploadId !== null && $errors === []) {
+        $paths = estimate_upload_paths($normalizedUploadId);
+        $metadata = estimate_upload_load_metadata($normalizedUploadId) ?? [];
+        $assembledPath = $paths['file'];
+
+        if (!is_file($assembledPath)) {
+            $errors[] = 'The uploaded workbook could not be assembled. Please try again.';
+            $logUpload(sprintf('Chunked upload "%s" is missing the assembled workbook.', $normalizedUploadId));
         } else {
-            $extension = strtolower(pathinfo((string) ($file['name'] ?? ''), PATHINFO_EXTENSION));
+            $uploadedName = isset($metadata['name']) && is_string($metadata['name'])
+                ? $metadata['name']
+                : ($uploadedName ?? basename($assembledPath));
 
-            if ($extension !== 'xlsx') {
-                $errors[] = 'Please upload an .xlsx workbook exported from Excel.';
-                $logUpload(sprintf('Rejected "%s" because the extension is not .xlsx.', $file['name'] ?? 'unknown file'));
+            if (isset($metadata['size'], $metadata['chunks'])) {
+                $logUpload(sprintf(
+                    'Chunked upload %s assembled at %s bytes across %s chunk(s).',
+                    $normalizedUploadId,
+                    number_format((int) $metadata['size']),
+                    (string) $metadata['chunks']
+                ));
+            }
+
+            $logUpload(sprintf('Executing analyzer against chunked upload %s (%s).', $normalizedUploadId, $uploadedName));
+            $runAnalyzer($assembledPath);
+        }
+
+        estimate_upload_cleanup($normalizedUploadId);
+    } elseif ($errors === []) {
+        if (!isset($_FILES['estimate'])) {
+            $errors[] = 'Select an EZ Estimate workbook to review.';
+            $logUpload('Upload payload did not include an "estimate" file field.');
+        } else {
+            /** @var array{tmp_name?:string,name?:string,error?:int} $file */
+            $file = $_FILES['estimate'];
+            $uploadedName = $file['name'] ?? null;
+            $errorCode = $file['error'] ?? UPLOAD_ERR_NO_FILE;
+
+            if ($errorCode !== UPLOAD_ERR_OK) {
+                $logUpload(sprintf('Upload rejected with PHP error code %d.', $errorCode));
+
+                $limit = ini_get('upload_max_filesize');
+                $uploadErrors = [
+                    UPLOAD_ERR_INI_SIZE => sprintf('The uploaded file exceeds the server upload limit (%s).', $limit ?: 'unknown'),
+                    UPLOAD_ERR_FORM_SIZE => 'The uploaded file is larger than the form allows.',
+                    UPLOAD_ERR_PARTIAL => 'The file upload did not complete. Try again.',
+                    UPLOAD_ERR_NO_FILE => 'Select an EZ Estimate workbook to review.',
+                ];
+
+                $errors[] = $uploadErrors[$errorCode] ?? 'Failed to upload the workbook. Please try again.';
+            } elseif (empty($file['tmp_name']) || !is_string($file['tmp_name'])) {
+                $errors[] = 'The uploaded file could not be accessed. Please try again.';
+                $logUpload('Upload metadata did not include a valid tmp_name for the workbook.');
+            } elseif (!is_uploaded_file($file['tmp_name'])) {
+                $errors[] = 'The uploaded file could not be verified. Please try again.';
+                $logUpload(sprintf('tmp_name "%s" failed the is_uploaded_file check.', $file['tmp_name']));
             } else {
-                try {
-                    $analysis = analyzeEstimateRequirements($db, $file['tmp_name']);
-                    $analysisLog = $analysis['log'] ?? [];
-                } catch (\Throwable $exception) {
-                    if ($exception instanceof EstimateAnalysisException) {
-                        $analysisLog = $exception->getLog();
-                    }
+                $extension = strtolower(pathinfo((string) ($file['name'] ?? ''), PATHINFO_EXTENSION));
 
-                    $errors[] = 'Unable to process the workbook: ' . $exception->getMessage();
-                    $logUpload('Analyzer exception: ' . $exception->getMessage());
+                if ($extension !== 'xlsx') {
+                    $errors[] = 'Please upload an .xlsx workbook exported from Excel.';
+                    $logUpload(sprintf('Rejected "%s" because the extension is not .xlsx.', $file['name'] ?? 'unknown file'));
+                } else {
+                    $runAnalyzer($file['tmp_name']);
                 }
             }
         }
@@ -173,6 +219,7 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
         <p>Upload the EZ Estimate spreadsheet generated for a project. The tool reads the Accessories and Stock Lengths tabs and compares the requested quantities and finishes with current on-hand stock.</p>
 
         <form method="post" enctype="multipart/form-data" class="form" novalidate>
+          <input type="hidden" name="upload_id" id="upload_id" value="" />
           <div class="field">
             <label for="estimate">EZ Estimate Workbook<span aria-hidden="true">*</span></label>
             <input type="file" id="estimate" name="estimate" accept=".xlsx" required <?= $dbError !== null ? 'disabled' : '' ?> />
@@ -257,6 +304,128 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
       </section>
     </main>
   </div>
+  <script>
+    (function () {
+      const form = document.querySelector('form.form');
+      if (!form) {
+        return;
+      }
+
+      if (typeof window.fetch !== 'function' || typeof FormData === 'undefined') {
+        return;
+      }
+
+      const fileInput = form.querySelector('#estimate');
+      const uploadIdInput = form.querySelector('#upload_id');
+      const submitButton = form.querySelector('button[type="submit"]');
+      let bypassSubmit = false;
+
+      const generateId = function () {
+        if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+          return crypto.randomUUID();
+        }
+
+        const bytes = new Uint8Array(16);
+
+        if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+          crypto.getRandomValues(bytes);
+        } else {
+          for (let i = 0; i < bytes.length; i += 1) {
+            bytes[i] = Math.floor(Math.random() * 256);
+          }
+        }
+
+        return Array.from(bytes).map(function (value) {
+          return value.toString(16).padStart(2, '0');
+        }).join('');
+      };
+
+      form.addEventListener('submit', async function (event) {
+        if (bypassSubmit) {
+          bypassSubmit = false;
+          return;
+        }
+
+        if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+          return;
+        }
+
+        event.preventDefault();
+
+        const file = fileInput.files[0];
+        const chunkSize = 1024 * 1024; // 1 MiB chunks stay under the 2 MB limit per request
+        const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
+        const uploadId = generateId();
+
+        if (submitButton) {
+          submitButton.disabled = true;
+        }
+
+        form.classList.add('is-uploading');
+
+        try {
+          for (let index = 0; index < totalChunks; index += 1) {
+            const start = index * chunkSize;
+            const end = Math.min(file.size, start + chunkSize);
+            const chunk = file.slice(start, end);
+
+            const payload = new FormData();
+            payload.append('upload_id', uploadId);
+            payload.append('chunk_index', String(index));
+            payload.append('total_chunks', String(totalChunks));
+            payload.append('file_name', file.name);
+            payload.append('chunk', chunk, file.name);
+
+            const response = await fetch('estimate-upload.php', {
+              method: 'POST',
+              body: payload,
+            });
+
+            if (!response.ok) {
+              throw new Error('Upload failed with status ' + response.status + '.');
+            }
+
+            const json = await response.json().catch(function () {
+              return null;
+            });
+
+            if (!json || json.status !== 'ok') {
+              const message = json && typeof json.error === 'string'
+                ? json.error
+                : 'Upload failed. Please try again.';
+              throw new Error(message);
+            }
+          }
+
+          if (uploadIdInput) {
+            uploadIdInput.value = uploadId;
+          }
+
+          fileInput.value = '';
+          bypassSubmit = true;
+          form.submit();
+        } catch (error) {
+          console.error('Chunked upload failed:', error);
+
+          if (uploadIdInput) {
+            uploadIdInput.value = '';
+          }
+
+          const message = error instanceof Error && error.message
+            ? error.message
+            : 'Upload failed. Please try again.';
+
+          window.alert(message);
+        } finally {
+          if (submitButton) {
+            submitButton.disabled = false;
+          }
+
+          form.classList.remove('is-uploading');
+        }
+      });
+    }());
+  </script>
   <?php if ($analysisLog !== []): ?>
     <script>
       (function (logEntries, label) {
