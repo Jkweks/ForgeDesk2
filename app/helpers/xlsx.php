@@ -147,6 +147,45 @@ if (!function_exists('xlsxReadRows')) {
         }
     }
 
+    /**
+     * List the worksheets declared in the workbook manifest.
+     *
+     * @return list<string>
+     */
+    function xlsxListSheets(string $filePath): array
+    {
+        $archive = xlsxOpenArchive($filePath);
+
+        try {
+            $index = $archive->locateName('xl/workbook.xml');
+            if ($index === false) {
+                return [];
+            }
+
+            $xml = $archive->getFromIndex($index);
+            if ($xml === false) {
+                return [];
+            }
+
+            $document = simplexml_load_string($xml);
+            if ($document === false || !isset($document->sheets)) {
+                return [];
+            }
+
+            $names = [];
+            foreach ($document->sheets->sheet as $sheet) {
+                $name = (string) ($sheet['name'] ?? '');
+                if ($name !== '') {
+                    $names[] = $name;
+                }
+            }
+
+            return $names;
+        } finally {
+            $archive->close();
+        }
+    }
+
     function xlsxOpenArchive(string $filePath): \ZipArchive
     {
         if (!is_file($filePath)) {

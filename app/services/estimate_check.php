@@ -22,12 +22,65 @@ if (!function_exists('analyzeEstimateRequirements')) {
 
         $log('Initializing inventory schema checks.');
 
-        // Accept all three “Accessories*”, all three “Stock Lengths*”, and Special Length
-        $sheetNames = [
-            'Accessories', 'Accessories (2)', 'Accessories (3)',
-            'Stock Lengths', 'Stock Lengths (2)', 'Stock Lengths (3)',
-            'Special Length',
-        ];
+        $sheetNames = [];
+
+        try {
+            $availableSheets = xlsxListSheets($filePath);
+
+            if ($availableSheets !== []) {
+                $log(sprintf('Workbook exposes %d sheet(s).', count($availableSheets)));
+
+                $groups = [
+                    'accessories' => [],
+                    'stock_lengths' => [],
+                    'special_length' => [],
+                ];
+
+                foreach ($availableSheets as $candidate) {
+                    $normalized = strtolower(trim($candidate));
+
+                    if (preg_match('/^accessories(\b|\s|\(|-|$)/', $normalized) === 1) {
+                        $groups['accessories'][] = $candidate;
+                        continue;
+                    }
+
+                    if (preg_match('/^stock lengths(\b|\s|\(|-|$)/', $normalized) === 1) {
+                        $groups['stock_lengths'][] = $candidate;
+                        continue;
+                    }
+
+                    if (preg_match('/^special length(\b|\s|\(|-|$)/', $normalized) === 1) {
+                        $groups['special_length'][] = $candidate;
+                    }
+                }
+
+                $order = ['accessories', 'stock_lengths', 'special_length'];
+                $seen = [];
+
+                foreach ($order as $groupKey) {
+                    foreach ($groups[$groupKey] as $name) {
+                        if (!isset($seen[$name])) {
+                            $sheetNames[] = $name;
+                            $seen[$name] = true;
+                        }
+                    }
+                }
+            }
+        } catch (\Throwable $exception) {
+            $log('Unable to enumerate workbook sheets: ' . $exception->getMessage());
+        }
+
+        if ($sheetNames === []) {
+            $sheetNames = [
+                'Accessories', 'Accessories (2)', 'Accessories (3)',
+                'Stock Lengths', 'Stock Lengths (2)', 'Stock Lengths (3)',
+                'Special Length',
+            ];
+
+            $log('Falling back to default sheet list: ' . implode(', ', $sheetNames));
+        } else {
+            $log('Dynamic sheet list: ' . implode(', ', $sheetNames));
+        }
 
         // ---- helpers -------------------------------------------------------
 
