@@ -11,6 +11,17 @@ if (!function_exists('analyzeEstimateRequirements')) {
     {
         ensureInventorySchema($db);
 
+        $startTime = microtime(true);
+        $debugLog = [];
+        $log = static function (string $message) use (&$debugLog, $startTime): void {
+            $debugLog[] = [
+                'at' => microtime(true) - $startTime,
+                'message' => $message,
+            ];
+        };
+
+        $log('Initializing inventory schema checks.');
+
         // Accept all three “Accessories*”, all three “Stock Lengths*”, and Special Length
         $sheetNames = [
             'Accessories', 'Accessories (2)', 'Accessories (3)',
@@ -20,20 +31,54 @@ if (!function_exists('analyzeEstimateRequirements')) {
 
         // ---- helpers -------------------------------------------------------
 
-        // normalize header text (e.g., " Part # " -> "part #")
-        $norm = static function (?string $s): string {
-            $s = strtolower(trim((string)$s));
-            $s = preg_replace('/\s+/', ' ', $s ?? '');
-            return $s ?? '';
+        $findHeaderIndex = static function (array $map, array $candidates) use (&$log): ?int {
+            foreach ($map as $index => $value) {
+                $normalized = strtolower(trim((string) $value));
+                $normalized = (string) preg_replace('/\s+/', ' ', $normalized);
+
+                foreach ($candidates as $candidate) {
+                    if ($normalized === $candidate) {
+                        $log(sprintf('Header match "%s" detected at column %d.', $candidate, $index));
+                        return $index;
+                    }
+
+                    if ($candidate === 'part' && str_contains($normalized, 'part')) {
+                        $log(sprintf('Header partial match for part detected at column %d.', $index));
+                        return $index;
+                    }
+
+                    if ($candidate === 'qty' && (
+                        $normalized === 'qty'
+                        || $normalized === 'quantity'
+                        || str_contains($normalized, 'qty')
+                        || str_contains($normalized, 'quantity')
+                    )) {
+                        $log(sprintf('Header partial match for quantity detected at column %d.', $index));
+                        return $index;
+                    }
+
+                    if ($candidate === 'finish' && str_contains($normalized, 'finish')) {
+                        $log(sprintf('Header partial match for finish detected at column %d.', $index));
+                        return $index;
+                    }
+
+                    if ($candidate === 'color' && str_contains($normalized, 'color')) {
+                        $log(sprintf('Header partial match for color detected at column %d.', $index));
+                        return $index;
+                    }
+                }
+            }
+
+            return null;
         };
 
         // try to find header row + column indexes for qty/part/finish
-        $findTable = static function(array $rows): ?array {
-            // scan first 20 rows for headers
+        $findTable = static function(array $rows) use ($findHeaderIndex, &$log): ?array {
+            // scan first 60 rows for headers
             $headerRowIndex = null;
             $idxQty = $idxPart = $idxFinish = null;
 
-            for ($r = 0; $r < min(20, count($rows)); $r++) {
+            for ($r = 0; $r < min(60, count($rows)); $r++) {
                 $row = $rows[$r] ?? [];
                 // quick skip for very empty rows
                 $nonEmpty = 0;
@@ -42,13 +87,13 @@ if (!function_exists('analyzeEstimateRequirements')) {
 
                 $map = [];
                 foreach ($row as $c => $val) {
-                    $map[$c] = strtolower(trim((string)$val));
+                    $map[$c] = strtolower(trim((string) $val));
                 }
 
                 // candidates with common variants
-                $cQty    = self::findHeaderIndex($map, ['qty', 'quantity']);
-                $cPart   = self::findHeaderIndex($map, ['part #', 'part#', 'part no', 'part', 'item']);
-                $cFinish = self::findHeaderIndex($map, ['finish', 'color']); // accept color as finish fallback
+                $cQty    = $findHeaderIndex($map, ['qty', 'quantity']);
+                $cPart   = $findHeaderIndex($map, ['part #', 'part#', 'part no', 'part', 'item']);
+                $cFinish = $findHeaderIndex($map, ['finish', 'color']); // accept color as finish fallback
 
                 if ($cQty !== null && $cPart !== null) {
                     $headerRowIndex = $r;
@@ -60,8 +105,16 @@ if (!function_exists('analyzeEstimateRequirements')) {
             }
 
             if ($headerRowIndex === null) {
+                $log('Header row could not be identified in the scanned range.');
                 return null;
             }
+
+            $log(sprintf('Headers located on row %d (qty=%d, part=%d, finish=%s).',
+                $headerRowIndex + 1,
+                $idxQty,
+                $idxPart,
+                $idxFinish !== null ? (string) $idxFinish : 'null'
+            ));
 
             return [
                 'headerRow' => $headerRowIndex,
@@ -71,32 +124,14 @@ if (!function_exists('analyzeEstimateRequirements')) {
             ];
         };
 
-        // static method holder to keep the closure above clean
-        if (!method_exists(__CLASS__, 'findHeaderIndex')) {
-            class_alias(get_class(new class {
-                public static function findHeaderIndex(array $map, array $candidates): ?int {
-                    foreach ($map as $i => $v) {
-                        $vv = strtolower(trim((string)$v));
-                        foreach ($candidates as $cand) {
-                            // loose match: allow #, spaces, punctuation wiggle
-                            if ($vv === $cand) return $i;
-                            if ($cand === 'part' && str_contains($vv, 'part')) return $i;
-                            if ($cand === 'qty' && ($vv === 'qty' || $vv === 'quantity')) return $i;
-                            if ($cand === 'finish' && str_contains($vv, 'finish')) return $i;
-                            if ($cand === 'color' && str_contains($vv, 'color')) return $i;
-                        }
-                    }
-                    return null;
-                }
-            }), __CLASS__);
-        }
-
         // Read a broad range and return rows (arrays of scalar cell values)
-        $readBroad = static function(string $file, string $sheet): array {
+        $readBroad = static function(string $file, string $sheet) use (&$log): array {
             // Big, safe superset; cheap to slice in PHP and avoids off-by-one grief
             try {
-                return xlsxReadRange($file, $sheet, 'A1', 'Z2000');
+                $log(sprintf('Reading range A1:BZ2000 from sheet "%s".', $sheet));
+                return xlsxReadRange($file, $sheet, 'A1', 'BZ2000');
             } catch (\Throwable $e) {
+                $log(sprintf('Failed to read sheet "%s": %s', $sheet, $e->getMessage()));
                 return []; // handled by caller
             }
         };
@@ -106,16 +141,21 @@ if (!function_exists('analyzeEstimateRequirements')) {
         $requirements = [];
         $messages = [];
 
+        $log(sprintf('Processing sheets: %s', implode(', ', $sheetNames)));
+
         foreach ($sheetNames as $name) {
+            $log(sprintf('Starting sheet "%s".', $name));
             $rows = $readBroad($filePath, $name);
             if (!$rows) {
                 $messages[] = ['type' => 'warning', 'text' => "Sheet $name not found or unreadable."];
+                $log(sprintf('Sheet "%s" yielded no rows.', $name));
                 continue;
             }
 
             $table = $findTable($rows);
             if ($table === null) {
-                $messages[] = ['type' => 'warning', 'text' => "Sheet $name: no headers (qty/part) detected in top 20 rows."];
+                $messages[] = ['type' => 'warning', 'text' => "Sheet $name: no headers (qty/part) detected in top 60 rows."];
+                $log(sprintf('Sheet "%s" skipped due to missing headers.', $name));
                 continue;
             }
 
@@ -126,6 +166,7 @@ if (!function_exists('analyzeEstimateRequirements')) {
 
             // walk until 6 consecutive empty data rows
             $emptyStreak = 0;
+            $rowCount = 0;
             for ($r = $startDataRow; $r < count($rows); $r++) {
                 $row = $rows[$r] ?? [];
                 $qtyRaw    = trim((string)($row[$qtyCol]   ?? ''));
@@ -142,6 +183,7 @@ if (!function_exists('analyzeEstimateRequirements')) {
 
                 if ($partRaw === '') {
                     $messages[] = ['type' => 'warning', 'text' => "Sheet $name row ".($r+1)." skipped: part number missing."];
+                    $log(sprintf('Sheet "%s" row %d skipped: missing part.', $name, $r + 1));
                     continue;
                 }
 
@@ -149,6 +191,7 @@ if (!function_exists('analyzeEstimateRequirements')) {
                 $qtyNormalized = (float) str_replace([',', ' '], '', $qtyRaw);
                 if (!is_finite($qtyNormalized) || $qtyNormalized <= 0) {
                     // soft-skip; many rows have notes or formulas
+                    $log(sprintf('Sheet "%s" row %d ignored: qty "%s" not positive.', $name, $r + 1, $qtyRaw));
                     continue;
                 }
                 $quantity = (int) round($qtyNormalized);
@@ -156,6 +199,7 @@ if (!function_exists('analyzeEstimateRequirements')) {
                 $finish = $finishRaw !== '' ? inventoryNormalizeFinish($finishRaw) : null;
                 if ($finishRaw !== '' && $finish === null) {
                     $messages[] = ['type' => 'warning', 'text' => "Sheet $name row ".($r+1)." has unrecognised finish \"$finishRaw\"; treated as unspecified."];
+                    $log(sprintf('Sheet "%s" row %d finish "%s" not recognized.', $name, $r + 1, $finishRaw));
                 }
 
                 $normalizedPart = strtoupper($partRaw);
@@ -169,10 +213,14 @@ if (!function_exists('analyzeEstimateRequirements')) {
                     ];
                 }
                 $requirements[$key]['required'] += $quantity;
+                $rowCount++;
             }
+
+            $log(sprintf('Sheet "%s" contributed %d line items.', $name, $rowCount));
         }
 
         // inventory join stays the same --------------------------------------
+        $log(sprintf('Joining %d unique requirements with inventory.', count($requirements)));
         $inventory   = loadInventory($db);
         $inventoryIndex = [];
         foreach ($inventory as $item) {
@@ -236,6 +284,13 @@ if (!function_exists('analyzeEstimateRequirements')) {
             $messages[] = ['type' => 'error', 'text' => 'No line items detected. Check that the sheet contains headers like "Qty", "Part #", and rows beneath them.'];
         }
 
-        return ['items'=>$items,'messages'=>$messages,'counts'=>$counts];
+        $log(sprintf('Analysis complete. Totals: total=%d, available=%d, short=%d, missing=%d.',
+            $counts['total'],
+            $counts['available'],
+            $counts['short'],
+            $counts['missing']
+        ));
+
+        return ['items'=>$items,'messages'=>$messages,'counts'=>$counts,'log'=>$debugLog];
     }
 }

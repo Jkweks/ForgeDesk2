@@ -190,6 +190,8 @@ if ($dbError === null) {
         }
     }
 }
+
+$modalOpen = $activeSession !== null && $lineView !== null && $activeSession['status'] === 'in_progress';
 ?>
 <!doctype html>
 <html lang="en">
@@ -199,7 +201,7 @@ if ($dbError === null) {
   <title><?= e($app['name']) ?> · Cycle Counts</title>
   <link rel="stylesheet" href="css/dashboard.css" />
 </head>
-<body>
+<body<?= $modalOpen ? ' class="modal-open"' : '' ?>>
   <div class="layout">
     <aside class="sidebar">
       <div class="brand">
@@ -336,15 +338,31 @@ if ($dbError === null) {
         </div>
       </section>
 
-      <?php if ($activeSession !== null && $lineView !== null && $activeSession['status'] === 'in_progress'): ?>
-        <section class="panel cycle-count-flow" aria-labelledby="count-step-title">
+      <?php if ($activeSession !== null && $activeSession['status'] === 'completed'): ?>
+        <section class="panel" aria-labelledby="count-step-title">
           <header class="panel-header">
+            <div>
+              <h2 id="count-step-title">Cycle count complete</h2>
+              <p class="small">All items in this session have been counted.</p>
+            </div>
+          </header>
+          <p>Your selected session has been completed. Review the history above or start a new cycle count.</p>
+        </section>
+      <?php endif; ?>
+    </main>
+    <?php if ($modalOpen): ?>
+      <div class="modal open" id="count-modal" role="dialog" aria-modal="true" aria-labelledby="count-step-title">
+        <div class="modal-dialog">
+          <header>
             <div>
               <h2 id="count-step-title">Counting <?= e($lineView['item']['item']) ?></h2>
               <p class="small">Location <?= e($lineView['item']['location']) ?> · SKU <?= e($lineView['item']['sku']) ?></p>
             </div>
-            <div class="progress-indicator">
-              Step <?= e((string) $lineView['line']['sequence']) ?> of <?= e((string) $activeSession['total_lines']) ?>
+            <div class="modal-header-actions">
+              <div class="progress-indicator">
+                Step <?= e((string) $lineView['line']['sequence']) ?> of <?= e((string) $activeSession['total_lines']) ?>
+              </div>
+              <a class="modal-close" href="cycle-count.php" aria-label="Close count window">&times;</a>
             </div>
           </header>
 
@@ -398,19 +416,11 @@ if ($dbError === null) {
               </div>
             </footer>
           </form>
-        </section>
-      <?php elseif ($activeSession !== null && $activeSession['status'] === 'completed'): ?>
-        <section class="panel" aria-labelledby="count-step-title">
-          <header class="panel-header">
-            <div>
-              <h2 id="count-step-title">Cycle count complete</h2>
-              <p class="small">All items in this session have been counted.</p>
-            </div>
-          </header>
-          <p>Your selected session has been completed. Review the history above or start a new cycle count.</p>
-        </section>
-      <?php endif; ?>
-    </main>
+        </div>
+      </div>
+    <?php else: ?>
+      <div class="modal" id="count-modal" hidden></div>
+    <?php endif; ?>
   </div>
 </body>
 </html>
