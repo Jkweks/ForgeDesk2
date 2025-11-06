@@ -96,6 +96,15 @@ if (!function_exists('analyzeEstimateRequirements')) {
                 $cFinish = $findHeaderIndex($map, ['finish', 'color']); // accept color as finish fallback
 
                 if ($cQty !== null && $cPart !== null) {
+                    if ($cQty === $cPart) {
+                        $log(sprintf(
+                            'Row %d rejected as header: qty/part resolved to the same column %d.',
+                            $r + 1,
+                            $cQty
+                        ));
+                        continue;
+                    }
+
                     $headerRowIndex = $r;
                     $idxQty = $cQty;
                     $idxPart = $cPart;
