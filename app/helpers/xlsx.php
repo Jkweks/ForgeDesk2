@@ -147,8 +147,51 @@ if (!function_exists('xlsxReadRows')) {
         }
     }
 
+    /**
+     * List the worksheets declared in the workbook manifest.
+     *
+     * @return list<string>
+     */
+    function xlsxListSheets(string $filePath): array
+    {
+        $archive = xlsxOpenArchive($filePath);
+
+        try {
+            $index = $archive->locateName('xl/workbook.xml');
+            if ($index === false) {
+                return [];
+            }
+
+            $xml = $archive->getFromIndex($index);
+            if ($xml === false) {
+                return [];
+            }
+
+            $document = simplexml_load_string($xml);
+            if ($document === false || !isset($document->sheets)) {
+                return [];
+            }
+
+            $names = [];
+            foreach ($document->sheets->sheet as $sheet) {
+                $name = (string) ($sheet['name'] ?? '');
+                if ($name !== '') {
+                    $names[] = $name;
+                }
+            }
+
+            return $names;
+        } finally {
+            $archive->close();
+        }
+    }
+
     function xlsxOpenArchive(string $filePath): \ZipArchive
     {
+        if (!class_exists('\\ZipArchive')) {
+            throw new \RuntimeException('PHP is missing the Zip extension (ext-zip). Install/enable it to read XLSX workbooks.');
+        }
+
         if (!is_file($filePath)) {
             throw new \RuntimeException('Spreadsheet not found.');
         }
@@ -193,7 +236,9 @@ if (!function_exists('xlsxReadRows')) {
                     foreach ($relsDocument->Relationship as $relationship) {
                         $id = (string) ($relationship['Id'] ?? '');
                         $target = (string) ($relationship['Target'] ?? '');
-                        if ($id !== '' && $target !== '') {
+                        $mode = strtolower((string) ($relationship['TargetMode'] ?? 'internal'));
+
+                        if ($id !== '' && $target !== '' && $mode !== 'external') {
                             $relationships[$id] = $target;
                         }
                     }
@@ -203,7 +248,28 @@ if (!function_exists('xlsxReadRows')) {
 
         foreach ($document->sheets->sheet as $sheet) {
             $name = (string) ($sheet['name'] ?? '');
-            $relId = (string) ($sheet['r:id'] ?? '');
+
+            $relId = '';
+
+            // Namespaced attributes (r:id) are not exposed directly by SimpleXML when the
+            // workbook declares the relationship namespace as the default. Fetch the
+            // attribute via the namespace helper first, then fall back to direct access
+            // for legacy documents.
+            $relationshipAttrs = $sheet->attributes('http://schemas.openxmlformats.org/officeDocument/2006/relationships');
+            if ($relationshipAttrs !== null && isset($relationshipAttrs['id'])) {
+                $relId = (string) $relationshipAttrs['id'];
+            }
+
+            if ($relId === '') {
+                $relationshipAttrs = $sheet->attributes('r', true);
+                if ($relationshipAttrs !== null && isset($relationshipAttrs['id'])) {
+                    $relId = (string) $relationshipAttrs['id'];
+                }
+            }
+
+            if ($relId === '' && isset($sheet['r:id'])) {
+                $relId = (string) $sheet['r:id'];
+            }
 
             if (strcasecmp($name, $sheetName) !== 0) {
                 continue;
@@ -214,12 +280,82 @@ if (!function_exists('xlsxReadRows')) {
             }
 
             $target = $relationships[$relId];
-            $normalized = str_starts_with($target, 'xl/') ? $target : 'xl/' . ltrim($target, '/');
+            $normalized = xlsxNormalizeRelationshipTarget('xl/workbook.xml', $target);
+
+            $candidates = xlsxCandidatePaths($normalized);
+            foreach ($candidates as $candidate) {
+                if ($archive->locateName($candidate) !== false) {
+                    return $candidate;
+                }
+            }
 
             return $normalized;
         }
 
         throw new \RuntimeException(sprintf('Worksheet "%s" was not found in the workbook.', $sheetName));
+    }
+
+    function xlsxNormalizeRelationshipTarget(string $basePart, string $target): string
+    {
+        $target = str_replace('\\', '/', trim($target));
+        if ($target === '') {
+            return '';
+        }
+
+        if (preg_match('/^[a-z]+:/i', $target) === 1) {
+            return $target;
+        }
+
+        if ($target[0] === '/') {
+            $path = ltrim($target, '/');
+        } else {
+            $baseDir = str_replace('\\', '/', dirname($basePart));
+            $baseDir = $baseDir === '.' ? '' : $baseDir;
+            $path = $baseDir !== '' ? $baseDir . '/' . $target : $target;
+        }
+
+        $segments = explode('/', $path);
+        $resolved = [];
+
+        foreach ($segments as $segment) {
+            if ($segment === '' || $segment === '.') {
+                continue;
+            }
+
+            if ($segment === '..') {
+                array_pop($resolved);
+                continue;
+            }
+
+            $resolved[] = $segment;
+        }
+
+        return implode('/', $resolved);
+    }
+
+    /**
+     * @return list<string>
+     */
+    function xlsxCandidatePaths(string $path): array
+    {
+        $candidates = [];
+
+        $normalized = ltrim($path, '/');
+        if ($normalized !== '') {
+            $candidates[] = $normalized;
+        }
+
+        if ($normalized !== '' && !str_starts_with($normalized, 'xl/')) {
+            $candidates[] = 'xl/' . $normalized;
+        }
+
+        if (str_starts_with($normalized, 'xl/')) {
+            $candidates[] = substr($normalized, 3);
+        }
+
+        $candidates[] = $path;
+
+        return array_values(array_unique(array_filter($candidates, static fn ($candidate) => $candidate !== '')));
     }
 
     /**
