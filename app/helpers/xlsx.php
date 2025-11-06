@@ -203,7 +203,28 @@ if (!function_exists('xlsxReadRows')) {
 
         foreach ($document->sheets->sheet as $sheet) {
             $name = (string) ($sheet['name'] ?? '');
-            $relId = (string) ($sheet['r:id'] ?? '');
+
+            $relId = '';
+
+            // Namespaced attributes (r:id) are not exposed directly by SimpleXML when the
+            // workbook declares the relationship namespace as the default. Fetch the
+            // attribute via the namespace helper first, then fall back to direct access
+            // for legacy documents.
+            $relationshipAttrs = $sheet->attributes('http://schemas.openxmlformats.org/officeDocument/2006/relationships');
+            if ($relationshipAttrs !== null && isset($relationshipAttrs['id'])) {
+                $relId = (string) $relationshipAttrs['id'];
+            }
+
+            if ($relId === '') {
+                $relationshipAttrs = $sheet->attributes('r', true);
+                if ($relationshipAttrs !== null && isset($relationshipAttrs['id'])) {
+                    $relId = (string) $relationshipAttrs['id'];
+                }
+            }
+
+            if ($relId === '' && isset($sheet['r:id'])) {
+                $relId = (string) $sheet['r:id'];
+            }
 
             if (strcasecmp($name, $sheetName) !== 0) {
                 continue;
