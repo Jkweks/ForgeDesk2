@@ -231,5 +231,38 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
       </section>
     </main>
   </div>
+  <?php if ($analysis !== null && isset($analysis['log']) && $analysis['log'] !== []): ?>
+    <script>
+      (function (logEntries, label) {
+        if (!window.console || !Array.isArray(logEntries)) {
+          return;
+        }
+
+        var groupLabel = 'Estimate analysis · ' + label;
+        var openedGroup = false;
+        if (console.groupCollapsed) {
+          console.groupCollapsed(groupLabel);
+          openedGroup = true;
+        } else if (console.group) {
+          console.group(groupLabel);
+          openedGroup = true;
+        } else {
+          console.log(groupLabel);
+        }
+
+        for (var i = 0; i < logEntries.length; i++) {
+          var entry = logEntries[i] || {};
+          var message = typeof entry.message === 'string' ? entry.message : '';
+          var at = typeof entry.at === 'number' ? entry.at : null;
+          var suffix = at !== null ? (' +' + at.toFixed(3) + 's') : '';
+          console.log(message + suffix);
+        }
+
+        if (openedGroup && console.groupEnd) {
+          console.groupEnd();
+        }
+      })(<?= json_encode($analysis['log'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>, <?= json_encode($uploadedName ?? 'Workbook') ?>);
+    </script>
+  <?php endif; ?>
 </body>
 </html>
