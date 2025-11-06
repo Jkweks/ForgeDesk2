@@ -188,6 +188,10 @@ if (!function_exists('xlsxReadRows')) {
 
     function xlsxOpenArchive(string $filePath): \ZipArchive
     {
+        if (!class_exists('\\ZipArchive')) {
+            throw new \RuntimeException('PHP is missing the Zip extension (ext-zip). Install/enable it to read XLSX workbooks.');
+        }
+
         if (!is_file($filePath)) {
             throw new \RuntimeException('Spreadsheet not found.');
         }
