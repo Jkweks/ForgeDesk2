@@ -43,6 +43,13 @@ $analysis = null;
 $analysisLog = [];
 $uploadedName = null;
 
+$logUpload = static function (string $message) use (&$analysisLog): void {
+    $analysisLog[] = [
+        'message' => $message,
+        'at' => 0.0,
+    ];
+};
+
 try {
     $db = db($databaseConfig);
 } catch (\Throwable $exception) {
@@ -50,27 +57,39 @@ try {
 }
 
 if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!isset($_FILES['estimate']) || !is_uploaded_file($_FILES['estimate']['tmp_name'])) {
+    if (!isset($_FILES['estimate'])) {
         $errors[] = 'Select an EZ Estimate workbook to review.';
+        $logUpload('Upload payload did not include an "estimate" file field.');
     } else {
-        /** @var array{tmp_name:string,name:string,error:int} $file */
+        /** @var array{tmp_name?:string,name?:string,error?:int} $file */
         $file = $_FILES['estimate'];
-        $uploadedName = $file['name'];
+        $uploadedName = $file['name'] ?? null;
+        $errorCode = $file['error'] ?? UPLOAD_ERR_NO_FILE;
 
-        if ($file['error'] !== UPLOAD_ERR_OK) {
+        if ($errorCode !== UPLOAD_ERR_OK) {
+            $logUpload(sprintf('Upload rejected with PHP error code %d.', $errorCode));
+
+            $limit = ini_get('upload_max_filesize');
             $uploadErrors = [
-                UPLOAD_ERR_INI_SIZE => 'The uploaded file exceeds the server upload limit.',
+                UPLOAD_ERR_INI_SIZE => sprintf('The uploaded file exceeds the server upload limit (%s).', $limit ?: 'unknown'),
                 UPLOAD_ERR_FORM_SIZE => 'The uploaded file is larger than the form allows.',
                 UPLOAD_ERR_PARTIAL => 'The file upload did not complete. Try again.',
-                UPLOAD_ERR_NO_FILE => 'No file was uploaded.',
+                UPLOAD_ERR_NO_FILE => 'Select an EZ Estimate workbook to review.',
             ];
 
-            $errors[] = $uploadErrors[$file['error']] ?? 'Failed to upload the workbook. Please try again.';
+            $errors[] = $uploadErrors[$errorCode] ?? 'Failed to upload the workbook. Please try again.';
+        } elseif (empty($file['tmp_name']) || !is_string($file['tmp_name'])) {
+            $errors[] = 'The uploaded file could not be accessed. Please try again.';
+            $logUpload('Upload metadata did not include a valid tmp_name for the workbook.');
+        } elseif (!is_uploaded_file($file['tmp_name'])) {
+            $errors[] = 'The uploaded file could not be verified. Please try again.';
+            $logUpload(sprintf('tmp_name "%s" failed the is_uploaded_file check.', $file['tmp_name']));
         } else {
-            $extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+            $extension = strtolower(pathinfo((string) ($file['name'] ?? ''), PATHINFO_EXTENSION));
 
             if ($extension !== 'xlsx') {
                 $errors[] = 'Please upload an .xlsx workbook exported from Excel.';
+                $logUpload(sprintf('Rejected "%s" because the extension is not .xlsx.', $file['name'] ?? 'unknown file'));
             } else {
                 try {
                     $analysis = analyzeEstimateRequirements($db, $file['tmp_name']);
@@ -81,6 +100,7 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
 
                     $errors[] = 'Unable to process the workbook: ' . $exception->getMessage();
+                    $logUpload('Analyzer exception: ' . $exception->getMessage());
                 }
             }
         }
