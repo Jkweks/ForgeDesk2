@@ -40,6 +40,7 @@ $databaseConfig = $app['database'];
 $dbError = null;
 $errors = [];
 $analysis = null;
+$analysisLog = [];
 $uploadedName = null;
 
 try {
@@ -73,7 +74,12 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 try {
                     $analysis = analyzeEstimateRequirements($db, $file['tmp_name']);
+                    $analysisLog = $analysis['log'] ?? [];
                 } catch (\Throwable $exception) {
+                    if ($exception instanceof EstimateAnalysisException) {
+                        $analysisLog = $exception->getLog();
+                    }
+
                     $errors[] = 'Unable to process the workbook: ' . $exception->getMessage();
                 }
             }
@@ -231,7 +237,7 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
       </section>
     </main>
   </div>
-  <?php if ($analysis !== null && isset($analysis['log']) && $analysis['log'] !== []): ?>
+  <?php if ($analysisLog !== []): ?>
     <script>
       (function (logEntries, label) {
         if (!window.console || !Array.isArray(logEntries)) {
@@ -261,7 +267,7 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
         if (openedGroup && console.groupEnd) {
           console.groupEnd();
         }
-      })(<?= json_encode($analysis['log'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>, <?= json_encode($uploadedName ?? 'Workbook') ?>);
+      })(<?= json_encode($analysisLog, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>, <?= json_encode($uploadedName ?? 'Workbook') ?>);
     </script>
   <?php endif; ?>
 </body>
