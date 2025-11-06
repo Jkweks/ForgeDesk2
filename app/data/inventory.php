@@ -218,6 +218,7 @@ if (!function_exists('loadInventory')) {
             'lead_time_days' => 'ALTER TABLE inventory_items ADD COLUMN lead_time_days INTEGER NOT NULL DEFAULT 0',
             'part_number' => "ALTER TABLE inventory_items ADD COLUMN part_number TEXT NOT NULL DEFAULT ''",
             'finish' => 'ALTER TABLE inventory_items ADD COLUMN finish TEXT NULL',
+            'committed_qty' => 'ALTER TABLE inventory_items ADD COLUMN committed_qty INTEGER NOT NULL DEFAULT 0',
         ];
 
         foreach ($required as $column => $sql) {
@@ -237,7 +238,22 @@ if (!function_exists('loadInventory')) {
     /**
      * Fetch inventory rows ordered by item name.
      *
-     * @return array<int, array{item:string,sku:string,part_number:string,finish:?string,location:string,stock:int,status:string,supplier:string,supplier_contact:?string,reorder_point:int,lead_time_days:int,id:int}>
+     * @return array<int, array{
+     *   item:string,
+     *   sku:string,
+     *   part_number:string,
+     *   finish:?string,
+     *   location:string,
+     *   stock:int,
+     *   committed_qty:int,
+     *   available_qty:int,
+     *   status:string,
+     *   supplier:string,
+     *   supplier_contact:?string,
+     *   reorder_point:int,
+     *   lead_time_days:int,
+     *   id:int
+     * }>
      */
     function loadInventory(\PDO $db): array
     {
@@ -245,7 +261,9 @@ if (!function_exists('loadInventory')) {
 
         try {
             $statement = $db->query(
-                'SELECT id, item, sku, part_number, finish, location, stock, status, supplier, supplier_contact, reorder_point, lead_time_days FROM inventory_items ORDER BY item ASC'
+                'SELECT id, item, sku, part_number, finish, location, stock, committed_qty, '
+                . 'GREATEST(stock - committed_qty, 0) AS available_qty, status, supplier, supplier_contact, '
+                . 'reorder_point, lead_time_days FROM inventory_items ORDER BY item ASC'
             );
 
             $rows = $statement->fetchAll();
@@ -259,6 +277,8 @@ if (!function_exists('loadInventory')) {
                     'finish' => $row['finish'] !== null ? inventoryNormalizeFinish((string) $row['finish']) : null,
                     'location' => (string) $row['location'],
                     'stock' => (int) $row['stock'],
+                    'committed_qty' => (int) $row['committed_qty'],
+                    'available_qty' => (int) $row['available_qty'],
                     'status' => (string) $row['status'],
                     'supplier' => (string) $row['supplier'],
                     'supplier_contact' => $row['supplier_contact'] !== null ? (string) $row['supplier_contact'] : null,
@@ -275,13 +295,32 @@ if (!function_exists('loadInventory')) {
     /**
      * Retrieve a single inventory item or null if it does not exist.
      *
-     * @return array{item:string,sku:string,part_number:string,finish:?string,location:string,stock:int,status:string,supplier:string,supplier_contact:?string,reorder_point:int,lead_time_days:int,id:int}|null
+     * @return array{
+     *   item:string,
+     *   sku:string,
+     *   part_number:string,
+     *   finish:?string,
+     *   location:string,
+     *   stock:int,
+     *   committed_qty:int,
+     *   available_qty:int,
+     *   status:string,
+     *   supplier:string,
+     *   supplier_contact:?string,
+     *   reorder_point:int,
+     *   lead_time_days:int,
+     *   id:int
+     * }|null
      */
     function findInventoryItem(\PDO $db, int $id): ?array
     {
         ensureInventorySchema($db);
 
-        $statement = $db->prepare('SELECT id, item, sku, part_number, finish, location, stock, status, supplier, supplier_contact, reorder_point, lead_time_days FROM inventory_items WHERE id = :id');
+        $statement = $db->prepare(
+            'SELECT id, item, sku, part_number, finish, location, stock, committed_qty, '
+            . 'GREATEST(stock - committed_qty, 0) AS available_qty, status, supplier, supplier_contact, reorder_point, '
+            . 'lead_time_days FROM inventory_items WHERE id = :id'
+        );
         $statement->bindValue(':id', $id, \PDO::PARAM_INT);
         $statement->execute();
 
@@ -300,6 +339,8 @@ if (!function_exists('loadInventory')) {
             'finish' => $row['finish'] !== null ? inventoryNormalizeFinish((string) $row['finish']) : null,
             'location' => (string) $row['location'],
             'stock' => (int) $row['stock'],
+            'committed_qty' => (int) $row['committed_qty'],
+            'available_qty' => (int) $row['available_qty'],
             'status' => (string) $row['status'],
             'supplier' => (string) $row['supplier'],
             'supplier_contact' => $row['supplier_contact'] !== null ? (string) $row['supplier_contact'] : null,
@@ -311,13 +352,32 @@ if (!function_exists('loadInventory')) {
     /**
      * Retrieve an inventory item by SKU.
      *
-     * @return array{item:string,sku:string,part_number:string,finish:?string,location:string,stock:int,status:string,supplier:string,supplier_contact:?string,reorder_point:int,lead_time_days:int,id:int}|null
+     * @return array{
+     *   item:string,
+     *   sku:string,
+     *   part_number:string,
+     *   finish:?string,
+     *   location:string,
+     *   stock:int,
+     *   committed_qty:int,
+     *   available_qty:int,
+     *   status:string,
+     *   supplier:string,
+     *   supplier_contact:?string,
+     *   reorder_point:int,
+     *   lead_time_days:int,
+     *   id:int
+     * }|null
      */
     function findInventoryItemBySku(\PDO $db, string $sku): ?array
     {
         ensureInventorySchema($db);
 
-        $statement = $db->prepare('SELECT id, item, sku, part_number, finish, location, stock, status, supplier, supplier_contact, reorder_point, lead_time_days FROM inventory_items WHERE sku = :sku LIMIT 1');
+        $statement = $db->prepare(
+            'SELECT id, item, sku, part_number, finish, location, stock, committed_qty, '
+            . 'GREATEST(stock - committed_qty, 0) AS available_qty, status, supplier, supplier_contact, reorder_point, '
+            . 'lead_time_days FROM inventory_items WHERE sku = :sku LIMIT 1'
+        );
         $statement->bindValue(':sku', $sku, \PDO::PARAM_STR);
         $statement->execute();
 
@@ -336,6 +396,8 @@ if (!function_exists('loadInventory')) {
             'finish' => $row['finish'] !== null ? inventoryNormalizeFinish((string) $row['finish']) : null,
             'location' => (string) $row['location'],
             'stock' => (int) $row['stock'],
+            'committed_qty' => (int) $row['committed_qty'],
+            'available_qty' => (int) $row['available_qty'],
             'status' => (string) $row['status'],
             'supplier' => (string) $row['supplier'],
             'supplier_contact' => $row['supplier_contact'] !== null ? (string) $row['supplier_contact'] : null,
@@ -347,15 +409,30 @@ if (!function_exists('loadInventory')) {
     /**
      * Insert a new inventory item.
      *
-     * @param array{item:string,sku:string,part_number:string,finish:?string,location:string,stock:int,status:string,supplier:string,supplier_contact:?string,reorder_point:int,lead_time_days:int} $payload
+     * @param array{
+     *   item:string,
+     *   sku:string,
+     *   part_number:string,
+     *   finish:?string,
+     *   location:string,
+     *   stock:int,
+     *   status:string,
+     *   supplier:string,
+     *   supplier_contact:?string,
+     *   reorder_point:int,
+     *   lead_time_days:int,
+     *   committed_qty?:int
+     * } $payload
      */
     function createInventoryItem(\PDO $db, array $payload): int
     {
         ensureInventorySchema($db);
 
         $statement = $db->prepare(
-            'INSERT INTO inventory_items (item, sku, part_number, finish, location, stock, status, supplier, supplier_contact, reorder_point, lead_time_days) '
-            . 'VALUES (:item, :sku, :part_number, :finish, :location, :stock, :status, :supplier, :supplier_contact, :reorder_point, :lead_time_days) RETURNING id'
+            'INSERT INTO inventory_items (item, sku, part_number, finish, location, stock, committed_qty, status, supplier, '
+            . 'supplier_contact, reorder_point, lead_time_days) '
+            . 'VALUES (:item, :sku, :part_number, :finish, :location, :stock, :committed_qty, :status, :supplier, :supplier_contact, '
+            . ':reorder_point, :lead_time_days) RETURNING id'
         );
 
         $statement->execute([
@@ -365,6 +442,7 @@ if (!function_exists('loadInventory')) {
             ':finish' => $payload['finish'],
             ':location' => $payload['location'],
             ':stock' => $payload['stock'],
+            ':committed_qty' => $payload['committed_qty'] ?? 0,
             ':status' => $payload['status'],
             ':supplier' => $payload['supplier'],
             ':supplier_contact' => $payload['supplier_contact'],
@@ -378,7 +456,20 @@ if (!function_exists('loadInventory')) {
     /**
      * Update an existing inventory item.
      *
-     * @param array{item:string,sku:string,part_number:string,finish:?string,location:string,stock:int,status:string,supplier:string,supplier_contact:?string,reorder_point:int,lead_time_days:int} $payload
+     * @param array{
+     *   item:string,
+     *   sku:string,
+     *   part_number:string,
+     *   finish:?string,
+     *   location:string,
+     *   stock:int,
+     *   status:string,
+     *   supplier:string,
+     *   supplier_contact:?string,
+     *   reorder_point:int,
+     *   lead_time_days:int,
+     *   committed_qty?:int
+     * } $payload
      */
     function updateInventoryItem(\PDO $db, int $id, array $payload): void
     {
@@ -386,8 +477,8 @@ if (!function_exists('loadInventory')) {
 
         $statement = $db->prepare(
             'UPDATE inventory_items SET item = :item, sku = :sku, part_number = :part_number, finish = :finish, '
-            . 'location = :location, stock = :stock, status = :status, supplier = :supplier, supplier_contact = :supplier_contact, '
-            . 'reorder_point = :reorder_point, lead_time_days = :lead_time_days WHERE id = :id'
+            . 'location = :location, stock = :stock, committed_qty = :committed_qty, status = :status, supplier = :supplier, '
+            . 'supplier_contact = :supplier_contact, reorder_point = :reorder_point, lead_time_days = :lead_time_days WHERE id = :id'
         );
 
         $statement->execute([
@@ -398,6 +489,7 @@ if (!function_exists('loadInventory')) {
             ':finish' => $payload['finish'],
             ':location' => $payload['location'],
             ':stock' => $payload['stock'],
+            ':committed_qty' => $payload['committed_qty'] ?? 0,
             ':status' => $payload['status'],
             ':supplier' => $payload['supplier'],
             ':supplier_contact' => $payload['supplier_contact'],
