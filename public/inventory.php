@@ -337,20 +337,33 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
               </div>
             </div>
           <?php endif; ?>
-          <table class="table">
+          <table class="table inventory-table">
             <thead>
               <tr>
-                <th scope="col">Item</th>
-                <th scope="col">SKU</th>
-                <th scope="col">Location</th>
-                <th scope="col" class="numeric">Stock</th>
-                <th scope="col" class="numeric">Committed</th>
-                <th scope="col" class="numeric">Available</th>
-                <th scope="col" class="numeric">Reorder Point</th>
-                <th scope="col" class="numeric">Lead Time (days)</th>
-                <th scope="col">Status</th>
-                <th scope="col">Reservations</th>
+                <th scope="col" class="sortable" data-sort-key="item" aria-sort="none">Item</th>
+                <th scope="col" class="sortable" data-sort-key="sku" aria-sort="none">SKU</th>
+                <th scope="col" class="sortable" data-sort-key="location" aria-sort="none">Location</th>
+                <th scope="col" class="numeric sortable" data-sort-key="stock" data-sort-type="number" aria-sort="none">Stock</th>
+                <th scope="col" class="numeric sortable" data-sort-key="committed" data-sort-type="number" aria-sort="none">Committed</th>
+                <th scope="col" class="numeric sortable" data-sort-key="available" data-sort-type="number" aria-sort="none">Available</th>
+                <th scope="col" class="numeric sortable" data-sort-key="reorderPoint" data-sort-type="number" aria-sort="none">Reorder Point</th>
+                <th scope="col" class="numeric sortable" data-sort-key="leadTime" data-sort-type="number" aria-sort="none">Lead Time (days)</th>
+                <th scope="col" class="sortable" data-sort-key="status" aria-sort="none">Status</th>
+                <th scope="col" class="sortable" data-sort-key="reservations" data-sort-type="number" aria-sort="none">Reservations</th>
                 <th scope="col" class="actions">Actions</th>
+              </tr>
+              <tr class="filter-row">
+                <th><input type="search" class="column-filter" data-key="item" placeholder="Search items" aria-label="Filter by item"></th>
+                <th><input type="search" class="column-filter" data-key="sku" data-alt-keys="partNumber" placeholder="Search SKU or part #" aria-label="Filter by SKU"></th>
+                <th><input type="search" class="column-filter" data-key="location" placeholder="Search location" aria-label="Filter by location"></th>
+                <th><input type="search" class="column-filter" data-key="stock" placeholder="Search stock" aria-label="Filter by stock" inputmode="numeric"></th>
+                <th><input type="search" class="column-filter" data-key="committed" placeholder="Search committed" aria-label="Filter by committed" inputmode="numeric"></th>
+                <th><input type="search" class="column-filter" data-key="available" placeholder="Search available" aria-label="Filter by available" inputmode="numeric"></th>
+                <th><input type="search" class="column-filter" data-key="reorderPoint" placeholder="Search reorder" aria-label="Filter by reorder point" inputmode="numeric"></th>
+                <th><input type="search" class="column-filter" data-key="leadTime" placeholder="Search lead time" aria-label="Filter by lead time" inputmode="numeric"></th>
+                <th><input type="search" class="column-filter" data-key="status" placeholder="Search status" aria-label="Filter by status"></th>
+                <th><input type="search" class="column-filter" data-key="reservations" placeholder="Search reservations" aria-label="Filter by reservations" inputmode="numeric"></th>
+                <th aria-hidden="true"></th>
               </tr>
             </thead>
             <tbody>
@@ -359,8 +372,22 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
                   <td colspan="11" class="small">No inventory items found. Use the button above to add your first part.</td>
                 </tr>
               <?php else: ?>
-                <?php foreach ($inventory as $row): ?>
-                  <tr>
+                <?php foreach ($inventory as $index => $row): ?>
+                  <tr
+                    data-index="<?= e((string) $index) ?>"
+                    data-item="<?= e($row['item']) ?>"
+                    data-sku="<?= e($row['sku']) ?>"
+                    data-part-number="<?= e($row['part_number']) ?>"
+                    data-location="<?= e($row['location']) ?>"
+                    data-stock="<?= e((string) $row['stock']) ?>"
+                    data-committed="<?= e((string) $row['committed_qty']) ?>"
+                    data-available="<?= e((string) $row['available_qty']) ?>"
+                    data-reorder-point="<?= e((string) $row['reorder_point']) ?>"
+                    data-lead-time="<?= e((string) $row['lead_time_days']) ?>"
+                    data-status="<?= e($row['status']) ?>"
+                    data-reservations="<?= e((string) $row['active_reservations']) ?>"
+                    data-finish="<?= e($row['finish'] ?? '') ?>"
+                  >
                     <td class="item"><?= e($row['item']) ?></td>
                     <td class="sku"><span class="sku-badge"><?= e($row['sku']) ?></span></td>
                     <td><?= e($row['location']) ?></td>
@@ -574,6 +601,156 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
         closeModal();
       }
     });
+  })();
+
+  (function () {
+    const table = document.querySelector('.inventory-table');
+    if (!table) {
+      return;
+    }
+
+    const tbody = table.querySelector('tbody');
+    if (!tbody) {
+      return;
+    }
+
+    const rows = Array.from(tbody.querySelectorAll('tr[data-item]'));
+    const filters = Array.from(table.querySelectorAll('.column-filter'));
+    const headers = Array.from(table.querySelectorAll('thead th[data-sort-key]'));
+
+    const filterConfigs = filters.map((input) => {
+      const primaryKey = input.dataset.key ? [input.dataset.key] : [];
+      const altKeys = (input.dataset.altKeys || '')
+        .split(',')
+        .map((key) => key.trim())
+        .filter(Boolean);
+
+      return {
+        element: input,
+        keys: [...primaryKey, ...altKeys],
+      };
+    });
+
+    function applyFilters() {
+      rows.forEach((row) => {
+        let visible = true;
+
+        for (const config of filterConfigs) {
+          const value = config.element.value.trim().toLowerCase();
+          if (value === '') {
+            continue;
+          }
+
+          const matches = config.keys.some((datasetKey) => {
+            if (!datasetKey) {
+              return false;
+            }
+
+            const raw = row.dataset[datasetKey] || '';
+            return raw.toLowerCase().includes(value);
+          });
+
+          if (!matches) {
+            visible = false;
+            break;
+          }
+        }
+
+        row.style.display = visible ? '' : 'none';
+      });
+    }
+
+    let sortKey = null;
+    let sortDirection = 'asc';
+
+    function parseNumber(value) {
+      const number = parseFloat(value);
+      return Number.isNaN(number) ? 0 : number;
+    }
+
+    function applySort() {
+      if (!sortKey) {
+        return;
+      }
+
+      const header = headers.find((th) => th.dataset.sortKey === sortKey);
+      const sortType = header ? (header.dataset.sortType || 'string') : 'string';
+      const direction = sortDirection === 'asc' ? 1 : -1;
+
+      const sorted = [...rows].sort((a, b) => {
+        const aRaw = a.dataset[sortKey] || '';
+        const bRaw = b.dataset[sortKey] || '';
+
+        if (sortType === 'number') {
+          const aNum = parseNumber(aRaw);
+          const bNum = parseNumber(bRaw);
+
+          if (aNum === bNum) {
+            return (parseNumber(a.dataset.index || '0') - parseNumber(b.dataset.index || '0'));
+          }
+
+          return (aNum - bNum) * direction;
+        }
+
+        const comparison = aRaw.toLowerCase().localeCompare(bRaw.toLowerCase(), undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        });
+
+        if (comparison === 0) {
+          return (parseNumber(a.dataset.index || '0') - parseNumber(b.dataset.index || '0'));
+        }
+
+        return comparison * direction;
+      });
+
+      sorted.forEach((row) => {
+        tbody.appendChild(row);
+      });
+    }
+
+    headers.forEach((header) => {
+      const key = header.dataset.sortKey;
+      if (!key) {
+        return;
+      }
+
+      header.setAttribute('tabindex', '0');
+
+      header.addEventListener('click', () => {
+        if (sortKey === key) {
+          sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+          sortKey = key;
+          sortDirection = 'asc';
+        }
+
+        headers.forEach((th) => {
+          if (th.dataset.sortKey === sortKey) {
+            th.setAttribute('aria-sort', sortDirection);
+            th.setAttribute('data-sort-direction', sortDirection);
+          } else {
+            th.setAttribute('aria-sort', 'none');
+            th.removeAttribute('data-sort-direction');
+          }
+        });
+
+        applySort();
+      });
+
+      header.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          header.click();
+        }
+      });
+    });
+
+    filters.forEach((input) => {
+      input.addEventListener('input', applyFilters);
+    });
+
+    applyFilters();
   })();
   </script>
 </body>

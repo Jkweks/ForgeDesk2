@@ -269,6 +269,8 @@ if (!function_exists('loadInventory')) {
     /**
      * Fetch inventory rows ordered by item name.
      *
+     * Available quantities may be negative when commitments exceed on-hand stock.
+     *
      * @return array<int, array{
      *   item:string,
      *   sku:string,
@@ -296,7 +298,7 @@ if (!function_exists('loadInventory')) {
 
             $statement = $db->query(
                 'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, i.committed_qty, '
-                . 'GREATEST(i.stock - i.committed_qty, 0) AS available_qty, i.status, i.supplier, i.supplier_contact, '
+                . '(i.stock - i.committed_qty) AS available_qty, i.status, i.supplier, i.supplier_contact, '
                 . 'i.reorder_point, i.lead_time_days, '
                 . ($supportsReservations ? 'COALESCE(res.active_reservations, 0)' : '0') . ' AS active_reservations '
                 . 'FROM inventory_items i '
@@ -343,6 +345,8 @@ if (!function_exists('loadInventory')) {
     /**
      * Summarize inventory stock and reservation activity for dashboards.
      *
+     * The aggregated available quantity may be negative when inventory is oversubscribed.
+     *
      * @return array{total_stock:int,total_committed:int,total_available:int,active_reservations:int}
      */
     function inventoryReservationSummary(\PDO $db): array
@@ -354,7 +358,7 @@ if (!function_exists('loadInventory')) {
                 'SELECT '
                 . 'COALESCE(SUM(stock), 0) AS total_stock, '
                 . 'COALESCE(SUM(committed_qty), 0) AS total_committed, '
-                . 'COALESCE(SUM(GREATEST(stock - committed_qty, 0)), 0) AS total_available '
+                . 'COALESCE(SUM(stock - committed_qty), 0) AS total_available '
                 . 'FROM inventory_items'
             );
 
@@ -390,6 +394,8 @@ if (!function_exists('loadInventory')) {
 
     /**
      * Retrieve a single inventory item or null if it does not exist.
+     *
+     * Available quantity reflects stock minus global commitments and may be negative.
      *
      * @return array{
      *   item:string,
@@ -427,7 +433,7 @@ if (!function_exists('loadInventory')) {
 
         $statement = $db->prepare(
             'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, i.committed_qty, '
-            . 'GREATEST(i.stock - i.committed_qty, 0) AS available_qty, i.status, i.supplier, i.supplier_contact, '
+            . '(i.stock - i.committed_qty) AS available_qty, i.status, i.supplier, i.supplier_contact, '
             . 'i.reorder_point, i.lead_time_days, ' . $activeSelect . ' AS active_reservations '
             . 'FROM inventory_items i '
             . $joinClause
@@ -465,6 +471,8 @@ if (!function_exists('loadInventory')) {
     /**
      * Retrieve an inventory item by SKU.
      *
+     * Available quantity reflects stock minus global commitments and may be negative.
+     *
      * @return array{
      *   item:string,
      *   sku:string,
@@ -501,7 +509,7 @@ if (!function_exists('loadInventory')) {
 
         $statement = $db->prepare(
             'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, i.committed_qty, '
-            . 'GREATEST(i.stock - i.committed_qty, 0) AS available_qty, i.status, i.supplier, i.supplier_contact, '
+            . '(i.stock - i.committed_qty) AS available_qty, i.status, i.supplier, i.supplier_contact, '
             . 'i.reorder_point, i.lead_time_days, ' . $activeSelect . ' AS active_reservations '
             . 'FROM inventory_items i '
             . $joinClause

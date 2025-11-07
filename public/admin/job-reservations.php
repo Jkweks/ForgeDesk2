@@ -56,6 +56,7 @@ $databaseConfig = $app['database'];
 $dbError = null;
 $flashMessages = [
     'success' => [],
+    'warning' => [],
     'error' => [],
 ];
 $reservations = [];
@@ -102,6 +103,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $dbError === null && isset($db) && 
                 $result['job_number'],
                 $label
             );
+
+            foreach ($result['warnings'] as $warning) {
+                $flashMessages['warning'][] = $warning;
+            }
+
+            if (!empty($result['insufficient_items'])) {
+                foreach ($result['insufficient_items'] as $item) {
+                    $skuLabel = $item['sku'] !== null && $item['sku'] !== ''
+                        ? $item['sku']
+                        : 'SKU unavailable';
+                    $location = $item['location'] !== null && $item['location'] !== ''
+                        ? ' @ ' . $item['location']
+                        : '';
+                    $flashMessages['warning'][] = sprintf(
+                        'Short on %s (%s%s): committed %s, on hand %s, short %s.',
+                        $skuLabel,
+                        $item['item'],
+                        $location,
+                        inventoryFormatQuantity($item['committed_qty']),
+                        inventoryFormatQuantity($item['on_hand']),
+                        inventoryFormatQuantity($item['shortage'])
+                    );
+                }
+            }
             $completeId = null;
         } catch (\Throwable $exception) {
             $flashMessages['error'][] = $exception->getMessage();
@@ -239,6 +264,12 @@ $statusLabels = reservationStatusLabels();
             <?php foreach ($flashMessages['success'] as $message): ?>
                 <div class="panel message success">
                     <strong>Success</strong>
+                    <p><?= e($message) ?></p>
+                </div>
+            <?php endforeach; ?>
+            <?php foreach ($flashMessages['warning'] as $message): ?>
+                <div class="panel message warning">
+                    <strong>Warning</strong>
                     <p><?= e($message) ?></p>
                 </div>
             <?php endforeach; ?>

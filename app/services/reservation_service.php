@@ -203,7 +203,22 @@ if (!function_exists('reservationUpdateStatus')) {
     /**
      * Transition a reservation through the supported status workflow.
      *
-     * @return array{id:int,job_number:string,previous_status:string,new_status:string}
+     * @return array{
+     *   id:int,
+     *   job_number:string,
+     *   previous_status:string,
+     *   new_status:string,
+     *   warnings:list<string>,
+     *   insufficient_items:list<array{
+     *     inventory_item_id:int,
+     *     item:string,
+     *     sku:?string,
+     *     committed_qty:int,
+     *     on_hand:int,
+     *     shortage:int,
+     *     location:?string
+     *   }>
+     * }
      */
     function reservationUpdateStatus(\PDO $db, int $reservationId, string $targetStatus): array
     {
@@ -235,6 +250,9 @@ if (!function_exists('reservationUpdateStatus')) {
 
             $currentStatus = (string) $row['status'];
 
+            $warnings = [];
+            $insufficient = [];
+
             if ($currentStatus === $targetStatus) {
                 $db->commit();
 
@@ -243,6 +261,8 @@ if (!function_exists('reservationUpdateStatus')) {
                     'job_number' => (string) $row['job_number'],
                     'previous_status' => $currentStatus,
                     'new_status' => $targetStatus,
+                    'warnings' => $warnings,
+                    'insufficient_items' => $insufficient,
                 ];
             }
 
@@ -252,6 +272,41 @@ if (!function_exists('reservationUpdateStatus')) {
 
             if (!isset($transitions[$currentStatus]) || !in_array($targetStatus, $transitions[$currentStatus], true)) {
                 throw new \RuntimeException('That status change is not allowed.');
+            }
+
+            if ($currentStatus === 'committed' && $targetStatus === 'in_progress') {
+                $itemStatement = $db->prepare(
+                    'SELECT jri.inventory_item_id, jri.committed_qty, i.item, i.sku, i.stock, i.location '
+                    . 'FROM job_reservation_items jri '
+                    . 'JOIN inventory_items i ON i.id = jri.inventory_item_id '
+                    . 'WHERE jri.reservation_id = :id'
+                );
+                $itemStatement->execute([':id' => $reservationId]);
+
+                /** @var list<array<string,mixed>> $itemRows */
+                $itemRows = $itemStatement->fetchAll(\PDO::FETCH_ASSOC);
+
+                foreach ($itemRows as $itemRow) {
+                    $committedQty = (int) $itemRow['committed_qty'];
+                    $onHand = (int) $itemRow['stock'];
+
+                    if ($committedQty > $onHand) {
+                        $shortage = $committedQty - $onHand;
+                        $insufficient[] = [
+                            'inventory_item_id' => (int) $itemRow['inventory_item_id'],
+                            'item' => (string) $itemRow['item'],
+                            'sku' => isset($itemRow['sku']) ? (string) $itemRow['sku'] : null,
+                            'committed_qty' => $committedQty,
+                            'on_hand' => $onHand,
+                            'shortage' => $shortage,
+                            'location' => isset($itemRow['location']) ? (string) $itemRow['location'] : null,
+                        ];
+                    }
+                }
+
+                if ($insufficient !== []) {
+                    $warnings[] = 'Starting work will overdraw inventory for at least one line item.';
+                }
             }
 
             $update = $db->prepare('UPDATE job_reservations SET status = :status WHERE id = :id');
@@ -267,6 +322,8 @@ if (!function_exists('reservationUpdateStatus')) {
                 'job_number' => (string) $row['job_number'],
                 'previous_status' => $currentStatus,
                 'new_status' => $targetStatus,
+                'warnings' => $warnings,
+                'insufficient_items' => $insufficient,
             ];
         } catch (\Throwable $exception) {
             if ($db->inTransaction()) {
@@ -390,10 +447,6 @@ if (!function_exists('reservationComplete')) {
 
                 $consumeDelta = $targetConsumed - $alreadyConsumed;
                 $releaseQty = $committedQty;
-
-                if ($consumeDelta > 0 && $consumeDelta > (int) $inventoryRow['stock']) {
-                    throw new \RuntimeException('Not enough stock remains to cover the actual quantity pulled.');
-                }
 
                 if ($releaseQty > (int) $inventoryRow['committed_qty']) {
                     throw new \RuntimeException('Inventory commitments are out of sync for item #' . $inventoryItemId . '.');
@@ -576,15 +629,7 @@ if (!function_exists('reservationCommitItems')) {
                     throw new \RuntimeException('Unable to load inventory item #' . $itemId . ' for reservation.');
                 }
 
-                $availableBefore = max((int) $inventoryRow['stock'] - (int) $inventoryRow['committed_qty'], 0);
-
-                if ($commitQty > $availableBefore) {
-                    throw new \RuntimeException(sprintf(
-                        'Only %d unit(s) remain available for SKU %s.',
-                        $availableBefore,
-                        (string) $inventoryRow['sku']
-                    ));
-                }
+                $availableBefore = (int) $inventoryRow['stock'] - (int) $inventoryRow['committed_qty'];
 
                 $updateInventory->execute([
                     ':commit_qty' => $commitQty,
@@ -603,7 +648,7 @@ if (!function_exists('reservationCommitItems')) {
                     'requested_qty' => $requestedQty,
                     'committed_qty' => $commitQty,
                     'available_before' => $availableBefore,
-                    'available_after' => max($availableBefore - $commitQty, 0),
+                    'available_after' => $availableBefore - $commitQty,
                     'item' => (string) $inventoryRow['item'],
                     'sku' => (string) $inventoryRow['sku'],
                     'part_number' => (string) $inventoryRow['part_number'],

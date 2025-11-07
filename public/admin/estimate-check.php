@@ -631,9 +631,16 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
               <p><strong><?= e($commitSummary['job_number']) ?></strong> · <?= e($commitSummary['job_name']) ?></p>
               <ul>
                 <?php foreach ($commitSummary['items'] as $item): ?>
+                  <?php
+                  $committedQty = (int) $item['committed_qty'];
+                  $availableAfter = (int) $item['available_after'];
+                  $availabilityLabel = $availableAfter < 0
+                      ? 'short ' . inventoryFormatQuantity(abs($availableAfter))
+                      : inventoryFormatQuantity($availableAfter) . ' remaining';
+                  ?>
                   <li>
                     <span class="sku"><?= e($item['sku']) ?></span>
-                    <span>— <?= e((string) $item['committed_qty']) ?> committed (<?= e((string) $item['available_after']) ?> remaining)</span>
+                    <span>— <?= e(inventoryFormatQuantity($committedQty)) ?> committed (<?= e($availabilityLabel) ?>)</span>
                   </li>
                 <?php endforeach; ?>
               </ul>
