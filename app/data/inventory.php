@@ -84,6 +84,11 @@ if (!function_exists('loadInventory')) {
         return $finish !== null && $finish !== '' ? strtoupper($finish) : '—';
     }
 
+    function inventoryFormatQuantity(int $quantity): string
+    {
+        return number_format($quantity);
+    }
+
     function inventoryNormalizeFinish(?string $finish): ?string
     {
         if ($finish === null) {
@@ -235,6 +240,32 @@ if (!function_exists('loadInventory')) {
         $ensured = true;
     }
 
+    function inventorySupportsReservations(\PDO $db): bool
+    {
+        static $supports = null;
+
+        if ($supports !== null) {
+            return $supports;
+        }
+
+        try {
+            $statement = $db->query(
+                "SELECT to_regclass('job_reservations') AS job_reservations, "
+                . "to_regclass('job_reservation_items') AS job_reservation_items"
+            );
+
+            $row = $statement !== false ? $statement->fetch(\PDO::FETCH_ASSOC) : false;
+
+            $supports = $row !== false
+                && !empty($row['job_reservations'])
+                && !empty($row['job_reservation_items']);
+        } catch (\PDOException $exception) {
+            $supports = false;
+        }
+
+        return $supports;
+    }
+
     /**
      * Fetch inventory rows ordered by item name.
      *
@@ -252,6 +283,7 @@ if (!function_exists('loadInventory')) {
      *   supplier_contact:?string,
      *   reorder_point:int,
      *   lead_time_days:int,
+     *   active_reservations:int,
      *   id:int
      * }>
      */
@@ -260,10 +292,25 @@ if (!function_exists('loadInventory')) {
         ensureInventorySchema($db);
 
         try {
+            $supportsReservations = inventorySupportsReservations($db);
+
             $statement = $db->query(
-                'SELECT id, item, sku, part_number, finish, location, stock, committed_qty, '
-                . 'GREATEST(stock - committed_qty, 0) AS available_qty, status, supplier, supplier_contact, '
-                . 'reorder_point, lead_time_days FROM inventory_items ORDER BY item ASC'
+                'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, i.committed_qty, '
+                . 'GREATEST(i.stock - i.committed_qty, 0) AS available_qty, i.status, i.supplier, i.supplier_contact, '
+                . 'i.reorder_point, i.lead_time_days, '
+                . ($supportsReservations ? 'COALESCE(res.active_reservations, 0)' : '0') . ' AS active_reservations '
+                . 'FROM inventory_items i '
+                . ($supportsReservations
+                    ? 'LEFT JOIN (
+                    SELECT jri.inventory_item_id,
+                        COUNT(*) FILTER (WHERE jr.status IN (\'draft\', \'committed\', \'in_progress\')) AS active_reservations
+                    FROM job_reservation_items jri
+                    JOIN job_reservations jr ON jr.id = jri.reservation_id
+                    GROUP BY jri.inventory_item_id
+                ) res ON res.inventory_item_id = i.id '
+                    : ''
+                )
+                . 'ORDER BY i.item ASC'
             );
 
             $rows = $statement->fetchAll();
@@ -284,12 +331,61 @@ if (!function_exists('loadInventory')) {
                     'supplier_contact' => $row['supplier_contact'] !== null ? (string) $row['supplier_contact'] : null,
                     'reorder_point' => (int) $row['reorder_point'],
                     'lead_time_days' => (int) $row['lead_time_days'],
+                    'active_reservations' => (int) $row['active_reservations'],
                 ],
                 $rows
             );
         } catch (\PDOException $exception) {
             throw new \PDOException('Unable to load inventory data: ' . $exception->getMessage(), (int) $exception->getCode(), $exception);
         }
+    }
+
+    /**
+     * Summarize inventory stock and reservation activity for dashboards.
+     *
+     * @return array{total_stock:int,total_committed:int,total_available:int,active_reservations:int}
+     */
+    function inventoryReservationSummary(\PDO $db): array
+    {
+        ensureInventorySchema($db);
+
+        try {
+            $totalsStatement = $db->query(
+                'SELECT '
+                . 'COALESCE(SUM(stock), 0) AS total_stock, '
+                . 'COALESCE(SUM(committed_qty), 0) AS total_committed, '
+                . 'COALESCE(SUM(GREATEST(stock - committed_qty, 0)), 0) AS total_available '
+                . 'FROM inventory_items'
+            );
+
+            $totals = $totalsStatement !== false ? (array) $totalsStatement->fetch() : [];
+        } catch (\PDOException $exception) {
+            throw new \PDOException('Unable to summarize inventory commitments: ' . $exception->getMessage(), (int) $exception->getCode(), $exception);
+        }
+
+        $activeReservations = 0;
+
+        if (inventorySupportsReservations($db)) {
+            try {
+                $reservationStatement = $db->query(
+                    "SELECT COUNT(*) AS active_count FROM job_reservations "
+                    . "WHERE status IN ('draft', 'committed', 'in_progress')"
+                );
+
+                if ($reservationStatement !== false) {
+                    $activeReservations = (int) $reservationStatement->fetchColumn();
+                }
+            } catch (\PDOException $exception) {
+                $activeReservations = 0;
+            }
+        }
+
+        return [
+            'total_stock' => isset($totals['total_stock']) ? (int) $totals['total_stock'] : 0,
+            'total_committed' => isset($totals['total_committed']) ? (int) $totals['total_committed'] : 0,
+            'total_available' => isset($totals['total_available']) ? (int) $totals['total_available'] : 0,
+            'active_reservations' => $activeReservations,
+        ];
     }
 
     /**
@@ -309,6 +405,7 @@ if (!function_exists('loadInventory')) {
      *   supplier_contact:?string,
      *   reorder_point:int,
      *   lead_time_days:int,
+     *   active_reservations:int,
      *   id:int
      * }|null
      */
@@ -316,10 +413,25 @@ if (!function_exists('loadInventory')) {
     {
         ensureInventorySchema($db);
 
+        $supportsReservations = inventorySupportsReservations($db);
+        $activeSelect = $supportsReservations ? 'COALESCE(res.active_reservations, 0)' : '0';
+        $joinClause = $supportsReservations
+            ? 'LEFT JOIN (
+                SELECT jri.inventory_item_id,
+                    COUNT(*) FILTER (WHERE jr.status IN (\'draft\', \'committed\', \'in_progress\')) AS active_reservations
+                FROM job_reservation_items jri
+                JOIN job_reservations jr ON jr.id = jri.reservation_id
+                GROUP BY jri.inventory_item_id
+            ) res ON res.inventory_item_id = i.id '
+            : '';
+
         $statement = $db->prepare(
-            'SELECT id, item, sku, part_number, finish, location, stock, committed_qty, '
-            . 'GREATEST(stock - committed_qty, 0) AS available_qty, status, supplier, supplier_contact, reorder_point, '
-            . 'lead_time_days FROM inventory_items WHERE id = :id'
+            'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, i.committed_qty, '
+            . 'GREATEST(i.stock - i.committed_qty, 0) AS available_qty, i.status, i.supplier, i.supplier_contact, '
+            . 'i.reorder_point, i.lead_time_days, ' . $activeSelect . ' AS active_reservations '
+            . 'FROM inventory_items i '
+            . $joinClause
+            . 'WHERE i.id = :id'
         );
         $statement->bindValue(':id', $id, \PDO::PARAM_INT);
         $statement->execute();
@@ -346,6 +458,7 @@ if (!function_exists('loadInventory')) {
             'supplier_contact' => $row['supplier_contact'] !== null ? (string) $row['supplier_contact'] : null,
             'reorder_point' => (int) $row['reorder_point'],
             'lead_time_days' => (int) $row['lead_time_days'],
+            'active_reservations' => (int) $row['active_reservations'],
         ];
     }
 
@@ -366,6 +479,7 @@ if (!function_exists('loadInventory')) {
      *   supplier_contact:?string,
      *   reorder_point:int,
      *   lead_time_days:int,
+     *   active_reservations:int,
      *   id:int
      * }|null
      */
@@ -373,10 +487,25 @@ if (!function_exists('loadInventory')) {
     {
         ensureInventorySchema($db);
 
+        $supportsReservations = inventorySupportsReservations($db);
+        $activeSelect = $supportsReservations ? 'COALESCE(res.active_reservations, 0)' : '0';
+        $joinClause = $supportsReservations
+            ? 'LEFT JOIN (
+                SELECT jri.inventory_item_id,
+                    COUNT(*) FILTER (WHERE jr.status IN (\'draft\', \'committed\', \'in_progress\')) AS active_reservations
+                FROM job_reservation_items jri
+                JOIN job_reservations jr ON jr.id = jri.reservation_id
+                GROUP BY jri.inventory_item_id
+            ) res ON res.inventory_item_id = i.id '
+            : '';
+
         $statement = $db->prepare(
-            'SELECT id, item, sku, part_number, finish, location, stock, committed_qty, '
-            . 'GREATEST(stock - committed_qty, 0) AS available_qty, status, supplier, supplier_contact, reorder_point, '
-            . 'lead_time_days FROM inventory_items WHERE sku = :sku LIMIT 1'
+            'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, i.committed_qty, '
+            . 'GREATEST(i.stock - i.committed_qty, 0) AS available_qty, i.status, i.supplier, i.supplier_contact, '
+            . 'i.reorder_point, i.lead_time_days, ' . $activeSelect . ' AS active_reservations '
+            . 'FROM inventory_items i '
+            . $joinClause
+            . 'WHERE i.sku = :sku LIMIT 1'
         );
         $statement->bindValue(':sku', $sku, \PDO::PARAM_STR);
         $statement->execute();
@@ -403,6 +532,7 @@ if (!function_exists('loadInventory')) {
             'supplier_contact' => $row['supplier_contact'] !== null ? (string) $row['supplier_contact'] : null,
             'reorder_point' => (int) $row['reorder_point'],
             'lead_time_days' => (int) $row['lead_time_days'],
+            'active_reservations' => (int) $row['active_reservations'],
         ];
     }
 

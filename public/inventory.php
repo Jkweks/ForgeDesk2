@@ -34,6 +34,12 @@ $dbError = null;
 $errors = [];
 $successMessage = null;
 $inventory = [];
+$inventorySummary = [
+    'total_stock' => 0,
+    'total_committed' => 0,
+    'total_available' => 0,
+    'active_reservations' => 0,
+];
 $editingId = null;
 $statuses = ['In Stock', 'Low', 'Reorder', 'Critical', 'Discontinued'];
 
@@ -213,6 +219,7 @@ if ($dbError === null) {
     }
 
     $inventory = loadInventory($db);
+    $inventorySummary = inventoryReservationSummary($db);
 }
 
 if (isset($_GET['success'])) {
@@ -306,6 +313,30 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
         <?php endif; ?>
 
         <div class="table-wrapper">
+          <?php if ($dbError === null): ?>
+            <div class="inventory-metrics" role="list">
+              <div class="metric" role="listitem">
+                <span class="metric-label">Units on hand</span>
+                <span class="metric-value"><?= e(inventoryFormatQuantity($inventorySummary['total_stock'])) ?></span>
+              </div>
+              <div class="metric" role="listitem">
+                <span class="metric-label">Committed to jobs</span>
+                <span class="metric-value"><?= e(inventoryFormatQuantity($inventorySummary['total_committed'])) ?></span>
+              </div>
+              <div class="metric" role="listitem">
+                <span class="metric-label">Available to promise</span>
+                <span class="metric-value"><?= e(inventoryFormatQuantity($inventorySummary['total_available'])) ?></span>
+              </div>
+              <div class="metric" role="listitem">
+                <span class="metric-label">Active reservations</span>
+                <span class="metric-value">
+                  <a class="metric-link" href="jobs/reservations.php">
+                    <?= e((string) $inventorySummary['active_reservations']) ?>
+                  </a>
+                </span>
+              </div>
+            </div>
+          <?php endif; ?>
           <table class="table">
             <thead>
               <tr>
@@ -315,18 +346,21 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
                 <th scope="col">SKU</th>
                 <th scope="col">Location</th>
                 <th scope="col">Stock</th>
+                <th scope="col">Committed</th>
+                <th scope="col">Available</th>
                 <th scope="col">Reorder Point</th>
                 <th scope="col">Supplier</th>
                 <th scope="col">Contact</th>
                 <th scope="col">Lead Time (days)</th>
                 <th scope="col">Status</th>
+                <th scope="col">Reservations</th>
                 <th scope="col" class="actions">Actions</th>
               </tr>
             </thead>
             <tbody>
               <?php if ($inventory === []): ?>
                 <tr>
-                  <td colspan="12" class="small">No inventory items found. Use the button above to add your first part.</td>
+                  <td colspan="15" class="small">No inventory items found. Use the button above to add your first part.</td>
                 </tr>
               <?php else: ?>
                 <?php foreach ($inventory as $row): ?>
@@ -336,8 +370,14 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
                     <td><?= e(inventoryFormatFinish($row['finish'])) ?></td>
                     <td><?= e($row['sku']) ?></td>
                     <td><?= e($row['location']) ?></td>
-                    <td><?= e((string) $row['stock']) ?></td>
-                    <td><?= e((string) $row['reorder_point']) ?></td>
+                    <td><span class="quantity-pill"><?= e(inventoryFormatQuantity($row['stock'])) ?></span></td>
+                    <td><span class="quantity-pill brand"><?= e(inventoryFormatQuantity($row['committed_qty'])) ?></span></td>
+                    <td>
+                      <span class="quantity-pill <?= $row['available_qty'] <= 0 ? 'danger' : 'success' ?>">
+                        <?= e(inventoryFormatQuantity($row['available_qty'])) ?>
+                      </span>
+                    </td>
+                    <td><?= e(inventoryFormatQuantity($row['reorder_point'])) ?></td>
                     <td><?= e($row['supplier']) ?></td>
                     <td><?= e($row['supplier_contact'] ?? '—') ?></td>
                     <td><?= e((string) $row['lead_time_days']) ?></td>
@@ -345,6 +385,15 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
                       <span class="status" data-level="<?= e($row['status']) ?>">
                         <?= e($row['status']) ?>
                       </span>
+                    </td>
+                    <td class="reservations">
+                      <?php if ($row['active_reservations'] > 0): ?>
+                        <a class="reservation-link" href="jobs/reservations.php?inventory_id=<?= e((string) $row['id']) ?>">
+                          <?= e($row['active_reservations'] === 1 ? '1 active job' : $row['active_reservations'] . ' active jobs') ?>
+                        </a>
+                      <?php else: ?>
+                        <span class="reservation-link muted">None</span>
+                      <?php endif; ?>
                     </td>
                     <td class="actions">
                       <a class="button ghost" href="inventory.php?id=<?= e((string) $row['id']) ?>">Edit</a>
