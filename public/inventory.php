@@ -330,7 +330,7 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
               <div class="metric" role="listitem">
                 <span class="metric-label">Active reservations</span>
                 <span class="metric-value">
-                  <a class="metric-link" href="jobs/reservations.php">
+                  <a class="metric-link" href="admin/job-reservations.php">
                     <?= e((string) $inventorySummary['active_reservations']) ?>
                   </a>
                 </span>
@@ -341,17 +341,13 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
             <thead>
               <tr>
                 <th scope="col">Item</th>
-                <th scope="col">Part Number</th>
-                <th scope="col">Finish</th>
                 <th scope="col">SKU</th>
                 <th scope="col">Location</th>
-                <th scope="col">Stock</th>
-                <th scope="col">Committed</th>
-                <th scope="col">Available</th>
-                <th scope="col">Reorder Point</th>
-                <th scope="col">Supplier</th>
-                <th scope="col">Contact</th>
-                <th scope="col">Lead Time (days)</th>
+                <th scope="col" class="numeric">Stock</th>
+                <th scope="col" class="numeric">Committed</th>
+                <th scope="col" class="numeric">Available</th>
+                <th scope="col" class="numeric">Reorder Point</th>
+                <th scope="col" class="numeric">Lead Time (days)</th>
                 <th scope="col">Status</th>
                 <th scope="col">Reservations</th>
                 <th scope="col" class="actions">Actions</th>
@@ -360,27 +356,23 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
             <tbody>
               <?php if ($inventory === []): ?>
                 <tr>
-                  <td colspan="15" class="small">No inventory items found. Use the button above to add your first part.</td>
+                  <td colspan="11" class="small">No inventory items found. Use the button above to add your first part.</td>
                 </tr>
               <?php else: ?>
                 <?php foreach ($inventory as $row): ?>
                   <tr>
-                    <td><?= e($row['item']) ?></td>
-                    <td><?= e($row['part_number']) ?></td>
-                    <td><?= e(inventoryFormatFinish($row['finish'])) ?></td>
-                    <td><?= e($row['sku']) ?></td>
+                    <td class="item"><?= e($row['item']) ?></td>
+                    <td class="sku"><span class="sku-badge"><?= e($row['sku']) ?></span></td>
                     <td><?= e($row['location']) ?></td>
-                    <td><span class="quantity-pill"><?= e(inventoryFormatQuantity($row['stock'])) ?></span></td>
-                    <td><span class="quantity-pill brand"><?= e(inventoryFormatQuantity($row['committed_qty'])) ?></span></td>
-                    <td>
+                    <td class="numeric"><span class="quantity-pill"><?= e(inventoryFormatQuantity($row['stock'])) ?></span></td>
+                    <td class="numeric"><span class="quantity-pill brand"><?= e(inventoryFormatQuantity($row['committed_qty'])) ?></span></td>
+                    <td class="numeric">
                       <span class="quantity-pill <?= $row['available_qty'] <= 0 ? 'danger' : 'success' ?>">
                         <?= e(inventoryFormatQuantity($row['available_qty'])) ?>
                       </span>
                     </td>
-                    <td><?= e(inventoryFormatQuantity($row['reorder_point'])) ?></td>
-                    <td><?= e($row['supplier']) ?></td>
-                    <td><?= e($row['supplier_contact'] ?? '—') ?></td>
-                    <td><?= e((string) $row['lead_time_days']) ?></td>
+                    <td class="numeric"><?= e(inventoryFormatQuantity($row['reorder_point'])) ?></td>
+                    <td class="numeric"><?= e((string) $row['lead_time_days']) ?></td>
                     <td>
                       <span class="status" data-level="<?= e($row['status']) ?>">
                         <?= e($row['status']) ?>
@@ -388,7 +380,7 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
                     </td>
                     <td class="reservations">
                       <?php if ($row['active_reservations'] > 0): ?>
-                        <a class="reservation-link" href="jobs/reservations.php?inventory_id=<?= e((string) $row['id']) ?>">
+                        <a class="reservation-link" href="admin/job-reservations.php?inventory_id=<?= e((string) $row['id']) ?>">
                           <?= e($row['active_reservations'] === 1 ? '1 active job' : $row['active_reservations'] . ' active jobs') ?>
                         </a>
                       <?php else: ?>

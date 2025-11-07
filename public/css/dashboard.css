@@ -333,6 +333,16 @@ a{color:inherit;text-decoration:none}
   padding-bottom:12px;
 }
 
+.table thead th.numeric,
+.table tbody td.numeric{
+  text-align:right;
+}
+
+.table tbody td.numeric{
+  font-variant-numeric:tabular-nums;
+  padding-right:4px;
+}
+
 .table tbody tr{
   border-top:1px solid rgba(255,255,255,.06);
 }
@@ -340,6 +350,27 @@ a{color:inherit;text-decoration:none}
 .table tbody td{
   padding:14px 0;
   vertical-align:middle;
+}
+
+.table tbody td.item{
+  font-weight:600;
+}
+
+.table tbody td.sku{
+  font-family:SFMono-Regular,Consolas,'Liberation Mono',Menlo,monospace;
+}
+
+.sku-badge{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:4px 12px;
+  border-radius:999px;
+  background:rgba(255,255,255,.06);
+  font-size:.85rem;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  color:#fff;
 }
 
 .table .select-col{
