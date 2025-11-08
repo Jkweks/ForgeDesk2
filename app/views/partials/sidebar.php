@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 
 foreach ($nav as &$groupItems) {
     foreach ($groupItems as &$item) {
@@ -9,7 +10,7 @@ foreach ($nav as &$groupItems) {
     }
 }
 
-declare(strict_types=1);
+
 
 /** @var array<string,mixed> $app */
 /** @var array<string,array<int,array<string,mixed>>> $nav */
