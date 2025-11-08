@@ -191,6 +191,8 @@ if (!function_exists('seedInventoryFromXlsx')) {
             try {
                 $existing = findInventoryItemBySku($db, $sku);
 
+                $payload['committed_qty'] = $existing !== null ? (int) $existing['committed_qty'] : 0;
+
                 if ($existing === null) {
                     createInventoryItem($db, $payload);
                     $result['inserted']++;

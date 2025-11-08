@@ -321,6 +321,9 @@ if (!function_exists('analyzeEstimateRequirements')) {
                 if (!isset($inventoryIndex[$key])) {
                     $inventoryIndex[$key] = [
                         'stock' => (int) $item['stock'],
+                        'available_qty' => (int) $item['available_qty'],
+                        'committed_qty' => (int) $item['committed_qty'],
+                        'id' => (int) $item['id'],
                         'sku'   => (string) $item['sku'],
                         'finish' => $finish,
                         'part_number' => $item['part_number'],
@@ -334,7 +337,7 @@ if (!function_exists('analyzeEstimateRequirements')) {
             foreach ($requirements as $key => $requirement) {
                 $counts['total']++;
                 $match = $inventoryIndex[$key] ?? null;
-                $available = $match['stock'] ?? null;
+                $available = $match['available_qty'] ?? null;
                 $sku = $match['sku'] ?? null;
                 $finish = $requirement['finish'];
                 $partNumber = $requirement['part_number'];
@@ -342,7 +345,7 @@ if (!function_exists('analyzeEstimateRequirements')) {
                 $shortfall = $requirement['required'];
 
                 if ($match !== null) {
-                    $availableQty = (int) $match['stock'];
+                    $availableQty = (int) $match['available_qty'];
                     $status = $availableQty >= $requirement['required'] ? 'available' : 'short';
                     $shortfall = max(0, $requirement['required'] - $availableQty);
                     $counts[$status]++;
@@ -361,6 +364,8 @@ if (!function_exists('analyzeEstimateRequirements')) {
                     'shortfall'   => $shortfall,
                     'status'      => $status,
                     'sku'         => $sku,
+                    'inventory_item_id' => $match['id'] ?? null,
+                    'committed_qty' => $match['committed_qty'] ?? null,
                 ];
             }
 

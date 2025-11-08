@@ -12,12 +12,22 @@ require_once __DIR__ . '/../app/data/inventory.php';
 $databaseConfig = $app['database'];
 $metrics = [];
 $inventory = [];
+$inventoryStats = [
+    'sku_count' => 0,
+    'units_on_hand' => 0,
+];
 $dbError = null;
 
 try {
     $db = db($databaseConfig);
     $metrics = loadMetrics($db);
     $inventory = loadInventory($db);
+    $totals = inventoryReservationSummary($db);
+
+    $inventoryStats = [
+        'sku_count' => count($inventory),
+        'units_on_hand' => $totals['total_stock'] ?? 0,
+    ];
 } catch (\Throwable $exception) {
     $dbError = $exception->getMessage();
 }
@@ -113,30 +123,34 @@ function nav_href(array $item): string
       </section>
 
       <section class="metrics" aria-label="Inventory health metrics">
-        <?php if ($metrics === []): ?>
-          <article class="metric">
+        <article class="metric">
+          <div class="metric-header">
+            <span>SKUs tracked</span>
+          </div>
+          <p class="metric-value"><?= e(inventoryFormatQuantity($inventoryStats['sku_count'])) ?></p>
+          <p class="metric-delta small">Live parts currently in the system.</p>
+        </article>
+        <article class="metric">
+          <div class="metric-header">
+            <span>Units on hand</span>
+          </div>
+          <p class="metric-value"><?= e(inventoryFormatQuantity($inventoryStats['units_on_hand'])) ?></p>
+          <p class="metric-delta small">Quantities available across all SKUs.</p>
+        </article>
+        <?php foreach ($metrics as $metric): ?>
+          <article class="metric<?= !empty($metric['accent']) ? ' accent' : '' ?>">
             <div class="metric-header">
-              <span>No metrics yet</span>
-            </div>
-            <p class="metric-value">--</p>
-            <p class="metric-delta small">Populate the database to see live KPIs.</p>
-          </article>
-        <?php else: ?>
-          <?php foreach ($metrics as $metric): ?>
-            <article class="metric<?= !empty($metric['accent']) ? ' accent' : '' ?>">
-              <div class="metric-header">
-                <span><?= e($metric['label']) ?></span>
-                <?php if (!empty($metric['time'])): ?>
-                  <span class="metric-time"><?= e($metric['time']) ?></span>
-                <?php endif; ?>
-              </div>
-              <p class="metric-value"><?= e((string) $metric['value']) ?></p>
-              <?php if (!empty($metric['delta'])): ?>
-                <p class="metric-delta"><?= e($metric['delta']) ?></p>
+              <span><?= e($metric['label']) ?></span>
+              <?php if (!empty($metric['time'])): ?>
+                <span class="metric-time"><?= e($metric['time']) ?></span>
               <?php endif; ?>
-            </article>
-          <?php endforeach; ?>
-        <?php endif; ?>
+            </div>
+            <p class="metric-value"><?= e((string) $metric['value']) ?></p>
+            <?php if (!empty($metric['delta'])): ?>
+              <p class="metric-delta"><?= e($metric['delta']) ?></p>
+            <?php endif; ?>
+          </article>
+        <?php endforeach; ?>
       </section>
 
       <section class="panel" id="stock-levels" aria-labelledby="inventory-title">

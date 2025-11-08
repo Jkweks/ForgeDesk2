@@ -34,6 +34,12 @@ $dbError = null;
 $errors = [];
 $successMessage = null;
 $inventory = [];
+$inventorySummary = [
+    'total_stock' => 0,
+    'total_committed' => 0,
+    'total_available' => 0,
+    'active_reservations' => 0,
+];
 $editingId = null;
 $statuses = ['In Stock', 'Low', 'Reorder', 'Critical', 'Discontinued'];
 
@@ -213,6 +219,7 @@ if ($dbError === null) {
     }
 
     $inventory = loadInventory($db);
+    $inventorySummary = inventoryReservationSummary($db);
 }
 
 if (isset($_GET['success'])) {
@@ -279,7 +286,7 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
           </div>
           <div class="header-actions">
             <a class="button secondary" href="cycle-count.php">Start cycle count</a>
-            <a class="button secondary" href="admin/estimate-check.php">Analyze EZ Estimate</a>
+            <a class="button secondary" href="/admin/estimate-check.php">Analyze EZ Estimate</a>
             <a class="button primary" href="inventory.php?modal=open">Add Inventory Item</a>
             <?php if ($editingId !== null): ?>
               <a class="button secondary" href="inventory.php">Exit edit</a>
@@ -306,45 +313,106 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
         <?php endif; ?>
 
         <div class="table-wrapper">
-          <table class="table">
+          <?php if ($dbError === null): ?>
+            <div class="inventory-metrics" role="list">
+              <div class="metric" role="listitem">
+                <span class="metric-label">Units on hand</span>
+                <span class="metric-value"><?= e(inventoryFormatQuantity($inventorySummary['total_stock'])) ?></span>
+              </div>
+              <div class="metric" role="listitem">
+                <span class="metric-label">Committed to jobs</span>
+                <span class="metric-value"><?= e(inventoryFormatQuantity($inventorySummary['total_committed'])) ?></span>
+              </div>
+              <div class="metric" role="listitem">
+                <span class="metric-label">Available to promise</span>
+                <span class="metric-value"><?= e(inventoryFormatQuantity($inventorySummary['total_available'])) ?></span>
+              </div>
+              <div class="metric" role="listitem">
+                <span class="metric-label">Active reservations</span>
+                <span class="metric-value">
+                  <a class="metric-link" href="/admin/job-reservations.php">
+                    <?= e((string) $inventorySummary['active_reservations']) ?>
+                  </a>
+                </span>
+              </div>
+            </div>
+          <?php endif; ?>
+          <table class="table inventory-table">
             <thead>
               <tr>
-                <th scope="col">Item</th>
-                <th scope="col">Part Number</th>
-                <th scope="col">Finish</th>
-                <th scope="col">SKU</th>
-                <th scope="col">Location</th>
-                <th scope="col">Stock</th>
-                <th scope="col">Reorder Point</th>
-                <th scope="col">Supplier</th>
-                <th scope="col">Contact</th>
-                <th scope="col">Lead Time (days)</th>
-                <th scope="col">Status</th>
+                <th scope="col" class="sortable" data-sort-key="item" aria-sort="none">Item</th>
+                <th scope="col" class="sortable" data-sort-key="sku" aria-sort="none">SKU</th>
+                <th scope="col" class="sortable" data-sort-key="location" aria-sort="none">Location</th>
+                <th scope="col" class="numeric sortable" data-sort-key="stock" data-sort-type="number" aria-sort="none">Stock</th>
+                <th scope="col" class="numeric sortable" data-sort-key="committed" data-sort-type="number" aria-sort="none">Committed</th>
+                <th scope="col" class="numeric sortable" data-sort-key="available" data-sort-type="number" aria-sort="none">Available</th>
+                <th scope="col" class="numeric sortable" data-sort-key="reorderPoint" data-sort-type="number" aria-sort="none">Reorder Point</th>
+                <th scope="col" class="numeric sortable" data-sort-key="leadTime" data-sort-type="number" aria-sort="none">Lead Time (days)</th>
+                <th scope="col" class="sortable" data-sort-key="status" aria-sort="none">Status</th>
+                <th scope="col" class="sortable" data-sort-key="reservations" data-sort-type="number" aria-sort="none">Reservations</th>
                 <th scope="col" class="actions">Actions</th>
+              </tr>
+              <tr class="filter-row">
+                <th><input type="search" class="column-filter" data-key="item" placeholder="Search items" aria-label="Filter by item"></th>
+                <th><input type="search" class="column-filter" data-key="sku" data-alt-keys="partNumber" placeholder="Search SKU or part #" aria-label="Filter by SKU"></th>
+                <th><input type="search" class="column-filter" data-key="location" placeholder="Search location" aria-label="Filter by location"></th>
+                <th><input type="search" class="column-filter" data-key="stock" placeholder="Search stock" aria-label="Filter by stock" inputmode="numeric"></th>
+                <th><input type="search" class="column-filter" data-key="committed" placeholder="Search committed" aria-label="Filter by committed" inputmode="numeric"></th>
+                <th><input type="search" class="column-filter" data-key="available" placeholder="Search available" aria-label="Filter by available" inputmode="numeric"></th>
+                <th><input type="search" class="column-filter" data-key="reorderPoint" placeholder="Search reorder" aria-label="Filter by reorder point" inputmode="numeric"></th>
+                <th><input type="search" class="column-filter" data-key="leadTime" placeholder="Search lead time" aria-label="Filter by lead time" inputmode="numeric"></th>
+                <th><input type="search" class="column-filter" data-key="status" placeholder="Search status" aria-label="Filter by status"></th>
+                <th><input type="search" class="column-filter" data-key="reservations" placeholder="Search reservations" aria-label="Filter by reservations" inputmode="numeric"></th>
+                <th aria-hidden="true"></th>
               </tr>
             </thead>
             <tbody>
               <?php if ($inventory === []): ?>
                 <tr>
-                  <td colspan="12" class="small">No inventory items found. Use the button above to add your first part.</td>
+                  <td colspan="11" class="small">No inventory items found. Use the button above to add your first part.</td>
                 </tr>
               <?php else: ?>
-                <?php foreach ($inventory as $row): ?>
-                  <tr>
-                    <td><?= e($row['item']) ?></td>
-                    <td><?= e($row['part_number']) ?></td>
-                    <td><?= e(inventoryFormatFinish($row['finish'])) ?></td>
-                    <td><?= e($row['sku']) ?></td>
+                <?php foreach ($inventory as $index => $row): ?>
+                  <tr
+                    data-index="<?= e((string) $index) ?>"
+                    data-item="<?= e($row['item']) ?>"
+                    data-sku="<?= e($row['sku']) ?>"
+                    data-part-number="<?= e($row['part_number']) ?>"
+                    data-location="<?= e($row['location']) ?>"
+                    data-stock="<?= e((string) $row['stock']) ?>"
+                    data-committed="<?= e((string) $row['committed_qty']) ?>"
+                    data-available="<?= e((string) $row['available_qty']) ?>"
+                    data-reorder-point="<?= e((string) $row['reorder_point']) ?>"
+                    data-lead-time="<?= e((string) $row['lead_time_days']) ?>"
+                    data-status="<?= e($row['status']) ?>"
+                    data-reservations="<?= e((string) $row['active_reservations']) ?>"
+                    data-finish="<?= e($row['finish'] ?? '') ?>"
+                  >
+                    <td class="item"><?= e($row['item']) ?></td>
+                    <td class="sku"><span class="sku-badge"><?= e($row['sku']) ?></span></td>
                     <td><?= e($row['location']) ?></td>
-                    <td><?= e((string) $row['stock']) ?></td>
-                    <td><?= e((string) $row['reorder_point']) ?></td>
-                    <td><?= e($row['supplier']) ?></td>
-                    <td><?= e($row['supplier_contact'] ?? '—') ?></td>
-                    <td><?= e((string) $row['lead_time_days']) ?></td>
+                    <td class="numeric"><span class="quantity-pill"><?= e(inventoryFormatQuantity($row['stock'])) ?></span></td>
+                    <td class="numeric"><span class="quantity-pill brand"><?= e(inventoryFormatQuantity($row['committed_qty'])) ?></span></td>
+                    <td class="numeric">
+                      <span class="quantity-pill <?= $row['available_qty'] <= 0 ? 'danger' : 'success' ?>">
+                        <?= e(inventoryFormatQuantity($row['available_qty'])) ?>
+                      </span>
+                    </td>
+                    <td class="numeric"><?= e(inventoryFormatQuantity($row['reorder_point'])) ?></td>
+                    <td class="numeric"><?= e((string) $row['lead_time_days']) ?></td>
                     <td>
                       <span class="status" data-level="<?= e($row['status']) ?>">
                         <?= e($row['status']) ?>
                       </span>
+                    </td>
+                    <td class="reservations">
+                      <?php if ($row['active_reservations'] > 0): ?>
+                        <a class="reservation-link" href="/admin/job-reservations.php?inventory_id=<?= e((string) $row['id']) ?>">
+                          <?= e($row['active_reservations'] === 1 ? '1 active job' : $row['active_reservations'] . ' active jobs') ?>
+                        </a>
+                      <?php else: ?>
+                        <span class="reservation-link muted">None</span>
+                      <?php endif; ?>
                     </td>
                     <td class="actions">
                       <a class="button ghost" href="inventory.php?id=<?= e((string) $row['id']) ?>">Edit</a>
@@ -533,6 +601,156 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
         closeModal();
       }
     });
+  })();
+
+  (function () {
+    const table = document.querySelector('.inventory-table');
+    if (!table) {
+      return;
+    }
+
+    const tbody = table.querySelector('tbody');
+    if (!tbody) {
+      return;
+    }
+
+    const rows = Array.from(tbody.querySelectorAll('tr[data-item]'));
+    const filters = Array.from(table.querySelectorAll('.column-filter'));
+    const headers = Array.from(table.querySelectorAll('thead th[data-sort-key]'));
+
+    const filterConfigs = filters.map((input) => {
+      const primaryKey = input.dataset.key ? [input.dataset.key] : [];
+      const altKeys = (input.dataset.altKeys || '')
+        .split(',')
+        .map((key) => key.trim())
+        .filter(Boolean);
+
+      return {
+        element: input,
+        keys: [...primaryKey, ...altKeys],
+      };
+    });
+
+    function applyFilters() {
+      rows.forEach((row) => {
+        let visible = true;
+
+        for (const config of filterConfigs) {
+          const value = config.element.value.trim().toLowerCase();
+          if (value === '') {
+            continue;
+          }
+
+          const matches = config.keys.some((datasetKey) => {
+            if (!datasetKey) {
+              return false;
+            }
+
+            const raw = row.dataset[datasetKey] || '';
+            return raw.toLowerCase().includes(value);
+          });
+
+          if (!matches) {
+            visible = false;
+            break;
+          }
+        }
+
+        row.style.display = visible ? '' : 'none';
+      });
+    }
+
+    let sortKey = null;
+    let sortDirection = 'asc';
+
+    function parseNumber(value) {
+      const number = parseFloat(value);
+      return Number.isNaN(number) ? 0 : number;
+    }
+
+    function applySort() {
+      if (!sortKey) {
+        return;
+      }
+
+      const header = headers.find((th) => th.dataset.sortKey === sortKey);
+      const sortType = header ? (header.dataset.sortType || 'string') : 'string';
+      const direction = sortDirection === 'asc' ? 1 : -1;
+
+      const sorted = [...rows].sort((a, b) => {
+        const aRaw = a.dataset[sortKey] || '';
+        const bRaw = b.dataset[sortKey] || '';
+
+        if (sortType === 'number') {
+          const aNum = parseNumber(aRaw);
+          const bNum = parseNumber(bRaw);
+
+          if (aNum === bNum) {
+            return (parseNumber(a.dataset.index || '0') - parseNumber(b.dataset.index || '0'));
+          }
+
+          return (aNum - bNum) * direction;
+        }
+
+        const comparison = aRaw.toLowerCase().localeCompare(bRaw.toLowerCase(), undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        });
+
+        if (comparison === 0) {
+          return (parseNumber(a.dataset.index || '0') - parseNumber(b.dataset.index || '0'));
+        }
+
+        return comparison * direction;
+      });
+
+      sorted.forEach((row) => {
+        tbody.appendChild(row);
+      });
+    }
+
+    headers.forEach((header) => {
+      const key = header.dataset.sortKey;
+      if (!key) {
+        return;
+      }
+
+      header.setAttribute('tabindex', '0');
+
+      header.addEventListener('click', () => {
+        if (sortKey === key) {
+          sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+          sortKey = key;
+          sortDirection = 'asc';
+        }
+
+        headers.forEach((th) => {
+          if (th.dataset.sortKey === sortKey) {
+            th.setAttribute('aria-sort', sortDirection);
+            th.setAttribute('data-sort-direction', sortDirection);
+          } else {
+            th.setAttribute('aria-sort', 'none');
+            th.removeAttribute('data-sort-direction');
+          }
+        });
+
+        applySort();
+      });
+
+      header.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          header.click();
+        }
+      });
+    });
+
+    filters.forEach((input) => {
+      input.addEventListener('input', applyFilters);
+    });
+
+    applyFilters();
   })();
   </script>
 </body>
