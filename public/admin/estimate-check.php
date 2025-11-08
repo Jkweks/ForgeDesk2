@@ -140,8 +140,10 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $sku = isset($line['sku']) && $line['sku'] !== '' ? (string) $line['sku'] : null;
 
             $required = max(0, $required);
-            $available = $available !== null ? max(0, $available) : null;
-            $shortfall = $shortfall !== null ? max(0, $shortfall) : max(0, $required - ($available ?? 0));
+            $available = $available !== null ? $available : null;
+            $shortfall = $shortfall !== null
+                ? max(0, $shortfall)
+                : max(0, $required - max(0, $available ?? 0));
 
             $analysisItems[] = [
                 'part_number' => $partNumber,
@@ -201,20 +203,19 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        $eligibleIndices = [];
+        $selectableIndices = [];
         foreach ($analysisItems as $index => $item) {
             $inventoryId = $item['inventory_item_id'];
             $available = $item['available'];
             $requiredQty = $item['required'];
+            $status = $item['status'];
             if (
                 $inventoryId !== null
                 && $inventoryId > 0
                 && $requiredQty > 0
-                && $available !== null
-                && $available >= $requiredQty
-                && $item['status'] === 'available'
+                && in_array($status, ['available', 'short'], true)
             ) {
-                $eligibleIndices[] = $index;
+                $selectableIndices[] = $index;
             }
         }
 
@@ -222,7 +223,7 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $selectedIndices = [];
 
         if ($commitAction === 'all') {
-            $selectedIndices = $eligibleIndices;
+            $selectedIndices = $selectableIndices;
         } else {
             $selectedRaw = isset($_POST['selected']) ? (array) $_POST['selected'] : [];
             foreach ($selectedRaw as $value) {
@@ -231,16 +232,16 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
                     continue;
                 }
 
-                if (in_array($index, $eligibleIndices, true) && !in_array($index, $selectedIndices, true)) {
+                if (in_array($index, $selectableIndices, true) && !in_array($index, $selectedIndices, true)) {
                     $selectedIndices[] = $index;
                 }
             }
         }
 
-        if ($eligibleIndices === []) {
-            $errors[] = 'None of the reviewed lines are ready to reserve. Re-run the analysis to refresh availability.';
+        if ($selectableIndices === []) {
+            $errors[] = 'None of the reviewed lines are linked to inventory items that can be committed.';
         } elseif ($selectedIndices === []) {
-            $errors[] = 'Select at least one line item that is ready to commit.';
+            $errors[] = 'Select at least one line item to commit.';
         }
 
         if ($errors === []) {
@@ -274,7 +275,7 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
                     foreach ($analysisItems as &$analysisItem) {
                         if ((int) ($analysisItem['inventory_item_id'] ?? 0) === (int) $reservedItem['inventory_item_id']) {
                             $analysisItem['available'] = $reservedItem['available_after'];
-                            $analysisItem['shortfall'] = max(0, $analysisItem['required'] - $analysisItem['available']);
+                            $analysisItem['shortfall'] = max(0, -$reservedItem['available_after']);
                             $analysisItem['committed_qty'] = ($analysisItem['committed_qty'] ?? 0) + (int) $reservedItem['committed_qty'];
                             $analysisItem['just_committed'] = true;
                         }
@@ -562,7 +563,7 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
                   <tr>
                     <th scope="col" class="select-col">
                       <input type="checkbox" id="select-all" <?= !$supportsReservations ? 'disabled' : '' ?> />
-                      <label class="sr-only" for="select-all">Select all available lines</label>
+                      <label class="sr-only" for="select-all">Select all matched lines</label>
                     </th>
                     <th scope="col">Part Number</th>
                     <th scope="col">Finish</th>
@@ -584,11 +585,9 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
                       $finishLabel = $item['finish'] !== null ? $item['finish'] : '—';
                       $available = $item['available'];
                       $statusLabel = ucfirst($item['status']);
-                      $isEligible = $supportsReservations
+                      $isSelectable = $supportsReservations
                         && $item['inventory_item_id'] !== null
-                        && $item['status'] === 'available'
-                        && $item['available'] !== null
-                        && $item['available'] >= $item['required']
+                        && in_array($item['status'], ['available', 'short'], true)
                         && $item['required'] > 0;
                       $rowClasses = [];
                       if (!empty($item['just_committed'])) {
@@ -597,7 +596,7 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
                       ?>
                       <tr<?= $rowClasses !== [] ? ' class="' . e(implode(' ', $rowClasses)) . '"' : '' ?>>
                         <td class="select-cell">
-                          <input type="checkbox" class="line-select" name="selected[]" value="<?= e((string) $index) ?>" id="select-line-<?= e((string) $index) ?>" <?= $isEligible ? '' : 'disabled' ?> />
+                          <input type="checkbox" class="line-select" name="selected[]" value="<?= e((string) $index) ?>" id="select-line-<?= e((string) $index) ?>" <?= $isSelectable ? '' : 'disabled' ?> />
                           <label class="sr-only" for="select-line-<?= e((string) $index) ?>">Select <?= e($item['part_number']) ?> <?= e($finishLabel) ?></label>
                         </td>
                         <td><?= e($item['part_number']) ?></td>
@@ -621,7 +620,7 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
             <div class="reservation-actions">
               <button type="submit" class="button secondary" name="commit_action" value="selected" <?= !$supportsReservations ? 'disabled' : '' ?>>Commit Selected</button>
-              <button type="submit" class="button primary" name="commit_action" value="all" <?= !$supportsReservations ? 'disabled' : '' ?>>Commit All Ready Lines</button>
+              <button type="submit" class="button primary" name="commit_action" value="all" <?= !$supportsReservations ? 'disabled' : '' ?>>Commit All Linked Lines</button>
             </div>
           </form>
 
