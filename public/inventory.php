@@ -75,6 +75,16 @@ try {
     $dbError = $exception->getMessage();
 }
 
+foreach ($nav as &$groupItems) {
+    foreach ($groupItems as &$item) {
+        if (($item['label'] ?? '') === 'Database Health') {
+            $item['badge'] = $dbError === null ? 'Live' : 'Error';
+            $item['badge_class'] = $dbError === null ? 'success' : 'danger';
+        }
+    }
+}
+unset($groupItems, $item);
+
 if ($dbError === null) {
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $action = $_POST['action'] ?? 'create';
@@ -300,7 +310,8 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
               <span aria-hidden="true"><?= icon($item['icon']) ?></span>
               <span><?= e($item['label']) ?></span>
               <?php if (!empty($item['badge'])): ?>
-                <span class="badge"><?= e($item['badge']) ?></span>
+                <?php $badgeClass = $item['badge_class'] ?? ''; ?>
+                <span class="badge<?= $badgeClass !== '' ? ' ' . e($badgeClass) : '' ?>"><?= e($item['badge']) ?></span>
               <?php endif; ?>
             </a>
           <?php endforeach; ?>
@@ -378,7 +389,6 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
                 <th scope="col" class="numeric sortable" data-sort-key="stock" data-sort-type="number" aria-sort="none">Stock</th>
                 <th scope="col" class="numeric sortable" data-sort-key="committed" data-sort-type="number" aria-sort="none">Committed</th>
                 <th scope="col" class="numeric sortable" data-sort-key="available" data-sort-type="number" aria-sort="none">Available</th>
-                <th scope="col" class="numeric sortable" data-sort-key="reorderPoint" data-sort-type="number" aria-sort="none">Reorder Point</th>
                 <th scope="col" class="numeric sortable" data-sort-key="leadTime" data-sort-type="number" aria-sort="none">Lead Time (days)</th>
                 <th scope="col" class="sortable" data-sort-key="status" aria-sort="none">Status</th>
                 <th scope="col" class="sortable" data-sort-key="reservations" data-sort-type="number" aria-sort="none">Reservations</th>
@@ -391,7 +401,6 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
                 <th><input type="search" class="column-filter" data-key="stock" placeholder="Search stock" aria-label="Filter by stock" inputmode="numeric"></th>
                 <th><input type="search" class="column-filter" data-key="committed" placeholder="Search committed" aria-label="Filter by committed" inputmode="numeric"></th>
                 <th><input type="search" class="column-filter" data-key="available" placeholder="Search available" aria-label="Filter by available" inputmode="numeric"></th>
-                <th><input type="search" class="column-filter" data-key="reorderPoint" placeholder="Search reorder" aria-label="Filter by reorder point" inputmode="numeric"></th>
                 <th><input type="search" class="column-filter" data-key="leadTime" placeholder="Search lead time" aria-label="Filter by lead time" inputmode="numeric"></th>
                 <th><input type="search" class="column-filter" data-key="status" placeholder="Search status" aria-label="Filter by status"></th>
                 <th><input type="search" class="column-filter" data-key="reservations" placeholder="Search reservations" aria-label="Filter by reservations" inputmode="numeric"></th>
@@ -401,7 +410,7 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
             <tbody>
               <?php if ($inventory === []): ?>
                 <tr>
-                  <td colspan="11" class="small">No inventory items found. Use the button above to add your first part.</td>
+                  <td colspan="10" class="small">No inventory items found. Use the button above to add your first part.</td>
                 </tr>
               <?php else: ?>
                 <?php foreach ($inventory as $index => $row): ?>
@@ -414,7 +423,6 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
                     data-stock="<?= e((string) $row['stock']) ?>"
                     data-committed="<?= e((string) $row['committed_qty']) ?>"
                     data-available="<?= e((string) $row['available_qty']) ?>"
-                    data-reorder-point="<?= e((string) $row['reorder_point']) ?>"
                     data-lead-time="<?= e((string) $row['lead_time_days']) ?>"
                     data-status="<?= e($row['status']) ?>"
                     data-reservations="<?= e((string) $row['active_reservations']) ?>"
@@ -430,7 +438,6 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
                         <?= e(inventoryFormatQuantity($row['available_qty'])) ?>
                       </span>
                     </td>
-                    <td class="numeric"><?= e(inventoryFormatQuantity($row['reorder_point'])) ?></td>
                     <td class="numeric"><?= e((string) $row['lead_time_days']) ?></td>
                     <td>
                       <span class="status" data-level="<?= e($row['status']) ?>">

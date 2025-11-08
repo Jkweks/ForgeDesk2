@@ -32,6 +32,16 @@ try {
     $dbError = $exception->getMessage();
 }
 
+foreach ($nav as &$groupItems) {
+    foreach ($groupItems as &$item) {
+        if (($item['label'] ?? '') === 'Database Health') {
+            $item['badge'] = $dbError === null ? 'Live' : 'Error';
+            $item['badge_class'] = $dbError === null ? 'success' : 'danger';
+        }
+    }
+}
+unset($groupItems, $item);
+
 function e(string $value): string
 {
     return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
@@ -81,7 +91,8 @@ function nav_href(array $item): string
               <span aria-hidden="true"><?= icon($item['icon']) ?></span>
               <span><?= e($item['label']) ?></span>
               <?php if (!empty($item['badge'])): ?>
-                <span class="badge"><?= e($item['badge']) ?></span>
+                <?php $badgeClass = $item['badge_class'] ?? ''; ?>
+                <span class="badge<?= $badgeClass !== '' ? ' ' . e($badgeClass) : '' ?>"><?= e($item['badge']) ?></span>
               <?php endif; ?>
             </a>
           <?php endforeach; ?>
@@ -102,26 +113,6 @@ function nav_href(array $item): string
     </header>
 
     <main class="content">
-      <section class="panel message <?= $dbError === null ? 'success' : 'error' ?>" id="database-health" role="<?= $dbError === null ? 'status' : 'alert' ?>">
-        <?php if ($dbError === null): ?>
-          <header>
-            <h2>PostgreSQL connected</h2>
-            <span class="small"><?= e($databaseConfig['host'] . ':' . (string) $databaseConfig['port']) ?></span>
-          </header>
-          <p><strong>Live data</strong> is backing this dashboard using the <code><?= e($databaseConfig['name']) ?></code> database. Update the records to see changes instantly.</p>
-        <?php else: ?>
-          <header>
-            <h2>Database connection issue</h2>
-            <span class="small">Check container logs for details</span>
-          </header>
-          <p>We couldn't reach PostgreSQL. The UI is still available but data will appear empty until the connection is restored.</p>
-          <details>
-            <summary>Error message</summary>
-            <pre><?= e($dbError) ?></pre>
-          </details>
-        <?php endif; ?>
-      </section>
-
       <section class="metrics" aria-label="Inventory health metrics">
         <article class="metric">
           <div class="metric-header">

@@ -345,20 +345,19 @@ a{color:inherit;text-decoration:none}
 .table thead th.sortable{
   cursor:pointer;
   user-select:none;
-  position:relative;
 }
 
 .table thead th.sortable::after{
   content:'';
-  position:absolute;
-  right:-16px;
-  top:50%;
+  display:inline-block;
+  margin-left:5px;
   width:0;
   height:0;
   border-left:4px solid transparent;
   border-right:4px solid transparent;
   border-top:6px solid rgba(255,255,255,.25);
-  transform:translateY(-50%);
+  vertical-align:middle;
+  transform-origin:center;
   transition:transform .2s ease, border-top-color .2s ease;
 }
 
@@ -367,7 +366,7 @@ a{color:inherit;text-decoration:none}
 }
 
 .table thead th.sortable[data-sort-direction="desc"]::after{
-  transform:translateY(-50%) rotate(180deg);
+  transform:rotate(180deg);
 }
 
 .table thead tr.filter-row th{
@@ -389,6 +388,22 @@ a{color:inherit;text-decoration:none}
   color:rgba(255,255,255,.4);
 }
 
+.inventory-table thead th{
+  text-align:center;
+}
+
+.inventory-table thead th.actions{
+  text-align:center;
+}
+
+.inventory-table tbody td{
+  text-align:center;
+}
+
+.inventory-table tbody td.sku{
+  text-align:left;
+}
+
 .table thead th.numeric,
 .table tbody td.numeric{
   text-align:right;
@@ -397,6 +412,15 @@ a{color:inherit;text-decoration:none}
 .table tbody td.numeric{
   font-variant-numeric:tabular-nums;
   padding-right:4px;
+}
+
+.inventory-table thead th.numeric{
+  text-align:center;
+}
+
+.inventory-table tbody td.numeric{
+  text-align:center;
+  padding-right:0;
 }
 
 .table tbody tr{
@@ -933,6 +957,11 @@ a{color:inherit;text-decoration:none}
 .badge.success{
   background:rgba(90,200,166,.2);
   color:var(--accent);
+}
+
+.badge.danger{
+  background:rgba(255,107,107,.2);
+  color:var(--danger);
 }
 
 .badge.link{
