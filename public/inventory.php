@@ -285,6 +285,7 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
             <p class="small">Track suppliers, lead times, and stock levels in one place.</p>
           </div>
           <div class="header-actions">
+            <a class="button secondary" href="inventory_export.php">Download CSV</a>
             <a class="button secondary" href="cycle-count.php">Start cycle count</a>
             <a class="button secondary" href="/admin/estimate-check.php">Analyze EZ Estimate</a>
             <a class="button primary" href="inventory.php?modal=open">Add Inventory Item</a>
