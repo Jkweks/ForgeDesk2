@@ -6,28 +6,8 @@ $nav = require __DIR__ . '/../app/data/navigation.php';
 
 require_once __DIR__ . '/../app/helpers/icons.php';
 require_once __DIR__ . '/../app/helpers/database.php';
+require_once __DIR__ . '/../app/helpers/view.php';
 require_once __DIR__ . '/../app/data/inventory.php';
-
-function e(string $value): string
-{
-    return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
-}
-
-/**
- * Resolve the URL for a navigation item, defaulting to an in-page anchor when no explicit href is provided.
- *
- * @param array{label:string,href?:string} $item
- */
-function nav_href(array $item): string
-{
-    if (!empty($item['href'])) {
-        return $item['href'];
-    }
-
-    $anchor = strtolower(str_replace(' ', '-', $item['label']));
-
-    return '#' . $anchor;
-}
 
 $databaseConfig = $app['database'];
 $dbError = null;
@@ -292,32 +272,7 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
 </head>
 <body<?= $bodyAttributes ?>>
   <div class="layout">
-    <aside class="sidebar">
-      <div class="brand">
-        <span class="brand-badge"><?= e($app['user']['avatar']) ?></span>
-        <div>
-          <strong><?= e($app['name']) ?></strong>
-          <div class="small"><?= e($app['branding']['tagline']) ?></div>
-        </div>
-        <span class="brand-version"><?= e($app['version']) ?></span>
-      </div>
-      <?php foreach ($nav as $group => $items): ?>
-        <nav class="nav-group">
-          <h6><?= e($group) ?></h6>
-          <?php foreach ($items as $item): ?>
-            <?php $isActive = $item['active'] ?? false; ?>
-            <a class="nav-item<?= $isActive ? ' active' : '' ?>" href="<?= e(nav_href($item)) ?>">
-              <span aria-hidden="true"><?= icon($item['icon']) ?></span>
-              <span><?= e($item['label']) ?></span>
-              <?php if (!empty($item['badge'])): ?>
-                <?php $badgeClass = $item['badge_class'] ?? ''; ?>
-                <span class="badge<?= $badgeClass !== '' ? ' ' . e($badgeClass) : '' ?>"><?= e($item['badge']) ?></span>
-              <?php endif; ?>
-            </a>
-          <?php endforeach; ?>
-        </nav>
-      <?php endforeach; ?>
-    </aside>
+    <?php require __DIR__ . '/../app/views/partials/sidebar.php'; ?>
 
     <main class="content">
       <section class="panel" aria-labelledby="inventory-manager-title">

@@ -7,13 +7,9 @@ $nav = require __DIR__ . '/../../app/data/navigation.php';
 
 require_once __DIR__ . '/../../app/helpers/icons.php';
 require_once __DIR__ . '/../../app/helpers/database.php';
+require_once __DIR__ . '/../../app/helpers/view.php';
 require_once __DIR__ . '/../../app/data/inventory.php';
 require_once __DIR__ . '/../../app/services/reservation_service.php';
-
-function e(string $value): string
-{
-    return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
-}
 
 function format_date(?string $date): string
 {
@@ -55,20 +51,6 @@ function reservationInventoryOptionLabel(array $inventory): string
     $label = implode(' · ', $segments);
 
     return $label . ' — ' . inventoryFormatQuantity($inventory['available_qty']) . ' available';
-}
-
-/**
- * @param array{label:string,href?:string} $item
- */
-function nav_href(array $item): string
-{
-    if (!empty($item['href'])) {
-        return $item['href'];
-    }
-
-    $anchor = strtolower(str_replace(' ', '-', $item['label']));
-
-    return '#' . $anchor;
 }
 
 foreach ($nav as &$groupItems) {
@@ -489,30 +471,7 @@ $statusLabels = reservationStatusLabels();
 </head>
 <body>
 <div class="layout">
-    <aside class="sidebar" aria-label="Primary">
-        <div class="brand">
-            <div class="brand-badge">FD</div>
-            <div>
-                <strong>ForgeDesk</strong><br>
-                <span class="small">Operations Hub</span>
-            </div>
-            <span class="brand-version">beta</span>
-        </div>
-        <?php foreach ($nav as $group => $links): ?>
-            <div class="nav-group">
-                <h6><?= e($group) ?></h6>
-                <?php foreach ($links as $link): ?>
-                    <a class="nav-item<?= !empty($link['active']) ? ' active' : '' ?>" href="<?= e(nav_href($link)) ?>">
-                        <?= icon($link['icon'] ?? 'grid') ?>
-                        <span><?= e($link['label']) ?></span>
-                        <?php if (!empty($link['badge'])): ?>
-                            <span class="badge"><?= e((string) $link['badge']) ?></span>
-                        <?php endif; ?>
-                    </a>
-                <?php endforeach; ?>
-            </div>
-        <?php endforeach; ?>
-    </aside>
+    <?php $sidebarAriaLabel = 'Primary'; require __DIR__ . '/../../app/views/partials/sidebar.php'; ?>
     <header class="topbar">
         <div class="search" role="search">
             <?= icon('search') ?>
