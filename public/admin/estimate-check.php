@@ -643,7 +643,7 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
                   </li>
                 <?php endforeach; ?>
               </ul>
-              <a class="badge link" href="job-tracker.php?job=<?= urlencode($commitSummary['job_number']) ?>">View reservation details</a>
+              <a class="badge link" href="/admin/job-reservations.php?job=<?= urlencode($commitSummary['job_number']) ?>">View reservation details</a>
             </div>
           <?php endif; ?>
         <?php endif; ?>

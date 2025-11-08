@@ -286,7 +286,7 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
           </div>
           <div class="header-actions">
             <a class="button secondary" href="cycle-count.php">Start cycle count</a>
-            <a class="button secondary" href="admin/estimate-check.php">Analyze EZ Estimate</a>
+            <a class="button secondary" href="/admin/estimate-check.php">Analyze EZ Estimate</a>
             <a class="button primary" href="inventory.php?modal=open">Add Inventory Item</a>
             <?php if ($editingId !== null): ?>
               <a class="button secondary" href="inventory.php">Exit edit</a>
@@ -330,7 +330,7 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
               <div class="metric" role="listitem">
                 <span class="metric-label">Active reservations</span>
                 <span class="metric-value">
-                  <a class="metric-link" href="admin/job-reservations.php">
+                  <a class="metric-link" href="/admin/job-reservations.php">
                     <?= e((string) $inventorySummary['active_reservations']) ?>
                   </a>
                 </span>
@@ -407,7 +407,7 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
                     </td>
                     <td class="reservations">
                       <?php if ($row['active_reservations'] > 0): ?>
-                        <a class="reservation-link" href="admin/job-reservations.php?inventory_id=<?= e((string) $row['id']) ?>">
+                        <a class="reservation-link" href="/admin/job-reservations.php?inventory_id=<?= e((string) $row['id']) ?>">
                           <?= e($row['active_reservations'] === 1 ? '1 active job' : $row['active_reservations'] . ' active jobs') ?>
                         </a>
                       <?php else: ?>
