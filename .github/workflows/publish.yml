@@ -1,0 +1,96 @@
+name: Publish Docker image to GHCR on Release
+
+on:
+  release:
+    types: [published]  # fires when a release is published (not just drafted)
+
+env:
+  # Change this if you want a different package name than the repo name
+  IMAGE_NAME: forgedesk
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read         # checkout + tag access
+      packages: write        # push to GHCR
+      id-token: write        # (optional) for provenance if enabled below
+
+    steps:
+      - name: Checkout code at release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+
+      - name: Set owner/repo lower-case (GHCR requires lowercase)
+        id: meta
+        run: |
+          OWNER_LC="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
+          REPO_LC="$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')"
+          IMAGE_NAME_LC="$(echo "${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')"
+          VERSION="${{ github.event.release.tag_name }}"
+          echo "owner_lc=$OWNER_LC" >> $GITHUB_OUTPUT
+          echo "repo_lc=$REPO_LC" >> $GITHUB_OUTPUT
+          echo "image=$IMAGE_NAME_LC" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "is_prerelease=${{ github.event.release.prerelease }}" >> $GITHUB_OUTPUT
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Optional but speeds things up a lot
+      - name: Configure build cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
+      - name: Build & push (version tag)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          # Add more platforms if you need multi-arch
+          # platforms: linux/amd64,linux/arm64
+          tags: |
+            ghcr.io/${{ steps.meta.outputs.owner_lc }}/${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+          # Uncomment if you want supply-chain goodies:
+          # provenance: true
+          # sbom: true
+
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+      - name: Also tag :latest for stable releases
+        if: ${{ steps.meta.outputs.is_prerelease == 'false' }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          # platforms: linux/amd64,linux/arm64
+          tags: |
+            ghcr.io/${{ steps.meta.outputs.owner_lc }}/${{ steps.meta.outputs.image }}:latest
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new2,mode=max
+          # provenance: true
+          # sbom: true
+
+      - name: Move cache (latest)
+        if: ${{ steps.meta.outputs.is_prerelease == 'false' }}
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new2 /tmp/.buildx-cache
