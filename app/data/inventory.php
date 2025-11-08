@@ -12,6 +12,21 @@ if (!function_exists('loadInventory')) {
     }
 
     /**
+     * Canonical inventory categories and their available subcategory groupings.
+     *
+     * @return array<string,list<string>>
+     */
+    function inventoryCategoryOptions(): array
+    {
+        return [
+            'Raw Materials' => ['Sheet Metal', 'Bar Stock', 'Plate', 'Plastics'],
+            'Hardware' => ['Fasteners', 'Bearings', 'Seals & Gaskets', 'Structural Connectors'],
+            'Finishing' => ['Powder Coat', 'Anodizing', 'Painting', 'Plating'],
+            'Electrical' => ['Wire & Cable', 'Controls', 'Sensors', 'Lighting'],
+        ];
+    }
+
+    /**
      * Parse a SKU into its base part number and optional finish code.
      *
      * @return array{part_number:string,finish:?string}

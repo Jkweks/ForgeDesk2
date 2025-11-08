@@ -4,7 +4,7 @@ services:
   web:
     build: .
     ports:
-      - "8046:80"
+      - "8047:80"
     environment:
       APP_NAME: "ForgeDesk ERP"
       APP_TAGLINE: "Inventory control for fabrication teams"
@@ -12,10 +12,10 @@ services:
       APP_USER_AVATAR: "FD"
       APP_USER_NAME: "Inventory Lead"
       DB_HOST: postgres
-      DB_PORT: 5432
-      DB_DATABASE: forge_desk
-      DB_USERNAME: forge
-      DB_PASSWORD: forgepass
+      DB_PORT: 5433
+      DB_DATABASE: forge_desk_dev
+      DB_USERNAME: forge_dev
+      DB_PASSWORD: forgepass_dev
     volumes:
       - ./:/var/www/html
     depends_on:
@@ -23,15 +23,16 @@ services:
 
   postgres:
     image: postgres:15-alpine
+    command: ["postgres", "-c", "port=5433"]
     environment:
-      POSTGRES_DB: forge_desk
-      POSTGRES_USER: forge
-      POSTGRES_PASSWORD: forgepass
+      POSTGRES_DB: forge_desk_dev
+      POSTGRES_USER: forge_dev
+      POSTGRES_PASSWORD: forgepass_dev
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     ports:
-      - "5432:5432"
+      - "5433:5433"
 
 volumes:
   postgres_data:

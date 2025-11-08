@@ -42,6 +42,266 @@ if (!function_exists('reservationStatusLabels')) {
     }
 }
 
+if (!function_exists('reservationUpdateItems')) {
+    /**
+     * Update reservation metadata and committed inventory lines.
+     *
+     * @param array{job_name:string,requested_by:string,needed_by?:?string,notes?:?string} $jobMetadata
+     * @param array<int,array{reservation_item_id:int,inventory_item_id:int,requested_qty:int,committed_qty:int}> $existingLines
+     * @param list<array{inventory_item_id:int,requested_qty:int,committed_qty:int}> $newLines
+     *
+     * @return array{
+     *   reservation_id:int,
+     *   job_number:string,
+     *   updated:int,
+     *   added:int,
+     *   committed:int,
+     *   released:int
+     * }
+     */
+    function reservationUpdateItems(\PDO $db, int $reservationId, array $jobMetadata, array $existingLines, array $newLines): array
+    {
+        ensureInventorySchema($db);
+
+        if (!inventorySupportsReservations($db)) {
+            throw new \RuntimeException('Job reservations are not supported by this database.');
+        }
+
+        $jobName = trim((string) ($jobMetadata['job_name'] ?? ''));
+        $requestedBy = trim((string) ($jobMetadata['requested_by'] ?? ''));
+        $notes = trim((string) ($jobMetadata['notes'] ?? ''));
+        $neededRaw = trim((string) ($jobMetadata['needed_by'] ?? ''));
+
+        if ($jobName === '' || $requestedBy === '') {
+            throw new \InvalidArgumentException('Job name and requester are required.');
+        }
+
+        $neededBy = null;
+
+        if ($neededRaw !== '') {
+            $neededDate = \DateTimeImmutable::createFromFormat('Y-m-d', $neededRaw);
+            if ($neededDate === false) {
+                throw new \InvalidArgumentException('Provide a valid "Needed by" date in YYYY-MM-DD format.');
+            }
+            $neededBy = $neededDate->format('Y-m-d');
+        }
+
+        $normalizedExisting = [];
+        foreach ($existingLines as $line) {
+            $reservationItemId = (int) ($line['reservation_item_id'] ?? 0);
+            $inventoryItemId = (int) ($line['inventory_item_id'] ?? 0);
+            $requestedQty = max(0, (int) ($line['requested_qty'] ?? 0));
+            $committedQty = max(0, (int) ($line['committed_qty'] ?? 0));
+
+            if ($reservationItemId <= 0 || $inventoryItemId <= 0) {
+                throw new \InvalidArgumentException('Include valid reservation line identifiers when editing.');
+            }
+
+            $normalizedExisting[$reservationItemId] = [
+                'inventory_item_id' => $inventoryItemId,
+                'requested_qty' => $requestedQty,
+                'committed_qty' => $committedQty,
+            ];
+        }
+
+        $normalizedNew = [];
+        foreach ($newLines as $line) {
+            $inventoryItemId = (int) ($line['inventory_item_id'] ?? 0);
+            $requestedQty = max(0, (int) ($line['requested_qty'] ?? 0));
+            $commitQty = max(0, (int) ($line['committed_qty'] ?? 0));
+
+            if ($inventoryItemId <= 0 || $commitQty <= 0) {
+                continue;
+            }
+
+            $normalizedNew[] = [
+                'inventory_item_id' => $inventoryItemId,
+                'requested_qty' => $requestedQty,
+                'committed_qty' => $commitQty,
+            ];
+        }
+
+        $db->beginTransaction();
+
+        try {
+            $reservationStatement = $db->prepare(
+                'SELECT id, job_number, status FROM job_reservations WHERE id = :id FOR UPDATE'
+            );
+            $reservationStatement->execute([':id' => $reservationId]);
+            $reservationRow = $reservationStatement->fetch(\PDO::FETCH_ASSOC);
+
+            if ($reservationRow === false) {
+                throw new \RuntimeException('Reservation not found.');
+            }
+
+            $status = (string) $reservationRow['status'];
+            if (in_array($status, ['fulfilled', 'cancelled'], true)) {
+                throw new \RuntimeException('Completed or cancelled reservations cannot be edited.');
+            }
+
+            $itemsStatement = $db->prepare(
+                'SELECT id, inventory_item_id, requested_qty, committed_qty, consumed_qty '
+                . 'FROM job_reservation_items WHERE reservation_id = :id FOR UPDATE'
+            );
+            $itemsStatement->execute([':id' => $reservationId]);
+
+            /** @var list<array<string,mixed>> $existingRows */
+            $existingRows = $itemsStatement->fetchAll(\PDO::FETCH_ASSOC);
+
+            $existingById = [];
+            $existingByInventory = [];
+
+            foreach ($existingRows as $row) {
+                $reservationItemId = (int) $row['id'];
+                $inventoryItemId = (int) $row['inventory_item_id'];
+                $existingById[$reservationItemId] = $row;
+                $existingByInventory[$inventoryItemId] = $row;
+            }
+
+            $updateReservation = $db->prepare(
+                'UPDATE job_reservations SET job_name = :job_name, requested_by = :requested_by, '
+                . 'needed_by = :needed_by, notes = :notes WHERE id = :id'
+            );
+            $updateReservation->execute([
+                ':id' => $reservationId,
+                ':job_name' => $jobName,
+                ':requested_by' => $requestedBy,
+                ':needed_by' => $neededBy,
+                ':notes' => $notes !== '' ? $notes : null,
+            ]);
+
+            $selectInventory = $db->prepare(
+                'SELECT id, committed_qty FROM inventory_items WHERE id = :id FOR UPDATE'
+            );
+            $adjustInventory = $db->prepare(
+                'UPDATE inventory_items SET committed_qty = committed_qty + :delta WHERE id = :id'
+            );
+            $updateReservationItem = $db->prepare(
+                'UPDATE job_reservation_items SET requested_qty = :requested_qty, committed_qty = :committed_qty '
+                . 'WHERE id = :id'
+            );
+            $insertReservationItem = $db->prepare(
+                'INSERT INTO job_reservation_items (reservation_id, inventory_item_id, requested_qty, committed_qty, consumed_qty) '
+                . 'VALUES (:reservation_id, :inventory_item_id, :requested_qty, :committed_qty, 0)'
+            );
+
+            $updatedCount = 0;
+            $addedCount = 0;
+            $committedDelta = 0;
+            $releasedDelta = 0;
+
+            foreach ($normalizedExisting as $reservationItemId => $line) {
+                if (!isset($existingById[$reservationItemId])) {
+                    throw new \InvalidArgumentException('One of the reservation lines no longer exists.');
+                }
+
+                $currentRow = $existingById[$reservationItemId];
+                $inventoryItemId = (int) $currentRow['inventory_item_id'];
+
+                if ($inventoryItemId !== $line['inventory_item_id']) {
+                    throw new \InvalidArgumentException('Inventory line data is out of sync for this reservation.');
+                }
+
+                $currentCommitted = max(0, (int) $currentRow['committed_qty']);
+                $consumedQty = max(0, (int) $currentRow['consumed_qty']);
+                $targetCommitted = $line['committed_qty'];
+
+                if ($targetCommitted < $consumedQty) {
+                    throw new \InvalidArgumentException('Committed quantity cannot be less than what has already been consumed.');
+                }
+
+                $delta = $targetCommitted - $currentCommitted;
+
+                if ($delta !== 0) {
+                    $selectInventory->execute([':id' => $inventoryItemId]);
+                    $inventoryRow = $selectInventory->fetch(\PDO::FETCH_ASSOC);
+
+                    if ($inventoryRow === false) {
+                        throw new \RuntimeException('Unable to load inventory item #' . $inventoryItemId . '.');
+                    }
+
+                    $currentCommittedTotal = (int) $inventoryRow['committed_qty'];
+
+                    if ($delta < 0 && $currentCommittedTotal < abs($delta)) {
+                        throw new \RuntimeException('Inventory commitments are out of sync for item #' . $inventoryItemId . '.');
+                    }
+
+                    $adjustInventory->execute([
+                        ':delta' => $delta,
+                        ':id' => $inventoryItemId,
+                    ]);
+
+                    if ($delta > 0) {
+                        $committedDelta += $delta;
+                    } else {
+                        $releasedDelta += abs($delta);
+                    }
+                }
+
+                $requestedQty = $line['requested_qty'];
+                $requestedChanged = $requestedQty !== (int) $currentRow['requested_qty'];
+                $committedChanged = $targetCommitted !== $currentCommitted;
+
+                if ($requestedChanged || $committedChanged) {
+                    $updateReservationItem->execute([
+                        ':id' => $reservationItemId,
+                        ':requested_qty' => $requestedQty,
+                        ':committed_qty' => $targetCommitted,
+                    ]);
+                    $updatedCount++;
+                }
+            }
+
+            foreach ($normalizedNew as $line) {
+                $inventoryItemId = $line['inventory_item_id'];
+
+                if (isset($existingByInventory[$inventoryItemId])) {
+                    throw new \InvalidArgumentException('Inventory item #' . $inventoryItemId . ' is already part of this reservation.');
+                }
+
+                $selectInventory->execute([':id' => $inventoryItemId]);
+                $inventoryRow = $selectInventory->fetch(\PDO::FETCH_ASSOC);
+
+                if ($inventoryRow === false) {
+                    throw new \RuntimeException('Unable to load inventory item #' . $inventoryItemId . ' for reservation update.');
+                }
+
+                $adjustInventory->execute([
+                    ':delta' => $line['committed_qty'],
+                    ':id' => $inventoryItemId,
+                ]);
+
+                $insertReservationItem->execute([
+                    ':reservation_id' => $reservationId,
+                    ':inventory_item_id' => $inventoryItemId,
+                    ':requested_qty' => $line['requested_qty'],
+                    ':committed_qty' => $line['committed_qty'],
+                ]);
+
+                $committedDelta += $line['committed_qty'];
+                $addedCount++;
+            }
+
+            $db->commit();
+
+            return [
+                'reservation_id' => (int) $reservationRow['id'],
+                'job_number' => (string) $reservationRow['job_number'],
+                'updated' => $updatedCount,
+                'added' => $addedCount,
+                'committed' => $committedDelta,
+                'released' => $releasedDelta,
+            ];
+        } catch (\Throwable $exception) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+
+            throw $exception;
+        }
+    }
+}
+
 if (!function_exists('reservationStatusDisplay')) {
     function reservationStatusDisplay(string $status): string
     {

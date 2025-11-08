@@ -345,20 +345,19 @@ a{color:inherit;text-decoration:none}
 .table thead th.sortable{
   cursor:pointer;
   user-select:none;
-  position:relative;
 }
 
 .table thead th.sortable::after{
   content:'';
-  position:absolute;
-  right:-16px;
-  top:50%;
+  display:inline-block;
+  margin-left:5px;
   width:0;
   height:0;
   border-left:4px solid transparent;
   border-right:4px solid transparent;
   border-top:6px solid rgba(255,255,255,.25);
-  transform:translateY(-50%);
+  vertical-align:middle;
+  transform-origin:center;
   transition:transform .2s ease, border-top-color .2s ease;
 }
 
@@ -367,7 +366,7 @@ a{color:inherit;text-decoration:none}
 }
 
 .table thead th.sortable[data-sort-direction="desc"]::after{
-  transform:translateY(-50%) rotate(180deg);
+  transform:rotate(180deg);
 }
 
 .table thead tr.filter-row th{
@@ -389,6 +388,22 @@ a{color:inherit;text-decoration:none}
   color:rgba(255,255,255,.4);
 }
 
+.inventory-table thead th{
+  text-align:center;
+}
+
+.inventory-table thead th.actions{
+  text-align:center;
+}
+
+.inventory-table tbody td{
+  text-align:center;
+}
+
+.inventory-table tbody td.sku{
+  text-align:left;
+}
+
 .table thead th.numeric,
 .table tbody td.numeric{
   text-align:right;
@@ -397,6 +412,15 @@ a{color:inherit;text-decoration:none}
 .table tbody td.numeric{
   font-variant-numeric:tabular-nums;
   padding-right:4px;
+}
+
+.inventory-table thead th.numeric{
+  text-align:center;
+}
+
+.inventory-table tbody td.numeric{
+  text-align:center;
+  padding-right:0;
 }
 
 .table tbody tr{
@@ -690,6 +714,14 @@ a{color:inherit;text-decoration:none}
 .reservation-table .muted{display:block;margin-top:4px}
 .quantity-pill.warning{background:rgba(255,179,71,.18);color:var(--warning)}
 .inline-form{display:inline}
+.action-stack{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+.action-stack .button{width:100%;justify-content:center}
+.action-stack .inline-form{display:block}
+.action-stack .inline-form .button{width:100%}
 .reservation-status{
   display:inline-flex;
   align-items:center;
@@ -764,6 +796,145 @@ a{color:inherit;text-decoration:none}
 .completion-actions .button{min-width:160px}
 .completion-actions .button.primary{box-shadow:0 10px 24px rgba(255,139,37,.25)}
 
+.reservation-editor{
+  position:fixed;
+  top:50%;
+  left:50%;
+  transform:translate(-50%,-50%);
+  z-index:901;
+  width:min(900px,94vw);
+  max-height:90vh;
+  overflow:hidden;
+  background:linear-gradient(180deg,var(--panel-2),#151920);
+  border-radius:var(--radius);
+  border:1px solid rgba(255,255,255,.08);
+  box-shadow:0 20px 40px rgba(0,0,0,.55);
+  display:flex;
+  flex-direction:column;
+  gap:var(--gap);
+  padding:24px;
+}
+.reservation-editor__header{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:var(--gap);
+}
+.reservation-editor__form{
+  display:flex;
+  flex-direction:column;
+  gap:var(--gap);
+  overflow:auto;
+  padding-right:4px;
+}
+.reservation-editor__grid{
+  display:grid;
+  gap:var(--gap);
+  grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+}
+.reservation-editor__table-wrapper{
+  max-height:42vh;
+  overflow:auto;
+  border:1px solid rgba(255,255,255,.06);
+  border-radius:var(--radius);
+}
+.reservation-editor__table thead th{position:sticky;top:0;background:rgba(15,18,22,.95)}
+.reservation-editor__table tbody td,.reservation-editor__table tbody th{padding:12px 16px}
+.reservation-editor__table input[type="number"]{
+  width:120px;
+  padding:8px 10px;
+  border-radius:10px;
+  border:1px solid rgba(255,255,255,.12);
+  background:var(--panel-2);
+  color:var(--text);
+  font:inherit;
+}
+.reservation-editor__table input[type="number"]:focus{outline:2px solid var(--brand);outline-offset:2px}
+.reservation-editor__new-lines{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  background:var(--panel-3);
+  border-radius:var(--radius);
+  border:1px solid rgba(255,255,255,.08);
+  padding:16px;
+}
+.reservation-editor__new-container{display:flex;flex-direction:column;gap:12px}
+.reservation-editor__new-row{
+  display:grid;
+  gap:12px;
+  grid-template-columns:minmax(200px,2fr) repeat(2,minmax(120px,1fr)) auto;
+  align-items:end;
+}
+.reservation-editor__remove{
+  min-width:44px;
+  padding:8px;
+}
+.reservation-editor__actions{
+  display:flex;
+  justify-content:flex-end;
+  gap:12px;
+}
+.reservation-editor__actions .button{min-width:160px}
+@media (max-width:720px){
+  .reservation-editor__new-row{grid-template-columns:1fr}
+  .reservation-editor__remove{justify-self:flex-start}
+}
+
+.modal-tabs{
+  display:flex;
+  gap:12px;
+  margin-bottom:16px;
+  border-bottom:1px solid rgba(255,255,255,.08);
+}
+.modal-tabs [role="tab"]{
+  background:none;
+  border:none;
+  color:var(--muted);
+  padding:10px 16px;
+  border-radius:12px 12px 0 0;
+  font:inherit;
+  cursor:pointer;
+}
+.modal-tabs [role="tab"][aria-selected="true"]{
+  background:var(--panel-3);
+  color:var(--text);
+  border:1px solid rgba(255,255,255,.12);
+  border-bottom-color:transparent;
+}
+.modal-tabs [role="tab"]:focus{outline:2px solid var(--brand);outline-offset:2px}
+.tab-panel{display:flex;flex-direction:column;gap:var(--gap)}
+.tab-panel[hidden]{display:none}
+.field-label{
+  font-weight:600;
+  font-size:.9rem;
+  color:var(--muted);
+  display:block;
+}
+.subcategory-grid{display:flex;flex-direction:column;gap:12px}
+.subcategory-group{
+  display:flex;
+  flex-wrap:wrap;
+  gap:12px;
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:var(--radius);
+  padding:12px;
+  background:var(--panel-2);
+}
+.subcategory-group[hidden]{display:none}
+.subcategory-option{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:6px 12px;
+  border-radius:999px;
+  background:rgba(255,255,255,.04);
+  border:1px solid transparent;
+  cursor:pointer;
+}
+.subcategory-option input{accent-color:var(--brand)}
+.subcategory-option:hover{border-color:rgba(255,255,255,.18)}
+
 .reservation-summary ul li{
   margin-bottom:6px;
 }
@@ -786,6 +957,11 @@ a{color:inherit;text-decoration:none}
 .badge.success{
   background:rgba(90,200,166,.2);
   color:var(--accent);
+}
+
+.badge.danger{
+  background:rgba(255,107,107,.2);
+  color:var(--danger);
 }
 
 .badge.link{
