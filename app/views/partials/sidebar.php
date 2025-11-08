@@ -1,5 +1,13 @@
 <?php
 
+foreach ($nav as &$groupItems) {
+    foreach ($groupItems as &$item) {
+        if (($item['label'] ?? '') === 'Database Health') {
+            $item['badge'] = $dbError === null ? 'Live' : 'Error';
+            $item['badge_class'] = $dbError === null ? 'success' : 'danger';
+        }
+    }
+
 declare(strict_types=1);
 
 /** @var array<string,mixed> $app */

@@ -1,14 +1,14 @@
 <?php
 return [
     'name' => getenv('APP_NAME') ?: 'ForgeDesk ERP',
-    'version' => 'v0.2.0',
+    'version' => 'v0.2.6',
     'user' => [
         'email' => getenv('APP_USER_EMAIL') ?: 'inventory@forgedesk.io',
         'avatar' => getenv('APP_USER_AVATAR') ?: 'FD',
         'name' => getenv('APP_USER_NAME') ?: 'Inventory Lead',
     ],
     'branding' => [
-        'tagline' => getenv('APP_TAGLINE') ?: 'Inventory control for fabrication teams',
+        'tagline' => getenv('APP_TAGLINE') ?: 'Fab Operations',
     ],
     'database' => [
         'host' => getenv('DB_HOST') ?: 'postgres',
