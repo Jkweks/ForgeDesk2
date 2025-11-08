@@ -7,6 +7,7 @@ foreach ($nav as &$groupItems) {
             $item['badge_class'] = $dbError === null ? 'success' : 'danger';
         }
     }
+}
 
 declare(strict_types=1);
 
