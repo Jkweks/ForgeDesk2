@@ -44,6 +44,7 @@ $editingId = null;
 $statuses = ['In Stock', 'Low', 'Reorder', 'Critical', 'Discontinued'];
 
 $finishOptions = inventoryFinishOptions();
+$categoryOptions = inventoryCategoryOptions();
 
 $formData = [
     'item' => '',
@@ -57,6 +58,8 @@ $formData = [
     'supplier_contact' => '',
     'reorder_point' => '0',
     'lead_time_days' => '0',
+    'category' => '',
+    'subcategories' => [],
 ];
 
 foreach ($nav as &$groupItems) {
@@ -102,7 +105,31 @@ if ($dbError === null) {
             'supplier_contact' => $payload['supplier_contact'],
             'reorder_point' => $reorderRaw,
             'lead_time_days' => $leadTimeRaw,
+            'category' => trim((string) ($_POST['category'] ?? '')),
+            'subcategories' => [],
         ];
+
+        $submittedSubcategories = isset($_POST['subcategories']) && is_array($_POST['subcategories'])
+            ? array_values(array_filter(
+                array_map(
+                    static fn ($value) => trim((string) $value),
+                    $_POST['subcategories']
+                ),
+                static fn (string $value): bool => $value !== ''
+            ))
+            : [];
+        $formData['subcategories'] = array_values(array_unique($submittedSubcategories));
+
+        if ($formData['category'] !== '' && !isset($categoryOptions[$formData['category']])) {
+            $errors['category'] = 'Select a valid category.';
+            $formData['category'] = '';
+            $formData['subcategories'] = [];
+        } elseif ($formData['category'] === '') {
+            $formData['subcategories'] = [];
+        } else {
+            $validSubcategories = array_values(array_intersect($categoryOptions[$formData['category']], $formData['subcategories']));
+            $formData['subcategories'] = $validSubcategories;
+        }
 
         if ($payload['item'] === '') {
             $errors['item'] = 'Item name is required.';
@@ -205,6 +232,8 @@ if ($dbError === null) {
                     'supplier_contact' => $existing['supplier_contact'] ?? '',
                     'reorder_point' => (string) $existing['reorder_point'],
                     'lead_time_days' => (string) $existing['lead_time_days'],
+                    'category' => '',
+                    'subcategories' => [],
                 ];
                 $formData['sku'] = inventoryComposeSku(
                     $formData['part_number'],
@@ -236,6 +265,8 @@ if ($formData['sku'] === '' && $formData['part_number'] !== '') {
         $formData['finish'] !== '' ? $formData['finish'] : null
     );
 }
+
+$activeModalTab = !empty($errors['category']) ? 'categories' : 'details';
 
 $modalRequested = isset($_GET['modal']) && $_GET['modal'] === 'open';
 $modalOpen = $modalRequested || $editingId !== null || ($errors !== [] && $_SERVER['REQUEST_METHOD'] === 'POST');
@@ -451,102 +482,156 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
           <input type="hidden" name="id" value="<?= e((string) $editingId) ?>" />
         <?php endif; ?>
 
-        <div class="field">
-          <label for="item">Item<span aria-hidden="true">*</span></label>
-          <input type="text" id="item" name="item" value="<?= e($formData['item']) ?>" required data-modal-focus="true" />
-          <?php if (!empty($errors['item'])): ?>
-            <p class="field-error"><?= e($errors['item']) ?></p>
-          <?php endif; ?>
+        <?php
+        $detailsActive = $activeModalTab === 'details';
+        $categoriesActive = $activeModalTab === 'categories';
+        ?>
+        <div class="modal-tabs" role="tablist">
+          <button type="button" role="tab" id="inventory-tab-details" aria-controls="inventory-panel-details" aria-selected="<?= $detailsActive ? 'true' : 'false' ?>" tabindex="<?= $detailsActive ? '0' : '-1' ?>">Part Details</button>
+          <button type="button" role="tab" id="inventory-tab-categories" aria-controls="inventory-panel-categories" aria-selected="<?= $categoriesActive ? 'true' : 'false' ?>" tabindex="<?= $categoriesActive ? '0' : '-1' ?>">Categories</button>
         </div>
 
-        <div class="field">
-          <label for="part_number">Part Number<span aria-hidden="true">*</span></label>
-          <input type="text" id="part_number" name="part_number" value="<?= e($formData['part_number']) ?>" required />
-          <?php if (!empty($errors['part_number'])): ?>
-            <p class="field-error"><?= e($errors['part_number']) ?></p>
-          <?php endif; ?>
-        </div>
-
-        <div class="field">
-          <label for="finish">Finish</label>
-          <select id="finish" name="finish">
-            <option value="">No finish specified</option>
-            <?php foreach ($finishOptions as $option): ?>
-              <option value="<?= e($option) ?>"<?= strtoupper($formData['finish']) === $option ? ' selected' : '' ?>><?= e($option) ?></option>
-            <?php endforeach; ?>
-          </select>
-          <p class="field-help">Choose the finish code used when composing SKUs.</p>
-          <?php if (!empty($errors['finish'])): ?>
-            <p class="field-error"><?= e($errors['finish']) ?></p>
-          <?php endif; ?>
-        </div>
-
-        <div class="field">
-          <label for="sku">Generated SKU</label>
-          <input type="text" id="sku" name="sku" value="<?= e($formData['sku']) ?>" readonly />
-          <p class="field-help">The SKU is automatically built from the part number and finish.</p>
-          <?php if (!empty($errors['sku'])): ?>
-            <p class="field-error"><?= e($errors['sku']) ?></p>
-          <?php endif; ?>
-        </div>
-
-        <div class="field">
-          <label for="location">Location<span aria-hidden="true">*</span></label>
-          <input type="text" id="location" name="location" value="<?= e($formData['location']) ?>" required />
-          <?php if (!empty($errors['location'])): ?>
-            <p class="field-error"><?= e($errors['location']) ?></p>
-          <?php endif; ?>
-        </div>
-
-        <div class="field">
-          <label for="supplier">Supplier<span aria-hidden="true">*</span></label>
-          <input type="text" id="supplier" name="supplier" value="<?= e($formData['supplier']) ?>" required />
-          <?php if (!empty($errors['supplier'])): ?>
-            <p class="field-error"><?= e($errors['supplier']) ?></p>
-          <?php endif; ?>
-        </div>
-
-        <div class="field">
-          <label for="supplier_contact">Supplier Contact</label>
-          <input type="email" id="supplier_contact" name="supplier_contact" value="<?= e($formData['supplier_contact']) ?>" />
-        </div>
-
-        <div class="field-grid">
+        <div id="inventory-panel-details" class="tab-panel" role="tabpanel" aria-labelledby="inventory-tab-details"<?= $detailsActive ? '' : ' hidden' ?>>
           <div class="field">
-            <label for="stock">Stock<span aria-hidden="true">*</span></label>
-            <input type="number" id="stock" name="stock" min="0" value="<?= e($formData['stock']) ?>" required />
-            <?php if (!empty($errors['stock'])): ?>
-              <p class="field-error"><?= e($errors['stock']) ?></p>
+            <label for="item">Item<span aria-hidden="true">*</span></label>
+            <input type="text" id="item" name="item" value="<?= e($formData['item']) ?>" required data-modal-focus="true" />
+            <?php if (!empty($errors['item'])): ?>
+              <p class="field-error"><?= e($errors['item']) ?></p>
             <?php endif; ?>
           </div>
 
           <div class="field">
-            <label for="reorder_point">Reorder Point<span aria-hidden="true">*</span></label>
-            <input type="number" id="reorder_point" name="reorder_point" min="0" value="<?= e($formData['reorder_point']) ?>" required />
-            <?php if (!empty($errors['reorder_point'])): ?>
-              <p class="field-error"><?= e($errors['reorder_point']) ?></p>
+            <label for="part_number">Part Number<span aria-hidden="true">*</span></label>
+            <input type="text" id="part_number" name="part_number" value="<?= e($formData['part_number']) ?>" required />
+            <?php if (!empty($errors['part_number'])): ?>
+              <p class="field-error"><?= e($errors['part_number']) ?></p>
             <?php endif; ?>
           </div>
 
           <div class="field">
-            <label for="lead_time_days">Lead Time (days)<span aria-hidden="true">*</span></label>
-            <input type="number" id="lead_time_days" name="lead_time_days" min="0" value="<?= e($formData['lead_time_days']) ?>" required />
-            <?php if (!empty($errors['lead_time_days'])): ?>
-              <p class="field-error"><?= e($errors['lead_time_days']) ?></p>
+            <label for="finish">Finish</label>
+            <select id="finish" name="finish">
+              <option value="">No finish specified</option>
+              <?php foreach ($finishOptions as $option): ?>
+                <option value="<?= e($option) ?>"<?= strtoupper($formData['finish']) === $option ? ' selected' : '' ?>><?= e($option) ?></option>
+              <?php endforeach; ?>
+            </select>
+            <p class="field-help">Choose the finish code used when composing SKUs.</p>
+            <?php if (!empty($errors['finish'])): ?>
+              <p class="field-error"><?= e($errors['finish']) ?></p>
+            <?php endif; ?>
+          </div>
+
+          <div class="field">
+            <label for="sku">Generated SKU</label>
+            <input type="text" id="sku" name="sku" value="<?= e($formData['sku']) ?>" readonly />
+            <p class="field-help">The SKU is automatically built from the part number and finish.</p>
+            <?php if (!empty($errors['sku'])): ?>
+              <p class="field-error"><?= e($errors['sku']) ?></p>
+            <?php endif; ?>
+          </div>
+
+          <div class="field">
+            <label for="location">Location<span aria-hidden="true">*</span></label>
+            <input type="text" id="location" name="location" value="<?= e($formData['location']) ?>" required />
+            <?php if (!empty($errors['location'])): ?>
+              <p class="field-error"><?= e($errors['location']) ?></p>
+            <?php endif; ?>
+          </div>
+
+          <div class="field">
+            <label for="supplier">Supplier<span aria-hidden="true">*</span></label>
+            <input type="text" id="supplier" name="supplier" value="<?= e($formData['supplier']) ?>" required />
+            <?php if (!empty($errors['supplier'])): ?>
+              <p class="field-error"><?= e($errors['supplier']) ?></p>
+            <?php endif; ?>
+          </div>
+
+          <div class="field">
+            <label for="supplier_contact">Supplier Contact</label>
+            <input type="email" id="supplier_contact" name="supplier_contact" value="<?= e($formData['supplier_contact']) ?>" />
+          </div>
+
+          <div class="field-grid">
+            <div class="field">
+              <label for="stock">Stock<span aria-hidden="true">*</span></label>
+              <input type="number" id="stock" name="stock" min="0" value="<?= e($formData['stock']) ?>" required />
+              <?php if (!empty($errors['stock'])): ?>
+                <p class="field-error"><?= e($errors['stock']) ?></p>
+              <?php endif; ?>
+            </div>
+
+            <div class="field">
+              <label for="reorder_point">Reorder Point<span aria-hidden="true">*</span></label>
+              <input type="number" id="reorder_point" name="reorder_point" min="0" value="<?= e($formData['reorder_point']) ?>" required />
+              <?php if (!empty($errors['reorder_point'])): ?>
+                <p class="field-error"><?= e($errors['reorder_point']) ?></p>
+              <?php endif; ?>
+            </div>
+
+            <div class="field">
+              <label for="lead_time_days">Lead Time (days)<span aria-hidden="true">*</span></label>
+              <input type="number" id="lead_time_days" name="lead_time_days" min="0" value="<?= e($formData['lead_time_days']) ?>" required />
+              <?php if (!empty($errors['lead_time_days'])): ?>
+                <p class="field-error"><?= e($errors['lead_time_days']) ?></p>
+              <?php endif; ?>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="status">Status<span aria-hidden="true">*</span></label>
+            <select id="status" name="status" required>
+              <?php foreach ($statuses as $status): ?>
+                <option value="<?= e($status) ?>"<?= $formData['status'] === $status ? ' selected' : '' ?>><?= e($status) ?></option>
+              <?php endforeach; ?>
+            </select>
+            <?php if (!empty($errors['status'])): ?>
+              <p class="field-error"><?= e($errors['status']) ?></p>
             <?php endif; ?>
           </div>
         </div>
 
-        <div class="field">
-          <label for="status">Status<span aria-hidden="true">*</span></label>
-          <select id="status" name="status" required>
-            <?php foreach ($statuses as $status): ?>
-              <option value="<?= e($status) ?>"<?= $formData['status'] === $status ? ' selected' : '' ?>><?= e($status) ?></option>
-            <?php endforeach; ?>
-          </select>
-          <?php if (!empty($errors['status'])): ?>
-            <p class="field-error"><?= e($errors['status']) ?></p>
-          <?php endif; ?>
+        <div id="inventory-panel-categories" class="tab-panel" role="tabpanel" aria-labelledby="inventory-tab-categories"<?= $categoriesActive ? '' : ' hidden' ?>>
+          <div class="field">
+            <label for="category">Category</label>
+            <select id="category" name="category">
+              <option value="">Select category</option>
+              <?php foreach ($categoryOptions as $category => $subcategories): ?>
+                <option value="<?= e($category) ?>"<?= $formData['category'] === $category ? ' selected' : '' ?>><?= e($category) ?></option>
+              <?php endforeach; ?>
+            </select>
+            <p class="field-help">Choose the primary grouping for this part. Categories will be saved in a future update.</p>
+            <?php if (!empty($errors['category'])): ?>
+              <p class="field-error"><?= e($errors['category']) ?></p>
+            <?php endif; ?>
+          </div>
+
+          <div class="field">
+            <span class="field-label">Subcategories</span>
+            <div class="subcategory-grid" data-subcategory-container>
+              <?php foreach ($categoryOptions as $category => $subcategories): ?>
+                <?php $isActive = $formData['category'] === $category; ?>
+                <fieldset class="subcategory-group" data-category-group="<?= e($category) ?>"<?= $isActive ? '' : ' hidden' ?>>
+                  <legend class="sr-only"><?= e($category) ?> subcategories</legend>
+                  <?php foreach ($subcategories as $subcategory): ?>
+                    <?php $checkboxId = 'subcategory-' . preg_replace('/[^a-z0-9]+/i', '-', strtolower($category . '-' . $subcategory)); ?>
+                    <label class="subcategory-option" for="<?= e($checkboxId) ?>">
+                      <input
+                        type="checkbox"
+                        id="<?= e($checkboxId) ?>"
+                        name="subcategories[]"
+                        value="<?= e($subcategory) ?>"
+                        <?= $isActive && in_array($subcategory, $formData['subcategories'], true) ? 'checked' : '' ?>
+                        <?= $isActive ? '' : 'disabled' ?>
+                      >
+                      <span><?= e($subcategory) ?></span>
+                    </label>
+                  <?php endforeach; ?>
+                </fieldset>
+              <?php endforeach; ?>
+            </div>
+            <p class="field-help">Select all applicable specialty groupings. These selections are informational today and will be stored in a future project.</p>
+          </div>
         </div>
 
         <footer>
@@ -602,6 +687,103 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
         closeModal();
       }
     });
+  })();
+
+  (function () {
+    const modal = document.getElementById('inventory-modal');
+    if (!modal) {
+      return;
+    }
+
+    const tabs = Array.from(modal.querySelectorAll('.modal-tabs [role="tab"]'));
+    if (tabs.length === 0) {
+      return;
+    }
+
+    const tabMap = new Map();
+    tabs.forEach((tab) => {
+      const panelId = tab.getAttribute('aria-controls');
+      if (panelId) {
+        const panel = modal.querySelector('#' + panelId);
+        if (panel instanceof HTMLElement) {
+          tabMap.set(tab, panel);
+        }
+      }
+    });
+
+    function activateTab(targetTab) {
+      tabs.forEach((tab) => {
+        const isActive = tab === targetTab;
+        tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        tab.setAttribute('tabindex', isActive ? '0' : '-1');
+        const panel = tabMap.get(tab);
+        if (panel) {
+          if (isActive) {
+            panel.removeAttribute('hidden');
+          } else {
+            panel.setAttribute('hidden', 'hidden');
+          }
+        }
+      });
+    }
+
+    tabs.forEach((tab, index) => {
+      tab.addEventListener('click', () => activateTab(tab));
+      tab.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          activateTab(tab);
+        }
+
+        if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+          event.preventDefault();
+          const offset = event.key === 'ArrowRight' ? 1 : -1;
+          const nextIndex = (index + offset + tabs.length) % tabs.length;
+          tabs[nextIndex].focus();
+        }
+      });
+    });
+  })();
+
+  (function () {
+    const modal = document.getElementById('inventory-modal');
+    if (!modal) {
+      return;
+    }
+
+    const categorySelect = modal.querySelector('#category');
+    if (!(categorySelect instanceof HTMLSelectElement)) {
+      return;
+    }
+
+    const groups = Array.from(modal.querySelectorAll('[data-category-group]'));
+
+    function syncGroups() {
+      const selected = categorySelect.value;
+      groups.forEach((group) => {
+        if (!(group instanceof HTMLElement)) {
+          return;
+        }
+
+        const isActive = group.getAttribute('data-category-group') === selected && selected !== '';
+        if (isActive) {
+          group.removeAttribute('hidden');
+        } else {
+          group.setAttribute('hidden', 'hidden');
+        }
+
+        const inputs = Array.from(group.querySelectorAll('input[type="checkbox"]'));
+        inputs.forEach((input) => {
+          input.disabled = !isActive;
+          if (!isActive) {
+            input.checked = false;
+          }
+        });
+      });
+    }
+
+    categorySelect.addEventListener('change', syncGroups);
+    syncGroups();
   })();
 
   (function () {
