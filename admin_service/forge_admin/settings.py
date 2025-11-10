@@ -6,6 +6,9 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+STATIC_URL = "/django-admin/static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
 SECRET_KEY = os.environ.get("SECRET_KEY", "django-insecure-forgedesk-admin")
 DEBUG = os.environ.get("DEBUG", "0") in {"1", "true", "True"}
 ALLOWED_HOSTS: list[str] = os.environ.get("ALLOWED_HOSTS", "*").split(",")
@@ -66,7 +69,7 @@ TIME_ZONE = os.environ.get("TIME_ZONE", "UTC")
 USE_I18N = True
 USE_TZ = True
 
-STATIC_URL = "static/"
-STATIC_ROOT = os.environ.get("STATIC_ROOT", str(BASE_DIR / "staticfiles"))
+# STATIC_URL = "static/"
+# STATIC_ROOT = os.environ.get("STATIC_ROOT", str(BASE_DIR / "staticfiles"))
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
