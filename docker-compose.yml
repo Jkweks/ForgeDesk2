@@ -21,6 +21,27 @@ services:
     depends_on:
       - postgres
 
+  admin:
+    build:
+      context: ./admin_service
+    ports:
+      - "8000:8000"
+    environment:
+      SECRET_KEY: "django-insecure-admin-service"
+      DEBUG: "1"
+      DB_HOST: postgres
+      DB_PORT: 5433
+      DB_DATABASE: forge_desk_dev
+      DB_USERNAME: forge_dev
+      DB_PASSWORD: forgepass_dev
+      DJANGO_SUPERUSER_USERNAME: admin
+      DJANGO_SUPERUSER_PASSWORD: adminpass
+      DJANGO_SUPERUSER_EMAIL: admin@example.com
+    volumes:
+      - ./admin_service:/app
+    depends_on:
+      - postgres
+
   postgres:
     image: postgres:15-alpine
     command: ["postgres", "-c", "port=5433"]
