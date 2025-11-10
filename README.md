@@ -16,7 +16,7 @@ public/
   index.php       Entry point that composes the dashboard from modular pieces.
   inventory.php   CRUD workspace for managing inventory parts and suppliers.
 Dockerfile        PHP Apache image with PDO_PGSQL support.
-docker-compose.yml  Two-service stack (PHP + PostgreSQL) for local development.
+  docker-compose.yml  Multi-service stack (PHP UI, Django admin, and PostgreSQL) for local development.
 ```
 
 ## Getting started
@@ -29,10 +29,12 @@ docker-compose.yml  Two-service stack (PHP + PostgreSQL) for local development.
    docker compose up --build
    ```
 
-4. Visit [http://localhost:8046](http://localhost:8046) to view the dashboard. The PostgreSQL service is exposed on port `5432` with default credentials (`forge` / `forgepass`).
+4. Visit [http://localhost:8047](http://localhost:8047) to view the dashboard. The PostgreSQL service is exposed on port `5433` with default credentials (`forge_dev` / `forgepass_dev`).
 
    - The dashboard summary lives at `/index.php`.
    - The inventory management workspace (view, insert, and edit) lives at `/inventory.php`.
+
+5. Access the admin console at [http://localhost:8000/admin/](http://localhost:8000/admin/) using the default credentials `admin` / `adminpass`. The Django admin communicates with the same PostgreSQL database, so changes made through the console are immediately reflected in the PHP UI.
 
 The `database/init.sql` script seeds sample inventory items and metrics. You can modify this file or connect with your preferred SQL client to adjust values in real time.
 
