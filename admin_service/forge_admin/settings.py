@@ -13,6 +13,22 @@ SECRET_KEY = os.environ.get("SECRET_KEY", "django-insecure-forgedesk-admin")
 DEBUG = os.environ.get("DEBUG", "0") in {"1", "true", "True"}
 ALLOWED_HOSTS: list[str] = os.environ.get("ALLOWED_HOSTS", "*").split(",")
 
+
+def _env_list(name: str) -> list[str]:
+    """Return a comma-separated environment variable as a cleaned list."""
+
+    return [value.strip() for value in os.environ.get(name, "").split(",") if value.strip()]
+
+
+CSRF_TRUSTED_ORIGINS: list[str] = _env_list("CSRF_TRUSTED_ORIGINS")
+
+_secure_proxy_ssl_header = os.environ.get("SECURE_PROXY_SSL_HEADER", "").strip()
+if _secure_proxy_ssl_header:
+    header, _, value = _secure_proxy_ssl_header.partition(",")
+    if header and value:
+        SECURE_PROXY_SSL_HEADER = (header.strip(), value.strip())
+        USE_X_FORWARDED_HOST = True
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",

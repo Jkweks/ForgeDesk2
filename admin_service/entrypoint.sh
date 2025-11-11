@@ -20,7 +20,7 @@ python manage.py collectstatic --noinput || true
 # Create superuser if missing
 python - <<'PY'
 import os
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", os.environ.get("DJANGO_SETTINGS_MODULE","forgedesk_api.settings"))
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", os.environ.get("DJANGO_SETTINGS_MODULE", "forge_admin.settings"))
 import django; django.setup()
 from django.contrib.auth import get_user_model
 User = get_user_model()
