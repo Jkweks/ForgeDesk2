@@ -119,6 +119,29 @@ CREATE INDEX IF NOT EXISTS idx_cycle_count_lines_session_sequence
 CREATE INDEX IF NOT EXISTS idx_cycle_count_lines_inventory
     ON cycle_count_lines (inventory_item_id);
 
+CREATE TABLE IF NOT EXISTS inventory_transactions (
+    id SERIAL PRIMARY KEY,
+    reference TEXT NOT NULL,
+    notes TEXT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS inventory_transaction_lines (
+    id SERIAL PRIMARY KEY,
+    transaction_id INTEGER NOT NULL REFERENCES inventory_transactions(id) ON DELETE CASCADE,
+    inventory_item_id INTEGER NOT NULL REFERENCES inventory_items(id) ON DELETE RESTRICT,
+    quantity_change INTEGER NOT NULL,
+    note TEXT NULL,
+    stock_before INTEGER NOT NULL DEFAULT 0,
+    stock_after INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_inventory_transaction_lines_transaction
+    ON inventory_transaction_lines (transaction_id);
+
+CREATE INDEX IF NOT EXISTS idx_inventory_transaction_lines_item
+    ON inventory_transaction_lines (inventory_item_id);
+
 INSERT INTO inventory_items (item, sku, part_number, finish, location, stock, status, supplier, supplier_contact, reorder_point, lead_time_days) VALUES
     ('Aluminum Stile - 2"', 'AL-ST-02-0R', 'AL-ST-02', '0R', 'Aisle 1 / Bin 4', 86, 'In Stock', 'DoorCraft Metals', 'sales@doorcraftmetals.com', 40, 7),
     ('Tempered Glass Panel 36x84', 'GL-3684-BL', 'GL-3684', 'BL', 'Aisle 3 / Rack 2', 24, 'Reorder', 'ClearView Glass', 'orders@clearviewglass.com', 30, 14),

@@ -653,6 +653,52 @@ a{color:inherit;text-decoration:none}
   outline:2px solid var(--brand);
   outline-offset:2px;
 }
+.transaction-toolbar{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+  margin-bottom:12px;
+}
+.transaction-toolbar .button{flex:0 0 auto;}
+.transaction-lines-table .field{margin:0;}
+.transaction-lines-table input,
+.transaction-lines-table select,
+.transaction-lines-table textarea{width:100%;}
+.transaction-lines-table .line-actions{display:flex;justify-content:flex-end;}
+.transaction-lines-table .line-actions .button{padding:8px 12px;}
+.transaction-list{display:grid;gap:var(--gap);}
+.transaction-card{
+  background:var(--panel);
+  border-radius:var(--radius);
+  border:1px solid rgba(255,255,255,.08);
+  padding:18px;
+  box-shadow:var(--shadow);
+}
+.transaction-card header{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:12px;
+  margin:0 0 10px;
+}
+.transaction-card h3{margin:0;font-size:1rem;}
+.transaction-card time{font-size:.85rem;color:var(--muted);}
+.transaction-card .meta{
+  margin:0 0 10px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:12px;
+  font-size:.85rem;
+  color:var(--muted);
+}
+.transaction-card ul{margin:0;padding-left:18px;color:var(--muted);}
+.transaction-card li{margin-bottom:6px;}
+.transaction-card li:last-child{margin-bottom:0;}
+.transaction-card .quantity{font-weight:600;}
+.transaction-card .quantity.negative{color:var(--danger);}
+.transaction-card .quantity.positive{color:var(--accent);}
+.transaction-card .note{margin-top:10px;font-size:.9rem;color:var(--text);}
 
 .field-grid{
   display:grid;
