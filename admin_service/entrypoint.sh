@@ -39,5 +39,5 @@ if [ "${DEBUG}" = "1" ]; then
   exec python manage.py runserver 0.0.0.0:8000
 else
   # Change module if your project isn't forgedesk_api
-  exec gunicorn forgedesk_api.wsgi:application --bind 0.0.0.0:8000 --workers 3
+  exec gunicorn forgedesk_admin.wsgi:application --bind 0.0.0.0:8000 --workers 3
 fi
