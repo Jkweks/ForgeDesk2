@@ -11,7 +11,7 @@ if [ -n "$DB_HOST" ]; then
 fi
 
 # Django env (set these in compose if your project/module name differs)
-: "${DJANGO_SETTINGS_MODULE:=forgedesk_admin.settings}"
+: "${DJANGO_SETTINGS_MODULE:=forge_admin.settings}"
 export DJANGO_SETTINGS_MODULE
 
 python manage.py migrate --noinput || true
@@ -39,5 +39,5 @@ if [ "${DEBUG}" = "1" ]; then
   exec python manage.py runserver 0.0.0.0:8000
 else
   # Change module if your project isn't forgedesk_api
-  exec gunicorn forgedesk_admin.wsgi:application --bind 0.0.0.0:8000 --workers 3
+  exec gunicorn forge_admin.wsgi:application --bind 0.0.0.0:8000 --workers 3
 fi
