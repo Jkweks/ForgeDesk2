@@ -217,40 +217,86 @@ if (!function_exists('loadInventory')) {
      */
     function ensureInventorySchema(\PDO $db): void
     {
+        static $ensuredItems = false;
+
+        if (!$ensuredItems) {
+            $statement = $db->prepare(
+                'SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = :table'
+            );
+            $statement->execute([':table' => 'inventory_items']);
+
+            /** @var list<string> $existing */
+            $existing = $statement->fetchAll(\PDO::FETCH_COLUMN);
+
+            $required = [
+                'supplier' => "ALTER TABLE inventory_items ADD COLUMN supplier TEXT NOT NULL DEFAULT 'Unknown Supplier'",
+                'supplier_contact' => 'ALTER TABLE inventory_items ADD COLUMN supplier_contact TEXT NULL',
+                'reorder_point' => 'ALTER TABLE inventory_items ADD COLUMN reorder_point INTEGER NOT NULL DEFAULT 0',
+                'lead_time_days' => 'ALTER TABLE inventory_items ADD COLUMN lead_time_days INTEGER NOT NULL DEFAULT 0',
+                'part_number' => "ALTER TABLE inventory_items ADD COLUMN part_number TEXT NOT NULL DEFAULT ''",
+                'finish' => 'ALTER TABLE inventory_items ADD COLUMN finish TEXT NULL',
+                'committed_qty' => 'ALTER TABLE inventory_items ADD COLUMN committed_qty INTEGER NOT NULL DEFAULT 0',
+            ];
+
+            foreach ($required as $column => $sql) {
+                if (!in_array($column, $existing, true)) {
+                    $db->exec($sql);
+                }
+            }
+
+            $hasVariantPrimary = in_array('variant_primary', $existing, true);
+            $hasVariantSecondary = in_array('variant_secondary', $existing, true);
+
+            inventoryBackfillFinishColumn($db, $hasVariantPrimary, $hasVariantSecondary);
+
+            $ensuredItems = true;
+        }
+
+        inventoryEnsureTransactionsSchema($db);
+    }
+
+    /**
+     * Ensure inventory transaction tables and indexes exist.
+     */
+    function inventoryEnsureTransactionsSchema(\PDO $db): void
+    {
         static $ensured = false;
 
         if ($ensured) {
             return;
         }
 
-        $statement = $db->prepare(
-            'SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = :table'
+        $db->exec(
+            'CREATE TABLE IF NOT EXISTS inventory_transactions (
+                id SERIAL PRIMARY KEY,
+                reference TEXT NOT NULL,
+                notes TEXT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )'
         );
-        $statement->execute([':table' => 'inventory_items']);
 
-        /** @var list<string> $existing */
-        $existing = $statement->fetchAll(\PDO::FETCH_COLUMN);
+        $db->exec('ALTER TABLE inventory_transactions ADD COLUMN IF NOT EXISTS notes TEXT NULL');
+        $db->exec('ALTER TABLE inventory_transactions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP');
+        $db->exec('ALTER TABLE inventory_transactions ALTER COLUMN created_at SET DEFAULT CURRENT_TIMESTAMP');
 
-        $required = [
-            'supplier' => "ALTER TABLE inventory_items ADD COLUMN supplier TEXT NOT NULL DEFAULT 'Unknown Supplier'",
-            'supplier_contact' => 'ALTER TABLE inventory_items ADD COLUMN supplier_contact TEXT NULL',
-            'reorder_point' => 'ALTER TABLE inventory_items ADD COLUMN reorder_point INTEGER NOT NULL DEFAULT 0',
-            'lead_time_days' => 'ALTER TABLE inventory_items ADD COLUMN lead_time_days INTEGER NOT NULL DEFAULT 0',
-            'part_number' => "ALTER TABLE inventory_items ADD COLUMN part_number TEXT NOT NULL DEFAULT ''",
-            'finish' => 'ALTER TABLE inventory_items ADD COLUMN finish TEXT NULL',
-            'committed_qty' => 'ALTER TABLE inventory_items ADD COLUMN committed_qty INTEGER NOT NULL DEFAULT 0',
-        ];
+        $db->exec(
+            'CREATE TABLE IF NOT EXISTS inventory_transaction_lines (
+                id SERIAL PRIMARY KEY,
+                transaction_id INTEGER NOT NULL REFERENCES inventory_transactions(id) ON DELETE CASCADE,
+                inventory_item_id INTEGER NOT NULL REFERENCES inventory_items(id) ON DELETE RESTRICT,
+                quantity_change INTEGER NOT NULL,
+                note TEXT NULL,
+                stock_before INTEGER NOT NULL DEFAULT 0,
+                stock_after INTEGER NOT NULL DEFAULT 0
+            )'
+        );
 
-        foreach ($required as $column => $sql) {
-            if (!in_array($column, $existing, true)) {
-                $db->exec($sql);
-            }
-        }
+        $db->exec('ALTER TABLE inventory_transaction_lines ADD COLUMN IF NOT EXISTS note TEXT NULL');
+        $db->exec('ALTER TABLE inventory_transaction_lines ADD COLUMN IF NOT EXISTS stock_before INTEGER NOT NULL DEFAULT 0');
+        $db->exec('ALTER TABLE inventory_transaction_lines ADD COLUMN IF NOT EXISTS stock_after INTEGER NOT NULL DEFAULT 0');
 
-        $hasVariantPrimary = in_array('variant_primary', $existing, true);
-        $hasVariantSecondary = in_array('variant_secondary', $existing, true);
-
-        inventoryBackfillFinishColumn($db, $hasVariantPrimary, $hasVariantSecondary);
+        $db->exec('CREATE INDEX IF NOT EXISTS idx_inventory_transaction_lines_transaction ON inventory_transaction_lines (transaction_id)');
+        $db->exec('CREATE INDEX IF NOT EXISTS idx_inventory_transaction_lines_item ON inventory_transaction_lines (inventory_item_id)');
 
         $ensured = true;
     }
@@ -279,6 +325,289 @@ if (!function_exists('loadInventory')) {
         }
 
         return $supports;
+    }
+
+    /**
+     * Retrieve inventory rows for lookup widgets.
+     *
+     * @return list<array{id:int,item:string,sku:string,part_number:string,stock:int,available_qty:int}>
+     */
+    function listInventoryLookupOptions(\PDO $db): array
+    {
+        ensureInventorySchema($db);
+
+        $statement = $db->query(
+            'SELECT id, item, sku, part_number, stock, committed_qty, (stock - committed_qty) AS available_qty '
+            . 'FROM inventory_items ORDER BY item ASC'
+        );
+
+        $rows = $statement !== false ? $statement->fetchAll() : [];
+
+        return array_map(
+            static fn (array $row): array => [
+                'id' => (int) $row['id'],
+                'item' => (string) $row['item'],
+                'sku' => (string) $row['sku'],
+                'part_number' => (string) $row['part_number'],
+                'stock' => (int) $row['stock'],
+                'available_qty' => isset($row['available_qty']) ? (int) $row['available_qty'] : ((int) $row['stock'] - (int) $row['committed_qty']),
+            ],
+            $rows
+        );
+    }
+
+    /**
+     * Resolve an inventory item by SKU, part number, or partial description.
+     *
+     * @return array{
+     *   item:string,
+     *   sku:string,
+     *   part_number:string,
+     *   finish:?string,
+     *   location:string,
+     *   stock:int,
+     *   committed_qty:int,
+     *   available_qty:int,
+     *   status:string,
+     *   supplier:string,
+     *   supplier_contact:?string,
+     *   reorder_point:int,
+     *   lead_time_days:int,
+     *   active_reservations:int,
+     *   id:int
+     * }|null
+     */
+    function resolveInventoryItemByIdentifier(\PDO $db, string $identifier): ?array
+    {
+        ensureInventorySchema($db);
+
+        $query = trim($identifier);
+
+        if ($query === '') {
+            return null;
+        }
+
+        $exact = $db->prepare(
+            'SELECT id FROM inventory_items WHERE LOWER(sku) = LOWER(:identifier) OR LOWER(part_number) = LOWER(:identifier) LIMIT 1'
+        );
+        $exact->execute([':identifier' => $query]);
+
+        $matchedId = $exact->fetchColumn();
+
+        if ($matchedId !== false) {
+            return findInventoryItem($db, (int) $matchedId);
+        }
+
+        $normalized = strtolower($query);
+        $like = '%' . str_replace(' ', '%', $normalized) . '%';
+        $prefix = $normalized . '%';
+
+        $search = $db->prepare(
+            'SELECT id FROM inventory_items '
+            . 'WHERE LOWER(item) LIKE :like OR LOWER(sku) LIKE :like OR LOWER(part_number) LIKE :like '
+            . 'ORDER BY (
+                CASE
+                    WHEN LOWER(sku) LIKE :prefix OR LOWER(part_number) LIKE :prefix THEN 0
+                    WHEN LOWER(item) LIKE :prefix THEN 1
+                    ELSE 2
+                END
+            ), item ASC LIMIT 1'
+        );
+        $search->execute([
+            ':like' => $like,
+            ':prefix' => $prefix,
+        ]);
+
+        $matchedId = $search->fetchColumn();
+
+        return $matchedId !== false ? findInventoryItem($db, (int) $matchedId) : null;
+    }
+
+    /**
+     * Record an inventory transaction and persist line adjustments.
+     *
+     * @param array{
+     *   reference:string,
+     *   notes:?string,
+     *   lines:list<array{item_id:int,quantity_change:int,note:?string}>
+     * } $payload
+     */
+    function recordInventoryTransaction(\PDO $db, array $payload): int
+    {
+        ensureInventorySchema($db);
+        inventoryEnsureTransactionsSchema($db);
+
+        if (empty($payload['lines'])) {
+            throw new \InvalidArgumentException('At least one transaction line is required.');
+        }
+
+        try {
+            $db->beginTransaction();
+
+            $transactionStatement = $db->prepare(
+                'INSERT INTO inventory_transactions (reference, notes) VALUES (:reference, :notes) RETURNING id'
+            );
+            $transactionStatement->execute([
+                ':reference' => $payload['reference'],
+                ':notes' => $payload['notes'],
+            ]);
+
+            $transactionId = (int) $transactionStatement->fetchColumn();
+
+            $lockStatement = $db->prepare('SELECT stock FROM inventory_items WHERE id = :id FOR UPDATE');
+            $updateStatement = $db->prepare('UPDATE inventory_items SET stock = :stock WHERE id = :id');
+            $lineStatement = $db->prepare(
+                'INSERT INTO inventory_transaction_lines (transaction_id, inventory_item_id, quantity_change, note, stock_before, stock_after) '
+                . 'VALUES (:transaction_id, :inventory_item_id, :quantity_change, :note, :stock_before, :stock_after)'
+            );
+
+            foreach ($payload['lines'] as $line) {
+                $itemId = (int) $line['item_id'];
+                $quantityChange = (int) $line['quantity_change'];
+                $note = $line['note'] ?? null;
+
+                $lockStatement->execute([':id' => $itemId]);
+                $stockRow = $lockStatement->fetch();
+
+                if ($stockRow === false) {
+                    throw new \RuntimeException('Inventory item not found for transaction.');
+                }
+
+                $stockBefore = (int) $stockRow['stock'];
+                $stockAfter = $stockBefore + $quantityChange;
+
+                if ($stockAfter < 0) {
+                    throw new \RuntimeException('Transaction would reduce stock below zero.');
+                }
+
+                $updateStatement->execute([
+                    ':id' => $itemId,
+                    ':stock' => $stockAfter,
+                ]);
+
+                $lineStatement->execute([
+                    ':transaction_id' => $transactionId,
+                    ':inventory_item_id' => $itemId,
+                    ':quantity_change' => $quantityChange,
+                    ':note' => $note,
+                    ':stock_before' => $stockBefore,
+                    ':stock_after' => $stockAfter,
+                ]);
+            }
+
+            $db->commit();
+
+            return $transactionId;
+        } catch (\Throwable $exception) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+
+            throw $exception;
+        }
+    }
+
+    /**
+     * Load recent inventory transactions with expanded line items.
+     *
+     * @return list<array{
+     *   id:int,
+     *   reference:string,
+     *   notes:?string,
+     *   created_at:string,
+     *   line_count:int,
+     *   total_change:int,
+     *   lines:list<array{
+     *     item_id:int,
+     *     sku:string,
+     *     item:string,
+     *     quantity_change:int,
+     *     note:?string,
+     *     stock_before:int,
+     *     stock_after:int
+     *   }>
+     * }>
+     */
+    function loadRecentInventoryTransactions(\PDO $db, int $limit = 10): array
+    {
+        ensureInventorySchema($db);
+        inventoryEnsureTransactionsSchema($db);
+
+        $limit = max(1, $limit);
+
+        $statement = $db->prepare(
+            'SELECT id, reference, notes, created_at FROM inventory_transactions ORDER BY created_at DESC, id DESC LIMIT :limit'
+        );
+        $statement->bindValue(':limit', $limit, \PDO::PARAM_INT);
+        $statement->execute();
+
+        /** @var array<int,array<string,mixed>> $transactions */
+        $transactions = $statement->fetchAll();
+
+        if ($transactions === []) {
+            return [];
+        }
+
+        $ids = array_map(
+            static fn (array $row): int => (int) $row['id'],
+            $transactions
+        );
+
+        $placeholders = implode(', ', array_fill(0, count($ids), '?'));
+        $lineStatement = $db->prepare(
+            'SELECT l.transaction_id, l.inventory_item_id, l.quantity_change, l.note, l.stock_before, l.stock_after, '
+            . 'i.sku, i.item FROM inventory_transaction_lines l '
+            . 'JOIN inventory_items i ON i.id = l.inventory_item_id '
+            . 'WHERE l.transaction_id IN (' . $placeholders . ') '
+            . 'ORDER BY l.transaction_id DESC, l.id ASC'
+        );
+        $lineStatement->execute($ids);
+
+        /** @var array<int,array<string,mixed>> $lineRows */
+        $lineRows = $lineStatement->fetchAll();
+
+        $grouped = [];
+
+        foreach ($lineRows as $row) {
+            $transactionId = (int) $row['transaction_id'];
+
+            if (!isset($grouped[$transactionId])) {
+                $grouped[$transactionId] = [];
+            }
+
+            $grouped[$transactionId][] = [
+                'item_id' => (int) $row['inventory_item_id'],
+                'sku' => (string) $row['sku'],
+                'item' => (string) $row['item'],
+                'quantity_change' => (int) $row['quantity_change'],
+                'note' => $row['note'] !== null ? (string) $row['note'] : null,
+                'stock_before' => (int) $row['stock_before'],
+                'stock_after' => (int) $row['stock_after'],
+            ];
+        }
+
+        return array_map(
+            static function (array $transaction) use ($grouped): array {
+                $id = (int) $transaction['id'];
+                $lines = $grouped[$id] ?? [];
+                $totalChange = 0;
+
+                foreach ($lines as $line) {
+                    $totalChange += $line['quantity_change'];
+                }
+
+                return [
+                    'id' => $id,
+                    'reference' => (string) $transaction['reference'],
+                    'notes' => $transaction['notes'] !== null ? (string) $transaction['notes'] : null,
+                    'created_at' => (string) $transaction['created_at'],
+                    'line_count' => count($lines),
+                    'total_change' => $totalChange,
+                    'lines' => $lines,
+                ];
+            },
+            $transactions
+        );
     }
 
     /**

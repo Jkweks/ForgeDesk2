@@ -6,6 +6,7 @@ return [
     ],
     'Inventory' => [
         ['icon' => 'edit', 'label' => 'Manage Inventory', 'href' => '/inventory.php'],
+        ['icon' => 'repeat', 'label' => 'Inventory Transactions', 'href' => '/inventory-transactions.php'],
         ['icon' => 'checklist', 'label' => 'Cycle Counts', 'href' => '/cycle-count.php'],
         ['icon' => 'search', 'label' => 'EZ Estimate Check', 'href' => '/admin/estimate-check.php'],
         ['icon' => 'calendar', 'label' => 'Job Reservations', 'href' => '/admin/job-reservations.php'],
