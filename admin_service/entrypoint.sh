@@ -11,7 +11,7 @@ if [ -n "$DB_HOST" ]; then
 fi
 
 # Django env (set these in compose if your project/module name differs)
-: "${DJANGO_SETTINGS_MODULE:=forgedesk_api.settings}"
+: "${DJANGO_SETTINGS_MODULE:=forgedesk_admin.settings}"
 export DJANGO_SETTINGS_MODULE
 
 python manage.py migrate --noinput || true
