@@ -350,7 +350,7 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
                 'includeFilters' => true,
                 'emptyMessage' => 'No inventory items found. Use the button above to add your first part.',
                 'id' => 'inventory-table-all',
-                'pageSize' => 50,
+                'pageSize' => 15,
             ]); ?>
           <?php endif; ?>
         </div>

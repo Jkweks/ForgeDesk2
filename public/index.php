@@ -152,7 +152,7 @@ unset($groupItems, $item);
                     'includeFilters' => true,
                     'emptyMessage' => 'No inventory items found. Add rows to the inventory system to populate this dashboard.',
                     'id' => 'dashboard-inventory-all',
-                    'pageSize' => 50,
+                    'pageSize' => 15,
                     'showActions' => false,
                 ]); ?>
               </section>
@@ -161,7 +161,7 @@ unset($groupItems, $item);
                     'includeFilters' => false,
                     'emptyMessage' => 'No low or critical parts right now.',
                     'id' => 'dashboard-inventory-low',
-                    'pageSize' => 50,
+                    'pageSize' => 15,
                     'showActions' => false,
                 ]); ?>
               </section>
@@ -170,7 +170,7 @@ unset($groupItems, $item);
                     'includeFilters' => false,
                     'emptyMessage' => 'No parts are currently committed to jobs.',
                     'id' => 'dashboard-inventory-committed',
-                    'pageSize' => 50,
+                    'pageSize' => 15,
                     'showActions' => false,
                 ]); ?>
               </section>

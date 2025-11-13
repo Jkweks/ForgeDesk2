@@ -1,3 +1,6 @@
+-- init.sql - canonical ForgeDesk inventory + reservations schema
+
+-- Base inventory items table
 CREATE TABLE IF NOT EXISTS inventory_items (
     id SERIAL PRIMARY KEY,
     item TEXT NOT NULL,
@@ -6,6 +9,7 @@ CREATE TABLE IF NOT EXISTS inventory_items (
     finish TEXT NULL,
     location TEXT NOT NULL,
     stock INTEGER NOT NULL DEFAULT 0,
+    committed_qty INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'In Stock',
     supplier TEXT NOT NULL DEFAULT 'Unknown Supplier',
     supplier_contact TEXT NULL,
@@ -14,6 +18,7 @@ CREATE TABLE IF NOT EXISTS inventory_items (
     average_daily_use NUMERIC(12,4) NULL
 );
 
+-- Backfill / keep idempotent across schema tweaks
 ALTER TABLE inventory_items
     ADD COLUMN IF NOT EXISTS supplier TEXT NOT NULL DEFAULT 'Unknown Supplier',
     ADD COLUMN IF NOT EXISTS supplier_contact TEXT NULL,
@@ -21,8 +26,10 @@ ALTER TABLE inventory_items
     ADD COLUMN IF NOT EXISTS lead_time_days INTEGER NOT NULL DEFAULT 0,
     ADD COLUMN IF NOT EXISTS part_number TEXT NOT NULL DEFAULT '',
     ADD COLUMN IF NOT EXISTS finish TEXT NULL,
-    ADD COLUMN IF NOT EXISTS average_daily_use NUMERIC(12,4) NULL;
+    ADD COLUMN IF NOT EXISTS average_daily_use NUMERIC(12,4) NULL,
+    ADD COLUMN IF NOT EXISTS committed_qty INTEGER NOT NULL DEFAULT 0;
 
+-- Metrics table for dashboard cards
 CREATE TABLE IF NOT EXISTS inventory_metrics (
     id SERIAL PRIMARY KEY,
     label TEXT NOT NULL UNIQUE,
@@ -33,6 +40,7 @@ CREATE TABLE IF NOT EXISTS inventory_metrics (
     sort_order INTEGER NOT NULL DEFAULT 100
 );
 
+-- Job reservation status enum (full / final set)
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'job_reservation_status') THEN
@@ -49,6 +57,7 @@ BEGIN
 END
 $$;
 
+-- Generic "updated_at" trigger function
 CREATE OR REPLACE FUNCTION set_updated_at_timestamp()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -57,6 +66,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Job reservations header
 CREATE TABLE IF NOT EXISTS job_reservations (
     id SERIAL PRIMARY KEY,
     job_number TEXT NOT NULL UNIQUE,
@@ -69,12 +79,14 @@ CREATE TABLE IF NOT EXISTS job_reservations (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Updated-at trigger on job_reservations
 DROP TRIGGER IF EXISTS trg_job_reservations_updated_at ON job_reservations;
 CREATE TRIGGER trg_job_reservations_updated_at
     BEFORE UPDATE ON job_reservations
     FOR EACH ROW
     EXECUTE FUNCTION set_updated_at_timestamp();
 
+-- Job reservation lines
 CREATE TABLE IF NOT EXISTS job_reservation_items (
     id SERIAL PRIMARY KEY,
     reservation_id INTEGER NOT NULL REFERENCES job_reservations(id) ON DELETE CASCADE,
@@ -91,19 +103,28 @@ CREATE INDEX IF NOT EXISTS idx_job_reservation_items_reservation
 CREATE INDEX IF NOT EXISTS idx_job_reservation_items_inventory
     ON job_reservation_items (inventory_item_id);
 
+-- View of committed qty per inventory item, based on active-ish reservations
 CREATE OR REPLACE VIEW inventory_item_commitments AS
 SELECT
     i.id AS inventory_item_id,
-    COALESCE(SUM(CASE
-        WHEN jr.status IN ('active', 'committed', 'in_progress', 'on_hold')
-            THEN jri.committed_qty
-        ELSE 0
-    END), 0) AS committed_qty
+    COALESCE(
+        SUM(
+            CASE
+                WHEN jr.status IN ('active', 'committed', 'in_progress', 'on_hold')
+                    THEN jri.committed_qty
+                ELSE 0
+            END
+        ),
+        0
+    ) AS committed_qty
 FROM inventory_items i
-LEFT JOIN job_reservation_items jri ON jri.inventory_item_id = i.id
-LEFT JOIN job_reservations jr ON jr.id = jri.reservation_id
+LEFT JOIN job_reservation_items jri
+    ON jri.inventory_item_id = i.id
+LEFT JOIN job_reservations jr
+    ON jr.id = jri.reservation_id
 GROUP BY i.id;
 
+-- Cycle count sessions
 CREATE TABLE IF NOT EXISTS cycle_count_sessions (
     id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
@@ -115,6 +136,7 @@ CREATE TABLE IF NOT EXISTS cycle_count_sessions (
     completed_lines INTEGER NOT NULL DEFAULT 0
 );
 
+-- Cycle count lines
 CREATE TABLE IF NOT EXISTS cycle_count_lines (
     id SERIAL PRIMARY KEY,
     session_id INTEGER NOT NULL REFERENCES cycle_count_sessions(id) ON DELETE CASCADE,
@@ -134,6 +156,7 @@ CREATE INDEX IF NOT EXISTS idx_cycle_count_lines_session_sequence
 CREATE INDEX IF NOT EXISTS idx_cycle_count_lines_inventory
     ON cycle_count_lines (inventory_item_id);
 
+-- Inventory transactions header
 CREATE TABLE IF NOT EXISTS inventory_transactions (
     id SERIAL PRIMARY KEY,
     reference TEXT NOT NULL,
@@ -141,6 +164,7 @@ CREATE TABLE IF NOT EXISTS inventory_transactions (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Inventory transaction lines
 CREATE TABLE IF NOT EXISTS inventory_transaction_lines (
     id SERIAL PRIMARY KEY,
     transaction_id INTEGER NOT NULL REFERENCES inventory_transactions(id) ON DELETE CASCADE,
@@ -157,6 +181,7 @@ CREATE INDEX IF NOT EXISTS idx_inventory_transaction_lines_transaction
 CREATE INDEX IF NOT EXISTS idx_inventory_transaction_lines_item
     ON inventory_transaction_lines (inventory_item_id);
 
+-- Daily usage tracking
 CREATE TABLE IF NOT EXISTS inventory_daily_usage (
     inventory_item_id INTEGER NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
     usage_date DATE NOT NULL,
@@ -167,16 +192,32 @@ CREATE TABLE IF NOT EXISTS inventory_daily_usage (
 CREATE INDEX IF NOT EXISTS idx_inventory_daily_usage_date
     ON inventory_daily_usage (usage_date);
 
-INSERT INTO inventory_items (item, sku, part_number, finish, location, stock, status, supplier, supplier_contact, reorder_point, lead_time_days, average_daily_use) VALUES
-    ('Aluminum Stile - 2"', 'AL-ST-02-0R', 'AL-ST-02', '0R', 'Aisle 1 / Bin 4', 86, 'In Stock', 'DoorCraft Metals', 'sales@doorcraftmetals.com', 40, 7, 3.5000),
-    ('Tempered Glass Panel 36x84', 'GL-3684-BL', 'GL-3684', 'BL', 'Aisle 3 / Rack 2', 24, 'Reorder', 'ClearView Glass', 'orders@clearviewglass.com', 30, 14, 1.2500),
-    ('Hinge Set - Heavy Duty', 'HD-HG-SET-DB', 'HD-HG-SET', 'DB', 'Aisle 2 / Bin 8', 140, 'In Stock', 'Precision Hardware', 'account@precisionhardware.com', 60, 10, 4.7500),
-    ('Threshold Extrusion', 'AL-TH-10-C2', 'AL-TH-10', 'C2', 'Aisle 5 / Bin 1', 12, 'Low', 'Alloy Profiles Inc.', 'support@alloyprofiles.com', 20, 12, 0.9000),
-    ('Exit Device Kit', 'EX-KT-44-BL', 'EX-KT-44', 'BL', 'Aisle 4 / Shelf 6', 6, 'Critical', 'SecureLatch Systems', 'rep@securelatchsystems.com', 15, 21, 0.6500)
+-- Seed inventory items
+INSERT INTO inventory_items (
+    item,
+    sku,
+    part_number,
+    finish,
+    location,
+    stock,
+    committed_qty,
+    status,
+    supplier,
+    supplier_contact,
+    reorder_point,
+    lead_time_days,
+    average_daily_use
+) VALUES
+    ('Aluminum Stile - 2"', 'AL-ST-02-0R', 'AL-ST-02', '0R', 'Aisle 1 / Bin 4', 86, 0, 'In Stock', 'DoorCraft Metals', 'sales@doorcraftmetals.com', 40, 7, 3.5000),
+    ('Tempered Glass Panel 36x84', 'GL-3684-BL', 'GL-3684', 'BL', 'Aisle 3 / Rack 2', 24, 0, 'Reorder', 'ClearView Glass', 'orders@clearviewglass.com', 30, 14, 1.2500),
+    ('Hinge Set - Heavy Duty', 'HD-HG-SET-DB', 'HD-HG-SET', 'DB', 'Aisle 2 / Bin 8', 140, 0, 'In Stock', 'Precision Hardware', 'account@precisionhardware.com', 60, 10, 4.7500),
+    ('Threshold Extrusion', 'AL-TH-10-C2', 'AL-TH-10', 'C2', 'Aisle 5 / Bin 1', 12, 0, 'Low', 'Alloy Profiles Inc.', 'support@alloyprofiles.com', 20, 12, 0.9000),
+    ('Exit Device Kit', 'EX-KT-44-BL', 'EX-KT-44', 'BL', 'Aisle 4 / Shelf 6', 6, 0, 'Critical', 'SecureLatch Systems', 'rep@securelatchsystems.com', 15, 21, 0.6500)
 ON CONFLICT (sku) DO UPDATE SET
     item = EXCLUDED.item,
     location = EXCLUDED.location,
     stock = EXCLUDED.stock,
+    committed_qty = EXCLUDED.committed_qty,
     status = EXCLUDED.status,
     supplier = EXCLUDED.supplier,
     supplier_contact = EXCLUDED.supplier_contact,
@@ -186,6 +227,7 @@ ON CONFLICT (sku) DO UPDATE SET
     finish = EXCLUDED.finish,
     average_daily_use = EXCLUDED.average_daily_use;
 
+-- Seed metrics
 INSERT INTO inventory_metrics (label, value, delta, timeframe, accent, sort_order) VALUES
     ('SKUs Tracked', '248', '+12 vs. last quarter', 'Quarter to date', FALSE, 10),
     ('Units on Hand', '2680', '-4% vs. target', 'Weekly', FALSE, 20),
@@ -198,6 +240,7 @@ ON CONFLICT (label) DO UPDATE SET
     accent = EXCLUDED.accent,
     sort_order = EXCLUDED.sort_order;
 
+-- Seed example job reservation (uses 'active' status)
 INSERT INTO job_reservations (job_number, job_name, requested_by, needed_by, status, notes)
 VALUES
     ('JOB-2024-001', 'Downtown Lobby Retrofit', 'Morgan Smith', CURRENT_DATE + INTERVAL '14 days', 'active', 'Initial staging reservation for retrofit work')
@@ -208,6 +251,7 @@ ON CONFLICT (job_number) DO UPDATE SET
     status = EXCLUDED.status,
     notes = EXCLUDED.notes;
 
+-- Link some items to that reservation
 INSERT INTO job_reservation_items (reservation_id, inventory_item_id, requested_qty, committed_qty, consumed_qty)
 SELECT r.id, i.id, 20, 16, 0
 FROM job_reservations r
