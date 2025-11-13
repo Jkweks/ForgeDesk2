@@ -9,8 +9,6 @@ if (!function_exists('seedInventoryFromXlsx')) {
     /**
      * Import inventory records from an XLSX spreadsheet.
      *
-     * @param list<string> $statuses
-     *
      * @return array{
      *   processed:int,
      *   inserted:int,
@@ -20,7 +18,7 @@ if (!function_exists('seedInventoryFromXlsx')) {
      *   preview:list<array{row:int,item:string,sku:string,status:string,action:string}>
      * }
      */
-    function seedInventoryFromXlsx(\PDO $db, string $filePath, array $statuses): array
+    function seedInventoryFromXlsx(\PDO $db, string $filePath): array
     {
         ensureInventorySchema($db);
 
@@ -45,7 +43,7 @@ if (!function_exists('seedInventoryFromXlsx')) {
             'supplier' => ['labels' => ['supplier', 'vendor'], 'required' => true],
             'supplier_contact' => ['labels' => ['supplier contact', 'contact', 'email'], 'required' => false, 'default' => ''],
             'lead_time_days' => ['labels' => ['lead time', 'lead time (days)', 'lead time days', 'lt'], 'required' => false, 'default' => '0'],
-            'status' => ['labels' => ['status', 'state', 'stock status'], 'required' => false, 'default' => $statuses[0] ?? 'In Stock'],
+            'status' => ['labels' => ['status', 'state', 'stock status'], 'required' => false, 'default' => ''],
         ];
 
         $headerIndexes = [];
@@ -81,10 +79,7 @@ if (!function_exists('seedInventoryFromXlsx')) {
             'preview' => [],
         ];
 
-        $statusLookup = [];
-        foreach ($statuses as $status) {
-            $statusLookup[strtolower($status)] = $status;
-        }
+        $ignoredStatusValues = [];
 
         foreach ($rows as $offset => $row) {
             $rowNumber = $offset + 2; // account for header row
@@ -150,14 +145,19 @@ if (!function_exists('seedInventoryFromXlsx')) {
                 $leadTime = 0;
             }
 
-            $statusValue = $values['status'] ?? ($statuses[0] ?? 'In Stock');
-            $matchedStatus = $statusLookup[strtolower($statusValue)] ?? null;
-            if ($matchedStatus === null) {
-                $result['messages'][] = [
-                    'type' => 'warning',
-                    'text' => sprintf('Row %d status "%s" not recognized; defaulted to %s.', $rowNumber, $statusValue, $statuses[0] ?? 'In Stock'),
-                ];
-                $matchedStatus = $statuses[0] ?? 'In Stock';
+            $statusValue = $values['status'] ?? '';
+            $explicitStatusProvided = $statusValue !== '';
+            $requestedDiscontinued = $explicitStatusProvided && inventoryIsDiscontinuedStatus($statusValue);
+
+            if ($explicitStatusProvided && !$requestedDiscontinued) {
+                $statusKey = strtolower($statusValue);
+                if (!isset($ignoredStatusValues[$statusKey])) {
+                    $result['messages'][] = [
+                        'type' => 'info',
+                        'text' => sprintf('Row %d status "%s" ignored; status will be recalculated from stock levels.', $rowNumber, $statusValue),
+                    ];
+                    $ignoredStatusValues[$statusKey] = true;
+                }
             }
 
             $finishRaw = $values['finish'] ?? '';
@@ -181,7 +181,6 @@ if (!function_exists('seedInventoryFromXlsx')) {
                 'finish' => $finish,
                 'location' => $values['location'],
                 'stock' => $stock,
-                'status' => $matchedStatus,
                 'supplier' => $values['supplier'],
                 'supplier_contact' => $supplierContact,
                 'reorder_point' => $reorder,
@@ -192,6 +191,12 @@ if (!function_exists('seedInventoryFromXlsx')) {
                 $existing = findInventoryItemBySku($db, $sku);
 
                 $payload['committed_qty'] = $existing !== null ? (int) $existing['committed_qty'] : 0;
+                $shouldDiscontinue = $requestedDiscontinued
+                    || (!$explicitStatusProvided && $existing !== null && ($existing['discontinued'] ?? false));
+                $availableQty = $payload['stock'] - $payload['committed_qty'];
+                $payload['status'] = $shouldDiscontinue
+                    ? 'Discontinued'
+                    : inventoryStatusFromAvailable($availableQty, $payload['reorder_point']);
 
                 if ($existing === null) {
                     createInventoryItem($db, $payload);

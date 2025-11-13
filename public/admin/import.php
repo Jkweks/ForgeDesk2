@@ -11,8 +11,6 @@ require_once __DIR__ . '/../../app/helpers/view.php';
 require_once __DIR__ . '/../../app/data/inventory.php';
 require_once __DIR__ . '/../../app/services/inventory_seed.php';
 
-$statuses = ['In Stock', 'Low', 'Reorder', 'Critical', 'Discontinued'];
-
 foreach ($nav as &$groupItems) {
     foreach ($groupItems as &$item) {
         $item['active'] = ($item['label'] === 'Data Seeding');
@@ -56,7 +54,7 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 $errors[] = 'Please upload an .xlsx workbook exported from Microsoft Excel.';
             } else {
                 try {
-                    $importResult = seedInventoryFromXlsx($db, $file['tmp_name'], $statuses);
+                    $importResult = seedInventoryFromXlsx($db, $file['tmp_name']);
                 } catch (\Throwable $exception) {
                     $errors[] = 'Import failed: ' . $exception->getMessage();
                 }
@@ -108,7 +106,7 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
         <ul>
           <li>Item, Part Number, Finish</li>
           <li>Location, Stock, Reorder Point, Lead Time (days)</li>
-          <li>Supplier, Supplier Contact, Status</li>
+          <li>Supplier, Supplier Contact (Status optional; set to "Discontinued" to keep manual)</li>
         </ul>
 
         <form method="post" enctype="multipart/form-data" class="form" novalidate>

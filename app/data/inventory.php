@@ -3,6 +3,37 @@
 declare(strict_types=1);
 
 if (!function_exists('loadInventory')) {
+    function inventoryIsDiscontinuedStatus(string $status): bool
+    {
+        return strcasecmp(trim($status), 'Discontinued') === 0;
+    }
+
+    function inventoryStatusFromAvailable(int $availableQty, int $reorderPoint): string
+    {
+        $normalizedReorder = max($reorderPoint, 0);
+
+        if ($availableQty < $normalizedReorder) {
+            return 'Critical';
+        }
+
+        $lowThreshold = (int) floor($normalizedReorder * 1.3);
+
+        if ($availableQty <= $lowThreshold) {
+            return 'Low';
+        }
+
+        return 'In Stock';
+    }
+
+    function inventoryResolveStatus(int $availableQty, int $reorderPoint, string $storedStatus): string
+    {
+        if (inventoryIsDiscontinuedStatus($storedStatus)) {
+            return 'Discontinued';
+        }
+
+        return inventoryStatusFromAvailable($availableQty, $reorderPoint);
+    }
+
     /**
      * @return list<string>
      */
@@ -630,6 +661,7 @@ if (!function_exists('loadInventory')) {
      *   reorder_point:int,
      *   lead_time_days:int,
      *   active_reservations:int,
+     *   discontinued:bool,
      *   id:int
      * }>
      */
@@ -662,23 +694,30 @@ if (!function_exists('loadInventory')) {
             $rows = $statement->fetchAll();
 
             return array_map(
-                static fn (array $row): array => [
-                    'id' => (int) $row['id'],
-                    'item' => (string) $row['item'],
-                    'sku' => (string) $row['sku'],
-                    'part_number' => (string) $row['part_number'],
-                    'finish' => $row['finish'] !== null ? inventoryNormalizeFinish((string) $row['finish']) : null,
-                    'location' => (string) $row['location'],
-                    'stock' => (int) $row['stock'],
-                    'committed_qty' => (int) $row['committed_qty'],
-                    'available_qty' => (int) $row['available_qty'],
-                    'status' => (string) $row['status'],
-                    'supplier' => (string) $row['supplier'],
-                    'supplier_contact' => $row['supplier_contact'] !== null ? (string) $row['supplier_contact'] : null,
-                    'reorder_point' => (int) $row['reorder_point'],
-                    'lead_time_days' => (int) $row['lead_time_days'],
-                    'active_reservations' => (int) $row['active_reservations'],
-                ],
+                static function (array $row): array {
+                    $available = (int) $row['available_qty'];
+                    $reorderPoint = (int) $row['reorder_point'];
+                    $storedStatus = (string) $row['status'];
+
+                    return [
+                        'id' => (int) $row['id'],
+                        'item' => (string) $row['item'],
+                        'sku' => (string) $row['sku'],
+                        'part_number' => (string) $row['part_number'],
+                        'finish' => $row['finish'] !== null ? inventoryNormalizeFinish((string) $row['finish']) : null,
+                        'location' => (string) $row['location'],
+                        'stock' => (int) $row['stock'],
+                        'committed_qty' => (int) $row['committed_qty'],
+                        'available_qty' => $available,
+                        'status' => inventoryResolveStatus($available, $reorderPoint, $storedStatus),
+                        'supplier' => (string) $row['supplier'],
+                        'supplier_contact' => $row['supplier_contact'] !== null ? (string) $row['supplier_contact'] : null,
+                        'reorder_point' => $reorderPoint,
+                        'lead_time_days' => (int) $row['lead_time_days'],
+                        'active_reservations' => (int) $row['active_reservations'],
+                        'discontinued' => inventoryIsDiscontinuedStatus($storedStatus),
+                    ];
+                },
                 $rows
             );
         } catch (\PDOException $exception) {
@@ -756,6 +795,7 @@ if (!function_exists('loadInventory')) {
      *   reorder_point:int,
      *   lead_time_days:int,
      *   active_reservations:int,
+     *   discontinued:bool,
      *   id:int
      * }|null
      */
@@ -793,6 +833,10 @@ if (!function_exists('loadInventory')) {
             return null;
         }
 
+        $available = (int) $row['available_qty'];
+        $reorderPoint = (int) $row['reorder_point'];
+        $storedStatus = (string) $row['status'];
+
         return [
             'id' => (int) $row['id'],
             'item' => (string) $row['item'],
@@ -802,13 +846,14 @@ if (!function_exists('loadInventory')) {
             'location' => (string) $row['location'],
             'stock' => (int) $row['stock'],
             'committed_qty' => (int) $row['committed_qty'],
-            'available_qty' => (int) $row['available_qty'],
-            'status' => (string) $row['status'],
+            'available_qty' => $available,
+            'status' => inventoryResolveStatus($available, $reorderPoint, $storedStatus),
             'supplier' => (string) $row['supplier'],
             'supplier_contact' => $row['supplier_contact'] !== null ? (string) $row['supplier_contact'] : null,
-            'reorder_point' => (int) $row['reorder_point'],
+            'reorder_point' => $reorderPoint,
             'lead_time_days' => (int) $row['lead_time_days'],
             'active_reservations' => (int) $row['active_reservations'],
+            'discontinued' => inventoryIsDiscontinuedStatus($storedStatus),
         ];
     }
 
@@ -832,6 +877,7 @@ if (!function_exists('loadInventory')) {
      *   reorder_point:int,
      *   lead_time_days:int,
      *   active_reservations:int,
+     *   discontinued:bool,
      *   id:int
      * }|null
      */
@@ -869,6 +915,10 @@ if (!function_exists('loadInventory')) {
             return null;
         }
 
+        $available = (int) $row['available_qty'];
+        $reorderPoint = (int) $row['reorder_point'];
+        $storedStatus = (string) $row['status'];
+
         return [
             'id' => (int) $row['id'],
             'item' => (string) $row['item'],
@@ -878,13 +928,14 @@ if (!function_exists('loadInventory')) {
             'location' => (string) $row['location'],
             'stock' => (int) $row['stock'],
             'committed_qty' => (int) $row['committed_qty'],
-            'available_qty' => (int) $row['available_qty'],
-            'status' => (string) $row['status'],
+            'available_qty' => $available,
+            'status' => inventoryResolveStatus($available, $reorderPoint, $storedStatus),
             'supplier' => (string) $row['supplier'],
             'supplier_contact' => $row['supplier_contact'] !== null ? (string) $row['supplier_contact'] : null,
-            'reorder_point' => (int) $row['reorder_point'],
+            'reorder_point' => $reorderPoint,
             'lead_time_days' => (int) $row['lead_time_days'],
             'active_reservations' => (int) $row['active_reservations'],
+            'discontinued' => inventoryIsDiscontinuedStatus($storedStatus),
         ];
     }
 

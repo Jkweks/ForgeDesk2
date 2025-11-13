@@ -21,8 +21,6 @@ $inventorySummary = [
     'active_reservations' => 0,
 ];
 $editingId = null;
-$statuses = ['In Stock', 'Low', 'Reorder', 'Critical', 'Discontinued'];
-
 $finishOptions = inventoryFinishOptions();
 $categoryOptions = inventoryCategoryOptions();
 
@@ -33,13 +31,13 @@ $formData = [
     'sku' => '',
     'location' => '',
     'stock' => '0',
-    'status' => $statuses[0],
     'supplier' => '',
     'supplier_contact' => '',
     'reorder_point' => '0',
     'lead_time_days' => '0',
     'category' => '',
     'subcategories' => [],
+    'discontinued' => false,
 ];
 
 foreach ($nav as &$groupItems) {
@@ -69,12 +67,13 @@ if ($dbError === null) {
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $action = $_POST['action'] ?? 'create';
 
+        $isDiscontinued = isset($_POST['discontinued']) && (string) $_POST['discontinued'] === '1';
+
         $payload = [
             'item' => trim((string) ($_POST['item'] ?? '')),
             'part_number' => trim((string) ($_POST['part_number'] ?? '')),
             'finish' => trim((string) ($_POST['finish'] ?? '')),
             'location' => trim((string) ($_POST['location'] ?? '')),
-            'status' => trim((string) ($_POST['status'] ?? '')),
             'supplier' => trim((string) ($_POST['supplier'] ?? '')),
             'supplier_contact' => trim((string) ($_POST['supplier_contact'] ?? '')),
         ];
@@ -90,13 +89,13 @@ if ($dbError === null) {
             'sku' => '',
             'location' => $payload['location'],
             'stock' => $stockRaw,
-            'status' => $payload['status'],
             'supplier' => $payload['supplier'],
             'supplier_contact' => $payload['supplier_contact'],
             'reorder_point' => $reorderRaw,
             'lead_time_days' => $leadTimeRaw,
             'category' => trim((string) ($_POST['category'] ?? '')),
             'subcategories' => [],
+            'discontinued' => $isDiscontinued,
         ];
 
         $submittedSubcategories = isset($_POST['subcategories']) && is_array($_POST['subcategories'])
@@ -131,10 +130,6 @@ if ($dbError === null) {
 
         if ($payload['location'] === '') {
             $errors['location'] = 'Storage location is required.';
-        }
-
-        if (!in_array($payload['status'], $statuses, true)) {
-            $errors['status'] = 'Select a valid status.';
         }
 
         if ($payload['supplier'] === '') {
@@ -180,12 +175,27 @@ if ($dbError === null) {
                 $errors['general'] = 'Invalid item selected for update.';
             }
 
-            if ($editingId !== null && findInventoryItem($db, $editingId) === null) {
+            $existingItem = null;
+
+            if ($editingId !== null) {
+                $existingItem = findInventoryItem($db, $editingId);
+            }
+
+            if ($editingId !== null && $existingItem === null) {
                 $errors['general'] = 'The selected inventory item no longer exists.';
             }
+        } else {
+            $existingItem = null;
         }
 
         if ($errors === []) {
+            $committedQty = $existingItem['committed_qty'] ?? 0;
+            $payload['committed_qty'] = $committedQty;
+            $availableQty = $payload['stock'] - $committedQty;
+            $payload['status'] = $isDiscontinued
+                ? 'Discontinued'
+                : inventoryStatusFromAvailable($availableQty, $payload['reorder_point']);
+
             try {
                 if ($action === 'update' && $editingId !== null) {
                     updateInventoryItem($db, $editingId, $payload);
@@ -217,13 +227,13 @@ if ($dbError === null) {
                     'finish' => $existing['finish'] ?? '',
                     'location' => $existing['location'],
                     'stock' => (string) $existing['stock'],
-                    'status' => $existing['status'],
                     'supplier' => $existing['supplier'],
                     'supplier_contact' => $existing['supplier_contact'] ?? '',
                     'reorder_point' => (string) $existing['reorder_point'],
                     'lead_time_days' => (string) $existing['lead_time_days'],
                     'category' => '',
                     'subcategories' => [],
+                    'discontinued' => $existing['discontinued'],
                 ];
                 $formData['sku'] = inventoryComposeSku(
                     $formData['part_number'],
@@ -541,15 +551,11 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
           </div>
 
           <div class="field">
-            <label for="status">Status<span aria-hidden="true">*</span></label>
-            <select id="status" name="status" required>
-              <?php foreach ($statuses as $status): ?>
-                <option value="<?= e($status) ?>"<?= $formData['status'] === $status ? ' selected' : '' ?>><?= e($status) ?></option>
-              <?php endforeach; ?>
-            </select>
-            <?php if (!empty($errors['status'])): ?>
-              <p class="field-error"><?= e($errors['status']) ?></p>
-            <?php endif; ?>
+            <div class="checkbox-field">
+              <input type="checkbox" id="discontinued" name="discontinued" value="1"<?= $formData['discontinued'] ? ' checked' : '' ?>>
+              <label for="discontinued">Mark item as discontinued</label>
+            </div>
+            <p class="field-help">Statuses are automatically calculated from available stock. Discontinued items keep their label regardless of stock levels.</p>
           </div>
         </div>
 
