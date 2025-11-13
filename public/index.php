@@ -9,6 +9,7 @@ require_once __DIR__ . '/../app/helpers/database.php';
 require_once __DIR__ . '/../app/helpers/view.php';
 require_once __DIR__ . '/../app/data/metrics.php';
 require_once __DIR__ . '/../app/data/inventory.php';
+require_once __DIR__ . '/../app/views/components/inventory_table.php';
 
 $databaseConfig = $app['database'];
 $metrics = [];
@@ -18,6 +19,11 @@ $inventoryStats = [
     'units_on_hand' => 0,
 ];
 $dbError = null;
+$lowCriticalInventory = [];
+$committedInventory = [];
+$allInventoryCount = 0;
+$lowCriticalCount = 0;
+$committedCount = 0;
 
 try {
     $db = db($databaseConfig);
@@ -29,6 +35,28 @@ try {
         'sku_count' => count($inventory),
         'units_on_hand' => $totals['total_stock'] ?? 0,
     ];
+
+    $lowCriticalInventory = array_values(array_filter(
+        $inventory,
+        static function (array $row): bool {
+            if (!empty($row['discontinued'])) {
+                return false;
+            }
+
+            $status = strtolower((string) $row['status']);
+
+            return $status === 'low' || $status === 'critical';
+        }
+    ));
+
+    $committedInventory = array_values(array_filter(
+        $inventory,
+        static fn (array $row): bool => (int) $row['committed_qty'] > 0
+    ));
+
+    $allInventoryCount = count($inventory);
+    $lowCriticalCount = count($lowCriticalInventory);
+    $committedCount = count($committedInventory);
 } catch (\Throwable $exception) {
     $dbError = $exception->getMessage();
 }
@@ -106,42 +134,48 @@ unset($groupItems, $item);
           <span class="small">Updated <?= date('M j, Y') ?></span>
         </header>
         <div class="table-wrapper">
-          <table class="table">
-            <thead>
-              <tr>
-                <th scope="col">Item</th>
-                <th scope="col">Part Number</th>
-                <th scope="col">Finish</th>
-                <th scope="col">SKU</th>
-                <th scope="col">Location</th>
-                <th scope="col">Stock</th>
-                <th scope="col">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              <?php if ($inventory === []): ?>
-                <tr>
-                  <td colspan="7" class="small">No inventory items found. Add rows to the <code>inventory_items</code> table.</td>
-                </tr>
-              <?php else: ?>
-                <?php foreach ($inventory as $row): ?>
-                  <tr>
-                    <td><?= e($row['item']) ?></td>
-                    <td><?= e($row['part_number']) ?></td>
-                    <td><?= e(inventoryFormatFinish($row['finish'])) ?></td>
-                    <td><?= e($row['sku']) ?></td>
-                    <td><?= e($row['location']) ?></td>
-                    <td><?= e((string) $row['stock']) ?></td>
-                    <td>
-                      <span class="status" data-level="<?= e($row['status']) ?>">
-                        <?= e($row['status']) ?>
-                      </span>
-                    </td>
-                  </tr>
-                <?php endforeach; ?>
-              <?php endif; ?>
-            </tbody>
-          </table>
+          <div class="report-tabs" data-report-tabs>
+            <div class="report-tabs__list" role="tablist">
+              <button type="button" role="tab" id="report-tab-all" aria-controls="report-panel-all" aria-selected="true" tabindex="0" data-report-tab="all">
+                All Inventory <span class="report-tabs__count"><?= e((string) $allInventoryCount) ?></span>
+              </button>
+              <button type="button" role="tab" id="report-tab-low" aria-controls="report-panel-low" aria-selected="false" tabindex="-1" data-report-tab="low">
+                Low &amp; Critical <span class="report-tabs__count"><?= e((string) $lowCriticalCount) ?></span>
+              </button>
+              <button type="button" role="tab" id="report-tab-committed" aria-controls="report-panel-committed" aria-selected="false" tabindex="-1" data-report-tab="committed">
+                Committed Parts <span class="report-tabs__count"><?= e((string) $committedCount) ?></span>
+              </button>
+            </div>
+            <div class="report-tabs__panels">
+              <section id="report-panel-all" class="report-tabs__panel" role="tabpanel" aria-labelledby="report-tab-all" data-report-panel="all">
+                <?php renderInventoryTable($inventory, [
+                    'includeFilters' => true,
+                    'emptyMessage' => 'No inventory items found. Add rows to the inventory system to populate this dashboard.',
+                    'id' => 'dashboard-inventory-all',
+                    'pageSize' => 50,
+                    'showActions' => false,
+                ]); ?>
+              </section>
+              <section id="report-panel-low" class="report-tabs__panel" role="tabpanel" aria-labelledby="report-tab-low" data-report-panel="low" hidden>
+                <?php renderInventoryTable($lowCriticalInventory, [
+                    'includeFilters' => false,
+                    'emptyMessage' => 'No low or critical parts right now.',
+                    'id' => 'dashboard-inventory-low',
+                    'pageSize' => 50,
+                    'showActions' => false,
+                ]); ?>
+              </section>
+              <section id="report-panel-committed" class="report-tabs__panel" role="tabpanel" aria-labelledby="report-tab-committed" data-report-panel="committed" hidden>
+                <?php renderInventoryTable($committedInventory, [
+                    'includeFilters' => false,
+                    'emptyMessage' => 'No parts are currently committed to jobs.',
+                    'id' => 'dashboard-inventory-committed',
+                    'pageSize' => 50,
+                    'showActions' => false,
+                ]); ?>
+              </section>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -167,5 +201,71 @@ unset($groupItems, $item);
       </section>
     </main>
   </div>
+  <script src="js/inventory-table.js"></script>
+  <script>
+  (function () {
+    const container = document.querySelector('[data-report-tabs]');
+    if (!container) {
+      return;
+    }
+
+    const tabs = Array.from(container.querySelectorAll('[data-report-tab]'));
+    const panels = Array.from(container.querySelectorAll('[data-report-panel]'));
+
+    function showTab(targetId) {
+      if (!targetId) {
+        return;
+      }
+
+      tabs.forEach((tab) => {
+        const isActive = tab.dataset.reportTab === targetId;
+        tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        tab.setAttribute('tabindex', isActive ? '0' : '-1');
+      });
+
+      panels.forEach((panel) => {
+        if (!(panel instanceof HTMLElement)) {
+          return;
+        }
+
+        const isActive = panel.dataset.reportPanel === targetId;
+        if (isActive) {
+          panel.removeAttribute('hidden');
+        } else {
+          panel.setAttribute('hidden', 'hidden');
+        }
+      });
+    }
+
+    tabs.forEach((tab, index) => {
+      tab.addEventListener('click', () => {
+        showTab(tab.dataset.reportTab || '');
+      });
+
+      tab.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          showTab(tab.dataset.reportTab || '');
+        }
+
+        if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+          event.preventDefault();
+          const offset = event.key === 'ArrowRight' ? 1 : -1;
+          const nextIndex = (index + offset + tabs.length) % tabs.length;
+          const nextTab = tabs[nextIndex];
+          nextTab.focus();
+          showTab(nextTab.dataset.reportTab || '');
+        }
+      });
+    });
+
+    const initiallySelected = tabs.find((tab) => tab.getAttribute('aria-selected') === 'true');
+    if (initiallySelected) {
+      showTab(initiallySelected.dataset.reportTab || '');
+    } else if (tabs[0]) {
+      showTab(tabs[0].dataset.reportTab || '');
+    }
+  })();
+  </script>
 </body>
 </html>

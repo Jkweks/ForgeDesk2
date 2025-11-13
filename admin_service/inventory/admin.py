@@ -12,6 +12,7 @@ class InventoryItemAdmin(admin.ModelAdmin):
     list_filter = ("status", "supplier")
     search_fields = ("item", "sku", "part_number", "location", "supplier")
     ordering = ("item",)
+    readonly_fields = ("average_daily_use",)
 
 
 @admin.register(models.InventoryMetric)

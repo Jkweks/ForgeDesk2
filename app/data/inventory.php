@@ -144,6 +144,155 @@ if (!function_exists('loadInventory')) {
         return number_format($dailyUse, 2, '.', '');
     }
 
+    /**
+     * Number of trailing days used when calculating average daily usage.
+     */
+    function inventoryAverageDailyUseWindowDays(): int
+    {
+        return 30;
+    }
+
+    /**
+     * Ensure the daily usage aggregation table exists.
+     */
+    function inventoryEnsureUsageSchema(\PDO $db): void
+    {
+        static $ensuredUsage = false;
+
+        if ($ensuredUsage) {
+            return;
+        }
+
+        $db->exec(
+            'CREATE TABLE IF NOT EXISTS inventory_daily_usage (
+                inventory_item_id INTEGER NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
+                usage_date DATE NOT NULL,
+                quantity_used INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (inventory_item_id, usage_date)
+            )'
+        );
+
+        $db->exec('CREATE INDEX IF NOT EXISTS idx_inventory_daily_usage_date ON inventory_daily_usage (usage_date)');
+
+        $ensuredUsage = true;
+    }
+
+    /**
+     * Persist per-item usage totals for a specific calendar day.
+     *
+     * @param array<int,int> $usageByItem
+     */
+    function inventoryRecordDailyUsage(\PDO $db, string $usageDate, array $usageByItem): void
+    {
+        if ($usageByItem === []) {
+            return;
+        }
+
+        inventoryEnsureUsageSchema($db);
+
+        $statement = $db->prepare(
+            'INSERT INTO inventory_daily_usage (inventory_item_id, usage_date, quantity_used)
+             VALUES (:inventory_item_id, :usage_date, :quantity_used)
+             ON CONFLICT (inventory_item_id, usage_date) DO UPDATE
+             SET quantity_used = inventory_daily_usage.quantity_used + EXCLUDED.quantity_used'
+        );
+
+        foreach ($usageByItem as $itemId => $quantity) {
+            if ($quantity <= 0) {
+                continue;
+            }
+
+            $statement->execute([
+                ':inventory_item_id' => $itemId,
+                ':usage_date' => $usageDate,
+                ':quantity_used' => $quantity,
+            ]);
+        }
+    }
+
+    /**
+     * Calculate trailing average daily usage for the provided inventory items.
+     *
+     * @param list<int> $itemIds
+     * @return array<int,?float>
+     */
+    function inventoryCalculateAverageDailyUseMap(\PDO $db, array $itemIds): array
+    {
+        $itemIds = array_values(array_unique(array_map('intval', $itemIds)));
+
+        if ($itemIds === []) {
+            return [];
+        }
+
+        inventoryEnsureUsageSchema($db);
+
+        $windowDays = inventoryAverageDailyUseWindowDays();
+        $today = new \DateTimeImmutable('today');
+        $startDate = $today->modify(sprintf('-%d days', $windowDays - 1))->format('Y-m-d');
+
+        $placeholders = implode(', ', array_fill(0, count($itemIds), '?'));
+
+        $statement = $db->prepare(
+            'SELECT inventory_item_id, SUM(quantity_used) AS total_used, MIN(usage_date) AS first_usage
+             FROM inventory_daily_usage
+             WHERE usage_date >= ? AND inventory_item_id IN (' . $placeholders . ')
+             GROUP BY inventory_item_id'
+        );
+
+        $statement->execute(array_merge([$startDate], $itemIds));
+
+        /** @var array<int,array{inventory_item_id:int,total_used:string,first_usage:string|null}> $rows */
+        $rows = $statement->fetchAll();
+
+        $totals = [];
+        foreach ($rows as $row) {
+            $totals[(int) $row['inventory_item_id']] = [
+                'total_used' => isset($row['total_used']) ? (float) $row['total_used'] : 0.0,
+                'first_usage' => $row['first_usage'],
+            ];
+        }
+
+        $averages = [];
+
+        foreach ($itemIds as $itemId) {
+            if (!isset($totals[$itemId])) {
+                $averages[$itemId] = 0.0;
+                continue;
+            }
+
+            $totalUsed = $totals[$itemId]['total_used'];
+            $firstUsageRaw = $totals[$itemId]['first_usage'];
+
+            if ($firstUsageRaw === null) {
+                $averages[$itemId] = 0.0;
+                continue;
+            }
+
+            try {
+                $firstUsage = new \DateTimeImmutable($firstUsageRaw);
+            } catch (\Exception $exception) {
+                $averages[$itemId] = 0.0;
+                continue;
+            }
+
+            $daysDiff = (int) $today->diff($firstUsage)->days;
+            $daysCovered = max(1, min($windowDays, $daysDiff + 1));
+
+            $averages[$itemId] = round($totalUsed / $daysCovered, 4);
+        }
+
+        $update = $db->prepare('UPDATE inventory_items SET average_daily_use = :average_daily_use WHERE id = :id');
+
+        foreach ($averages as $itemId => $average) {
+            $update->execute([
+                ':id' => $itemId,
+                ':average_daily_use' => $average,
+            ]);
+        }
+
+        return $averages;
+    }
+
     function inventoryNormalizeFinish(?string $finish): ?string
     {
         if ($finish === null) {
@@ -339,6 +488,8 @@ if (!function_exists('loadInventory')) {
         $db->exec('CREATE INDEX IF NOT EXISTS idx_inventory_transaction_lines_transaction ON inventory_transaction_lines (transaction_id)');
         $db->exec('CREATE INDEX IF NOT EXISTS idx_inventory_transaction_lines_item ON inventory_transaction_lines (inventory_item_id)');
 
+        inventoryEnsureUsageSchema($db);
+
         $ensured = true;
     }
 
@@ -486,14 +637,23 @@ if (!function_exists('loadInventory')) {
             $db->beginTransaction();
 
             $transactionStatement = $db->prepare(
-                'INSERT INTO inventory_transactions (reference, notes) VALUES (:reference, :notes) RETURNING id'
+                'INSERT INTO inventory_transactions (reference, notes) VALUES (:reference, :notes) RETURNING id, created_at'
             );
             $transactionStatement->execute([
                 ':reference' => $payload['reference'],
                 ':notes' => $payload['notes'],
             ]);
 
-            $transactionId = (int) $transactionStatement->fetchColumn();
+            /** @var array{0:int,1:string}|false $transactionRow */
+            $transactionRow = $transactionStatement->fetch(\PDO::FETCH_NUM);
+
+            if ($transactionRow === false) {
+                throw new \RuntimeException('Unable to create inventory transaction.');
+            }
+
+            $transactionId = (int) $transactionRow[0];
+            $createdAt = $transactionRow[1] ?? null;
+            $usageDate = $createdAt !== null ? substr($createdAt, 0, 10) : date('Y-m-d');
 
             $lockStatement = $db->prepare('SELECT stock FROM inventory_items WHERE id = :id FOR UPDATE');
             $updateStatement = $db->prepare('UPDATE inventory_items SET stock = :stock WHERE id = :id');
@@ -501,6 +661,8 @@ if (!function_exists('loadInventory')) {
                 'INSERT INTO inventory_transaction_lines (transaction_id, inventory_item_id, quantity_change, note, stock_before, stock_after) '
                 . 'VALUES (:transaction_id, :inventory_item_id, :quantity_change, :note, :stock_before, :stock_after)'
             );
+
+            $usageByItem = [];
 
             foreach ($payload['lines'] as $line) {
                 $itemId = (int) $line['item_id'];
@@ -534,6 +696,15 @@ if (!function_exists('loadInventory')) {
                     ':stock_before' => $stockBefore,
                     ':stock_after' => $stockAfter,
                 ]);
+
+                if ($quantityChange < 0) {
+                    $usageByItem[$itemId] = ($usageByItem[$itemId] ?? 0) + abs($quantityChange);
+                }
+            }
+
+            if ($usageByItem !== []) {
+                inventoryRecordDailyUsage($db, $usageDate, $usageByItem);
+                inventoryCalculateAverageDailyUseMap($db, array_keys($usageByItem));
             }
 
             $db->commit();
@@ -703,14 +874,22 @@ if (!function_exists('loadInventory')) {
 
             $rows = $statement->fetchAll();
 
+            $idList = array_map(
+                static fn (array $row): int => (int) $row['id'],
+                $rows
+            );
+
+            $averageUsage = inventoryCalculateAverageDailyUseMap($db, $idList);
+
             return array_map(
-                static function (array $row): array {
+                static function (array $row) use ($averageUsage): array {
                     $available = (int) $row['available_qty'];
                     $reorderPoint = (int) $row['reorder_point'];
                     $storedStatus = (string) $row['status'];
+                    $id = (int) $row['id'];
 
                     return [
-                        'id' => (int) $row['id'],
+                        'id' => $id,
                         'item' => (string) $row['item'],
                         'sku' => (string) $row['sku'],
                         'part_number' => (string) $row['part_number'],
@@ -724,7 +903,7 @@ if (!function_exists('loadInventory')) {
                         'supplier_contact' => $row['supplier_contact'] !== null ? (string) $row['supplier_contact'] : null,
                         'reorder_point' => $reorderPoint,
                         'lead_time_days' => (int) $row['lead_time_days'],
-                        'average_daily_use' => $row['average_daily_use'] !== null ? (float) $row['average_daily_use'] : null,
+                        'average_daily_use' => $averageUsage[$id] ?? null,
                         'active_reservations' => (int) $row['active_reservations'],
                         'discontinued' => inventoryIsDiscontinuedStatus($storedStatus),
                     ];
@@ -848,9 +1027,12 @@ if (!function_exists('loadInventory')) {
         $available = (int) $row['available_qty'];
         $reorderPoint = (int) $row['reorder_point'];
         $storedStatus = (string) $row['status'];
+        $id = (int) $row['id'];
+
+        $averageUsage = inventoryCalculateAverageDailyUseMap($db, [$id]);
 
         return [
-            'id' => (int) $row['id'],
+            'id' => $id,
             'item' => (string) $row['item'],
             'sku' => (string) $row['sku'],
             'part_number' => (string) $row['part_number'],
@@ -864,7 +1046,7 @@ if (!function_exists('loadInventory')) {
             'supplier_contact' => $row['supplier_contact'] !== null ? (string) $row['supplier_contact'] : null,
             'reorder_point' => $reorderPoint,
             'lead_time_days' => (int) $row['lead_time_days'],
-            'average_daily_use' => $row['average_daily_use'] !== null ? (float) $row['average_daily_use'] : null,
+            'average_daily_use' => $averageUsage[$id] ?? null,
             'active_reservations' => (int) $row['active_reservations'],
             'discontinued' => inventoryIsDiscontinuedStatus($storedStatus),
         ];
@@ -932,9 +1114,12 @@ if (!function_exists('loadInventory')) {
         $available = (int) $row['available_qty'];
         $reorderPoint = (int) $row['reorder_point'];
         $storedStatus = (string) $row['status'];
+        $id = (int) $row['id'];
+
+        $averageUsage = inventoryCalculateAverageDailyUseMap($db, [$id]);
 
         return [
-            'id' => (int) $row['id'],
+            'id' => $id,
             'item' => (string) $row['item'],
             'sku' => (string) $row['sku'],
             'part_number' => (string) $row['part_number'],
@@ -948,7 +1133,7 @@ if (!function_exists('loadInventory')) {
             'supplier_contact' => $row['supplier_contact'] !== null ? (string) $row['supplier_contact'] : null,
             'reorder_point' => $reorderPoint,
             'lead_time_days' => (int) $row['lead_time_days'],
-            'average_daily_use' => $row['average_daily_use'] !== null ? (float) $row['average_daily_use'] : null,
+            'average_daily_use' => $averageUsage[$id] ?? null,
             'active_reservations' => (int) $row['active_reservations'],
             'discontinued' => inventoryIsDiscontinuedStatus($storedStatus),
         ];
@@ -969,7 +1154,6 @@ if (!function_exists('loadInventory')) {
      *   supplier_contact:?string,
      *   reorder_point:int,
      *   lead_time_days:int,
-     *   average_daily_use:?string|float,
      *   committed_qty?:int
      * } $payload
      */
@@ -997,7 +1181,7 @@ if (!function_exists('loadInventory')) {
             ':supplier_contact' => $payload['supplier_contact'],
             ':reorder_point' => $payload['reorder_point'],
             ':lead_time_days' => $payload['lead_time_days'],
-            ':average_daily_use' => $payload['average_daily_use'],
+            ':average_daily_use' => null,
         ]);
 
         return (int) $statement->fetchColumn();
@@ -1018,7 +1202,6 @@ if (!function_exists('loadInventory')) {
      *   supplier_contact:?string,
      *   reorder_point:int,
      *   lead_time_days:int,
-     *   average_daily_use:?string|float,
      *   committed_qty?:int
      * } $payload
      */
@@ -1047,7 +1230,7 @@ if (!function_exists('loadInventory')) {
             ':supplier_contact' => $payload['supplier_contact'],
             ':reorder_point' => $payload['reorder_point'],
             ':lead_time_days' => $payload['lead_time_days'],
-            ':average_daily_use' => $payload['average_daily_use'],
+            ':average_daily_use' => null,
         ]);
     }
 }

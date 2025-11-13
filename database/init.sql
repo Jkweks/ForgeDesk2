@@ -144,6 +144,16 @@ CREATE INDEX IF NOT EXISTS idx_inventory_transaction_lines_transaction
 CREATE INDEX IF NOT EXISTS idx_inventory_transaction_lines_item
     ON inventory_transaction_lines (inventory_item_id);
 
+CREATE TABLE IF NOT EXISTS inventory_daily_usage (
+    inventory_item_id INTEGER NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
+    usage_date DATE NOT NULL,
+    quantity_used INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (inventory_item_id, usage_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_inventory_daily_usage_date
+    ON inventory_daily_usage (usage_date);
+
 INSERT INTO inventory_items (item, sku, part_number, finish, location, stock, status, supplier, supplier_contact, reorder_point, lead_time_days, average_daily_use) VALUES
     ('Aluminum Stile - 2"', 'AL-ST-02-0R', 'AL-ST-02', '0R', 'Aisle 1 / Bin 4', 86, 'In Stock', 'DoorCraft Metals', 'sales@doorcraftmetals.com', 40, 7, 3.5000),
     ('Tempered Glass Panel 36x84', 'GL-3684-BL', 'GL-3684', 'BL', 'Aisle 3 / Rack 2', 24, 'Reorder', 'ClearView Glass', 'orders@clearviewglass.com', 30, 14, 1.2500),
