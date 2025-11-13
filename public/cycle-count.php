@@ -181,9 +181,38 @@ $modalOpen = $activeSession !== null && $lineView !== null && $activeSession['st
   <title><?= e($app['name']) ?> · Cycle Counts</title>
   <link rel="stylesheet" href="css/dashboard.css" />
 </head>
-<body<?= $modalOpen ? ' class="modal-open"' : '' ?>>
+<?php
+$bodyClasses = ['has-sidebar-toggle'];
+if ($modalOpen) {
+    $bodyClasses[] = 'modal-open';
+}
+$bodyClassAttribute = ' class="' . implode(' ', $bodyClasses) . '"';
+?>
+<body<?= $bodyClassAttribute ?>>
   <div class="layout">
     <?php require __DIR__ . '/../app/views/partials/sidebar.php'; ?>
+
+    <header class="topbar">
+      <button
+        class="topbar-toggle"
+        type="button"
+        data-sidebar-toggle
+        aria-controls="app-sidebar"
+        aria-expanded="false"
+        aria-label="Toggle navigation"
+      >
+        <span aria-hidden="true"><?= icon('menu') ?></span>
+      </button>
+      <form class="search" role="search" aria-label="Inventory search">
+        <span aria-hidden="true"><?= icon('search') ?></span>
+        <input type="search" name="q" placeholder="Search SKUs, bins, or components" />
+      </form>
+      <button class="user" type="button">
+        <span class="user-avatar" aria-hidden="true"><?= e($app['user']['avatar']) ?></span>
+        <span class="user-email"><?= e($app['user']['email']) ?></span>
+        <span aria-hidden="true"><?= icon('chev') ?></span>
+      </button>
+    </header>
 
     <main class="content">
       <section class="panel" aria-labelledby="cycle-count-title">
@@ -378,5 +407,6 @@ $modalOpen = $activeSession !== null && $lineView !== null && $activeSession['st
       <div class="modal" id="count-modal" hidden></div>
     <?php endif; ?>
   </div>
+  <script src="js/dashboard.js"></script>
 </body>
 </html>

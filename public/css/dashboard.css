@@ -49,6 +49,10 @@ a{color:inherit;text-decoration:none}
   min-height:100vh;
 }
 
+.sidebar-backdrop{display:none}
+
+body.sidebar-open{overflow:hidden}
+
 .sidebar{
   grid-area:sidebar;
   background:linear-gradient(180deg,#12161b,#0f1318);
@@ -57,6 +61,9 @@ a{color:inherit;text-decoration:none}
   top:0;
   height:100vh;
   padding:14px 12px;
+  overflow-y:auto;
+  transition:transform .25s ease;
+  will-change:transform;
 }
 
 .brand{
@@ -132,6 +139,27 @@ a{color:inherit;text-decoration:none}
   padding:12px 16px;
   border-bottom:1px solid rgba(255,255,255,.06);
   background:linear-gradient(180deg,var(--panel),#141820);
+}
+
+.topbar-toggle{
+  display:none;
+  align-items:center;
+  justify-content:center;
+  width:44px;
+  height:44px;
+  border-radius:12px;
+  border:1px solid rgba(255,255,255,.12);
+  background:var(--panel-3);
+  color:var(--text);
+  cursor:pointer;
+  transition:background-color .2s ease, border-color .2s ease, color .2s ease;
+}
+
+.topbar-toggle:hover,
+.topbar-toggle:focus{
+  background:var(--panel-2);
+  border-color:rgba(255,255,255,.18);
+  outline:none;
 }
 
 .search{
@@ -1280,11 +1308,54 @@ body.modal-open{overflow:hidden}
 @media (max-width:960px){
   .layout{
     grid-template-columns:1fr;
+    grid-template-rows:auto 1fr;
     grid-template-areas:
       "topbar"
       "content";
   }
-  .sidebar{position:relative;height:auto;display:none}
+  .topbar{
+    position:sticky;
+    top:0;
+    z-index:950;
+    gap:10px;
+    flex-wrap:wrap;
+    padding:10px 12px;
+  }
+  .topbar-toggle{display:inline-flex}
+  .topbar .user{margin-left:auto}
+  .search{flex:1 1 100%;order:2}
+  .sidebar{
+    position:fixed;
+    top:0;
+    left:0;
+    bottom:0;
+    width:min(300px,82vw);
+    max-width:320px;
+    transform:translateX(-110%);
+    height:100vh;
+    display:block;
+    box-shadow:0 20px 40px rgba(0,0,0,.55);
+    z-index:1100;
+    border-right:1px solid rgba(255,255,255,.08);
+  }
+  body.sidebar-open .sidebar{transform:translateX(0)}
+  .sidebar-backdrop{
+    display:block;
+    position:fixed;
+    inset:0;
+    background:rgba(6,8,11,.72);
+    backdrop-filter:blur(4px);
+    opacity:0;
+    visibility:hidden;
+    transition:opacity .2s ease, visibility .2s ease;
+    z-index:1000;
+    pointer-events:none;
+  }
+  .sidebar-backdrop.is-visible{
+    opacity:1;
+    visibility:visible;
+    pointer-events:auto;
+  }
   .inventory-metrics{
     grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
     gap:10px;
