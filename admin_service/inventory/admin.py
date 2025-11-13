@@ -8,9 +8,9 @@ from . import models
 
 @admin.register(models.InventoryItem)
 class InventoryItemAdmin(admin.ModelAdmin):
-    list_display = ("item", "sku", "location", "stock", "status", "supplier")
+    list_display = ("item", "sku", "location", "stock", "status", "average_daily_use", "supplier")
     list_filter = ("status", "supplier")
-    search_fields = ("item", "sku", "location", "supplier")
+    search_fields = ("item", "sku", "part_number", "location", "supplier")
     ordering = ("item",)
 
 
@@ -66,3 +66,32 @@ class CycleCountLineAdmin(admin.ModelAdmin):
     list_filter = ("session",)
     search_fields = ("session__name", "inventory_item__item", "inventory_item__sku")
     raw_id_fields = ("session", "inventory_item")
+
+
+class InventoryTransactionLineInline(admin.TabularInline):
+    model = models.InventoryTransactionLine
+    extra = 0
+    autocomplete_fields = ("inventory_item",)
+    readonly_fields = ("stock_before", "stock_after")
+
+
+@admin.register(models.InventoryTransaction)
+class InventoryTransactionAdmin(admin.ModelAdmin):
+    list_display = ("reference", "created_at", "notes")
+    search_fields = ("reference", "notes")
+    ordering = ("-created_at",)
+    date_hierarchy = "created_at"
+    inlines = [InventoryTransactionLineInline]
+
+
+@admin.register(models.InventoryTransactionLine)
+class InventoryTransactionLineAdmin(admin.ModelAdmin):
+    list_display = (
+        "transaction",
+        "inventory_item",
+        "quantity_change",
+        "stock_before",
+        "stock_after",
+    )
+    search_fields = ("transaction__reference", "inventory_item__item", "inventory_item__sku")
+    autocomplete_fields = ("transaction", "inventory_item")

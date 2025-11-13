@@ -9,6 +9,19 @@ require_once __DIR__ . '/../app/helpers/database.php';
 require_once __DIR__ . '/../app/helpers/view.php';
 require_once __DIR__ . '/../app/data/inventory.php';
 
+if (!function_exists('inventoryFormatDailyUseInput')) {
+    function inventoryFormatDailyUseInput(?float $value): string
+    {
+        if ($value === null) {
+            return '';
+        }
+
+        $normalized = number_format($value, 4, '.', '');
+
+        return rtrim(rtrim($normalized, '0'), '.');
+    }
+}
+
 $databaseConfig = $app['database'];
 $dbError = null;
 $errors = [];
@@ -35,6 +48,7 @@ $formData = [
     'supplier_contact' => '',
     'reorder_point' => '0',
     'lead_time_days' => '0',
+    'average_daily_use' => '',
     'category' => '',
     'subcategories' => [],
     'discontinued' => false,
@@ -81,6 +95,7 @@ if ($dbError === null) {
         $stockRaw = trim((string) ($_POST['stock'] ?? '0'));
         $reorderRaw = trim((string) ($_POST['reorder_point'] ?? '0'));
         $leadTimeRaw = trim((string) ($_POST['lead_time_days'] ?? '0'));
+        $dailyUseRaw = trim((string) ($_POST['average_daily_use'] ?? ''));
 
         $formData = [
             'item' => $payload['item'],
@@ -93,6 +108,7 @@ if ($dbError === null) {
             'supplier_contact' => $payload['supplier_contact'],
             'reorder_point' => $reorderRaw,
             'lead_time_days' => $leadTimeRaw,
+            'average_daily_use' => $dailyUseRaw,
             'category' => trim((string) ($_POST['category'] ?? '')),
             'subcategories' => [],
             'discontinued' => $isDiscontinued,
@@ -151,9 +167,20 @@ if ($dbError === null) {
             $errors['lead_time_days'] = 'Lead time must be a non-negative integer.';
         }
 
+        $averageDailyUseValue = null;
+        if ($dailyUseRaw !== '') {
+            $averageDailyUse = filter_var($dailyUseRaw, FILTER_VALIDATE_FLOAT);
+            if ($averageDailyUse === false || $averageDailyUse < 0) {
+                $errors['average_daily_use'] = 'Average daily use must be a non-negative number.';
+            } else {
+                $averageDailyUseValue = number_format((float) $averageDailyUse, 4, '.', '');
+            }
+        }
+
         $payload['stock'] = $stock === false ? 0 : $stock;
         $payload['reorder_point'] = $reorderPoint === false ? 0 : $reorderPoint;
         $payload['lead_time_days'] = $leadTimeDays === false ? 0 : $leadTimeDays;
+        $payload['average_daily_use'] = $averageDailyUseValue;
         $payload['supplier_contact'] = $payload['supplier_contact'] !== '' ? $payload['supplier_contact'] : null;
 
         $finishRaw = $payload['finish'];
@@ -231,6 +258,7 @@ if ($dbError === null) {
                     'supplier_contact' => $existing['supplier_contact'] ?? '',
                     'reorder_point' => (string) $existing['reorder_point'],
                     'lead_time_days' => (string) $existing['lead_time_days'],
+                    'average_daily_use' => inventoryFormatDailyUseInput($existing['average_daily_use'] ?? null),
                     'category' => '',
                     'subcategories' => [],
                     'discontinued' => $existing['discontinued'],
@@ -266,6 +294,139 @@ if ($formData['sku'] === '' && $formData['part_number'] !== '') {
     );
 }
 
+$lowCriticalInventory = array_values(array_filter(
+    $inventory,
+    static function (array $row): bool {
+        if (!empty($row['discontinued'])) {
+            return false;
+        }
+
+        $status = strtolower((string) $row['status']);
+
+        return $status === 'low' || $status === 'critical';
+    }
+));
+
+$committedInventory = array_values(array_filter(
+    $inventory,
+    static function (array $row): bool {
+        return (int) $row['committed_qty'] > 0;
+    }
+));
+
+$allInventoryCount = count($inventory);
+$lowCriticalCount = count($lowCriticalInventory);
+$committedCount = count($committedInventory);
+
+$renderInventoryTable = static function (array $rows, array $options = []): void {
+    $includeFilters = $options['includeFilters'] ?? true;
+    $emptyMessage = $options['emptyMessage']
+        ?? 'No inventory items found. Use the button above to add your first part.';
+    $tableId = $options['id'] ?? null;
+
+    ?>
+    <table class="table inventory-table"<?= $tableId !== null ? ' id="' . e($tableId) . '"' : '' ?>>
+      <thead>
+        <tr>
+          <th scope="col" class="sortable" data-sort-key="item" aria-sort="none">Item</th>
+          <th scope="col" class="sortable" data-sort-key="sku" aria-sort="none">SKU</th>
+          <th scope="col" class="sortable" data-sort-key="location" aria-sort="none">Location</th>
+          <th scope="col" class="numeric sortable" data-sort-key="stock" data-sort-type="number" aria-sort="none">Stock</th>
+          <th scope="col" class="numeric sortable" data-sort-key="committed" data-sort-type="number" aria-sort="none">Committed</th>
+          <th scope="col" class="numeric sortable" data-sort-key="available" data-sort-type="number" aria-sort="none">Available</th>
+          <th scope="col" class="numeric sortable" data-sort-key="leadTime" data-sort-type="number" aria-sort="none">Lead Time (days)</th>
+          <th scope="col" class="numeric sortable" data-sort-key="averageDailyUse" data-sort-type="number" aria-sort="none">Avg Daily Use</th>
+          <th scope="col" class="sortable" data-sort-key="status" aria-sort="none">Status</th>
+          <th scope="col" class="sortable" data-sort-key="reservations" data-sort-type="number" aria-sort="none">Reservations</th>
+          <th scope="col" class="actions">Actions</th>
+        </tr>
+        <?php if ($includeFilters): ?>
+          <tr class="filter-row">
+            <th><input type="search" class="column-filter" data-key="item" placeholder="Search items" aria-label="Filter by item"></th>
+            <th><input type="search" class="column-filter" data-key="sku" data-alt-keys="partNumber" placeholder="Search SKU or part #" aria-label="Filter by SKU"></th>
+            <th><input type="search" class="column-filter" data-key="location" placeholder="Search location" aria-label="Filter by location"></th>
+            <th><input type="search" class="column-filter" data-key="stock" placeholder="Search stock" aria-label="Filter by stock" inputmode="numeric"></th>
+            <th><input type="search" class="column-filter" data-key="committed" placeholder="Search committed" aria-label="Filter by committed" inputmode="numeric"></th>
+            <th><input type="search" class="column-filter" data-key="available" placeholder="Search available" aria-label="Filter by available" inputmode="numeric"></th>
+            <th><input type="search" class="column-filter" data-key="leadTime" placeholder="Search lead time" aria-label="Filter by lead time" inputmode="numeric"></th>
+            <th><input type="search" class="column-filter" data-key="averageDailyUse" placeholder="Search avg/day" aria-label="Filter by average daily use" inputmode="decimal"></th>
+            <th><input type="search" class="column-filter" data-key="status" placeholder="Search status" aria-label="Filter by status"></th>
+            <th><input type="search" class="column-filter" data-key="reservations" placeholder="Search reservations" aria-label="Filter by reservations" inputmode="numeric"></th>
+            <th aria-hidden="true"></th>
+          </tr>
+        <?php endif; ?>
+      </thead>
+      <tbody>
+        <?php if ($rows === []): ?>
+          <tr>
+            <td colspan="11" class="small"><?= e($emptyMessage) ?></td>
+          </tr>
+        <?php else: ?>
+          <?php foreach ($rows as $index => $row): ?>
+            <?php
+            $dailyUseRaw = $row['average_daily_use'] ?? null;
+            $dailyUseAttr = $dailyUseRaw !== null ? number_format((float) $dailyUseRaw, 4, '.', '') : '';
+            $dailyUseDisplay = $dailyUseRaw !== null ? inventoryFormatDailyUse((float) $dailyUseRaw) : null;
+            $availableClass = $row['available_qty'] <= 0 ? 'danger' : 'success';
+            ?>
+            <tr
+              data-index="<?= e((string) $index) ?>"
+              data-item="<?= e($row['item']) ?>"
+              data-sku="<?= e($row['sku']) ?>"
+              data-part-number="<?= e($row['part_number']) ?>"
+              data-location="<?= e($row['location']) ?>"
+              data-stock="<?= e((string) $row['stock']) ?>"
+              data-committed="<?= e((string) $row['committed_qty']) ?>"
+              data-available="<?= e((string) $row['available_qty']) ?>"
+              data-lead-time="<?= e((string) $row['lead_time_days']) ?>"
+              data-average-daily-use="<?= e($dailyUseAttr) ?>"
+              data-status="<?= e($row['status']) ?>"
+              data-reservations="<?= e((string) $row['active_reservations']) ?>"
+              data-finish="<?= e($row['finish'] ?? '') ?>"
+            >
+              <td class="item"><?= e($row['item']) ?></td>
+              <td class="sku"><span class="sku-badge"><?= e($row['sku']) ?></span></td>
+              <td><?= e($row['location']) ?></td>
+              <td class="numeric"><span class="quantity-pill"><?= e(inventoryFormatQuantity($row['stock'])) ?></span></td>
+              <td class="numeric"><span class="quantity-pill brand"><?= e(inventoryFormatQuantity($row['committed_qty'])) ?></span></td>
+              <td class="numeric">
+                <span class="quantity-pill <?= $availableClass ?>">
+                  <?= e(inventoryFormatQuantity($row['available_qty'])) ?>
+                </span>
+              </td>
+              <td class="numeric"><?= e((string) $row['lead_time_days']) ?></td>
+              <td class="numeric">
+                <?php if ($dailyUseDisplay !== null): ?>
+                  <span class="quantity-pill"><?= e($dailyUseDisplay) ?><span class="muted">/day</span></span>
+                <?php else: ?>
+                  <span class="muted">Not set</span>
+                <?php endif; ?>
+              </td>
+              <td>
+                <span class="status" data-level="<?= e($row['status']) ?>">
+                  <?= e($row['status']) ?>
+                </span>
+              </td>
+              <td class="reservations">
+                <?php if ($row['active_reservations'] > 0): ?>
+                  <a class="reservation-link" href="/admin/job-reservations.php?inventory_id=<?= e((string) $row['id']) ?>">
+                    <?= e($row['active_reservations'] === 1 ? '1 active job' : $row['active_reservations'] . ' active jobs') ?>
+                  </a>
+                <?php else: ?>
+                  <span class="reservation-link muted">None</span>
+                <?php endif; ?>
+              </td>
+              <td class="actions">
+                <a class="button ghost" href="inventory.php?id=<?= e((string) $row['id']) ?>">Edit</a>
+              </td>
+            </tr>
+          <?php endforeach; ?>
+        <?php endif; ?>
+      </tbody>
+    </table>
+    <?php
+};
+
 $activeModalTab = !empty($errors['category']) ? 'categories' : 'details';
 
 $modalRequested = isset($_GET['modal']) && $_GET['modal'] === 'open';
@@ -288,8 +449,8 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
       <section class="panel" aria-labelledby="inventory-manager-title">
         <header class="panel-header">
           <div>
-            <h1 id="inventory-manager-title">Inventory Items</h1>
-            <p class="small">Track suppliers, lead times, and stock levels in one place.</p>
+            <h1 id="inventory-manager-title">Inventory Dashboard</h1>
+            <p class="small">Surface critical stock alerts, commitments, and usage trends at a glance.</p>
           </div>
           <div class="header-actions">
             <a class="button secondary" href="inventory_export.php">Download CSV</a>
@@ -344,88 +505,31 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
                 </span>
               </div>
             </div>
+            <div class="report-tabs" data-report-tabs>
+              <div class="report-tabs__list" role="tablist">
+                <button type="button" role="tab" id="report-tab-all" aria-controls="report-panel-all" aria-selected="true" tabindex="0" data-report-tab="all">
+                  All Inventory <span class="report-tabs__count"><?= e((string) $allInventoryCount) ?></span>
+                </button>
+                <button type="button" role="tab" id="report-tab-low" aria-controls="report-panel-low" aria-selected="false" tabindex="-1" data-report-tab="low">
+                  Low &amp; Critical <span class="report-tabs__count"><?= e((string) $lowCriticalCount) ?></span>
+                </button>
+                <button type="button" role="tab" id="report-tab-committed" aria-controls="report-panel-committed" aria-selected="false" tabindex="-1" data-report-tab="committed">
+                  Committed Parts <span class="report-tabs__count"><?= e((string) $committedCount) ?></span>
+                </button>
+              </div>
+              <div class="report-tabs__panels">
+                <section id="report-panel-all" class="report-tabs__panel" role="tabpanel" aria-labelledby="report-tab-all" data-report-panel="all">
+                  <?php $renderInventoryTable($inventory, ['includeFilters' => true, 'emptyMessage' => 'No inventory items found. Use the button above to add your first part.', 'id' => 'inventory-table-all']); ?>
+                </section>
+                <section id="report-panel-low" class="report-tabs__panel" role="tabpanel" aria-labelledby="report-tab-low" data-report-panel="low" hidden>
+                  <?php $renderInventoryTable($lowCriticalInventory, ['includeFilters' => false, 'emptyMessage' => 'No low or critical parts right now.', 'id' => 'inventory-table-low']); ?>
+                </section>
+                <section id="report-panel-committed" class="report-tabs__panel" role="tabpanel" aria-labelledby="report-tab-committed" data-report-panel="committed" hidden>
+                  <?php $renderInventoryTable($committedInventory, ['includeFilters' => false, 'emptyMessage' => 'No parts are currently committed to jobs.', 'id' => 'inventory-table-committed']); ?>
+                </section>
+              </div>
+            </div>
           <?php endif; ?>
-          <table class="table inventory-table">
-            <thead>
-              <tr>
-                <th scope="col" class="sortable" data-sort-key="item" aria-sort="none">Item</th>
-                <th scope="col" class="sortable" data-sort-key="sku" aria-sort="none">SKU</th>
-                <th scope="col" class="sortable" data-sort-key="location" aria-sort="none">Location</th>
-                <th scope="col" class="numeric sortable" data-sort-key="stock" data-sort-type="number" aria-sort="none">Stock</th>
-                <th scope="col" class="numeric sortable" data-sort-key="committed" data-sort-type="number" aria-sort="none">Committed</th>
-                <th scope="col" class="numeric sortable" data-sort-key="available" data-sort-type="number" aria-sort="none">Available</th>
-                <th scope="col" class="numeric sortable" data-sort-key="leadTime" data-sort-type="number" aria-sort="none">Lead Time (days)</th>
-                <th scope="col" class="sortable" data-sort-key="status" aria-sort="none">Status</th>
-                <th scope="col" class="sortable" data-sort-key="reservations" data-sort-type="number" aria-sort="none">Reservations</th>
-                <th scope="col" class="actions">Actions</th>
-              </tr>
-              <tr class="filter-row">
-                <th><input type="search" class="column-filter" data-key="item" placeholder="Search items" aria-label="Filter by item"></th>
-                <th><input type="search" class="column-filter" data-key="sku" data-alt-keys="partNumber" placeholder="Search SKU or part #" aria-label="Filter by SKU"></th>
-                <th><input type="search" class="column-filter" data-key="location" placeholder="Search location" aria-label="Filter by location"></th>
-                <th><input type="search" class="column-filter" data-key="stock" placeholder="Search stock" aria-label="Filter by stock" inputmode="numeric"></th>
-                <th><input type="search" class="column-filter" data-key="committed" placeholder="Search committed" aria-label="Filter by committed" inputmode="numeric"></th>
-                <th><input type="search" class="column-filter" data-key="available" placeholder="Search available" aria-label="Filter by available" inputmode="numeric"></th>
-                <th><input type="search" class="column-filter" data-key="leadTime" placeholder="Search lead time" aria-label="Filter by lead time" inputmode="numeric"></th>
-                <th><input type="search" class="column-filter" data-key="status" placeholder="Search status" aria-label="Filter by status"></th>
-                <th><input type="search" class="column-filter" data-key="reservations" placeholder="Search reservations" aria-label="Filter by reservations" inputmode="numeric"></th>
-                <th aria-hidden="true"></th>
-              </tr>
-            </thead>
-            <tbody>
-              <?php if ($inventory === []): ?>
-                <tr>
-                  <td colspan="10" class="small">No inventory items found. Use the button above to add your first part.</td>
-                </tr>
-              <?php else: ?>
-                <?php foreach ($inventory as $index => $row): ?>
-                  <tr
-                    data-index="<?= e((string) $index) ?>"
-                    data-item="<?= e($row['item']) ?>"
-                    data-sku="<?= e($row['sku']) ?>"
-                    data-part-number="<?= e($row['part_number']) ?>"
-                    data-location="<?= e($row['location']) ?>"
-                    data-stock="<?= e((string) $row['stock']) ?>"
-                    data-committed="<?= e((string) $row['committed_qty']) ?>"
-                    data-available="<?= e((string) $row['available_qty']) ?>"
-                    data-lead-time="<?= e((string) $row['lead_time_days']) ?>"
-                    data-status="<?= e($row['status']) ?>"
-                    data-reservations="<?= e((string) $row['active_reservations']) ?>"
-                    data-finish="<?= e($row['finish'] ?? '') ?>"
-                  >
-                    <td class="item"><?= e($row['item']) ?></td>
-                    <td class="sku"><span class="sku-badge"><?= e($row['sku']) ?></span></td>
-                    <td><?= e($row['location']) ?></td>
-                    <td class="numeric"><span class="quantity-pill"><?= e(inventoryFormatQuantity($row['stock'])) ?></span></td>
-                    <td class="numeric"><span class="quantity-pill brand"><?= e(inventoryFormatQuantity($row['committed_qty'])) ?></span></td>
-                    <td class="numeric">
-                      <span class="quantity-pill <?= $row['available_qty'] <= 0 ? 'danger' : 'success' ?>">
-                        <?= e(inventoryFormatQuantity($row['available_qty'])) ?>
-                      </span>
-                    </td>
-                    <td class="numeric"><?= e((string) $row['lead_time_days']) ?></td>
-                    <td>
-                      <span class="status" data-level="<?= e($row['status']) ?>">
-                        <?= e($row['status']) ?>
-                      </span>
-                    </td>
-                    <td class="reservations">
-                      <?php if ($row['active_reservations'] > 0): ?>
-                        <a class="reservation-link" href="/admin/job-reservations.php?inventory_id=<?= e((string) $row['id']) ?>">
-                          <?= e($row['active_reservations'] === 1 ? '1 active job' : $row['active_reservations'] . ' active jobs') ?>
-                        </a>
-                      <?php else: ?>
-                        <span class="reservation-link muted">None</span>
-                      <?php endif; ?>
-                    </td>
-                    <td class="actions">
-                      <a class="button ghost" href="inventory.php?id=<?= e((string) $row['id']) ?>">Edit</a>
-                    </td>
-                  </tr>
-                <?php endforeach; ?>
-              <?php endif; ?>
-            </tbody>
-          </table>
         </div>
       </section>
     </main>
@@ -541,13 +645,22 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
               <?php endif; ?>
             </div>
 
-            <div class="field">
-              <label for="lead_time_days">Lead Time (days)<span aria-hidden="true">*</span></label>
-              <input type="number" id="lead_time_days" name="lead_time_days" min="0" value="<?= e($formData['lead_time_days']) ?>" required />
-              <?php if (!empty($errors['lead_time_days'])): ?>
-                <p class="field-error"><?= e($errors['lead_time_days']) ?></p>
-              <?php endif; ?>
-            </div>
+          <div class="field">
+            <label for="lead_time_days">Lead Time (days)<span aria-hidden="true">*</span></label>
+            <input type="number" id="lead_time_days" name="lead_time_days" min="0" value="<?= e($formData['lead_time_days']) ?>" required />
+            <?php if (!empty($errors['lead_time_days'])): ?>
+              <p class="field-error"><?= e($errors['lead_time_days']) ?></p>
+            <?php endif; ?>
+          </div>
+
+          <div class="field">
+            <label for="average_daily_use">Average Daily Use</label>
+            <input type="number" id="average_daily_use" name="average_daily_use" min="0" step="0.01" value="<?= e($formData['average_daily_use']) ?>" />
+            <p class="field-help">Optional. Record typical consumption to inform future usage reports.</p>
+            <?php if (!empty($errors['average_daily_use'])): ?>
+              <p class="field-error"><?= e($errors['average_daily_use']) ?></p>
+            <?php endif; ?>
+          </div>
           </div>
 
           <div class="field">
@@ -755,153 +868,223 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
   })();
 
   (function () {
-    const table = document.querySelector('.inventory-table');
-    if (!table) {
+    const container = document.querySelector('[data-report-tabs]');
+    if (!container) {
       return;
     }
 
-    const tbody = table.querySelector('tbody');
-    if (!tbody) {
-      return;
-    }
+    const tabs = Array.from(container.querySelectorAll('[data-report-tab]'));
+    const panels = Array.from(container.querySelectorAll('[data-report-panel]'));
 
-    const rows = Array.from(tbody.querySelectorAll('tr[data-item]'));
-    const filters = Array.from(table.querySelectorAll('.column-filter'));
-    const headers = Array.from(table.querySelectorAll('thead th[data-sort-key]'));
-
-    const filterConfigs = filters.map((input) => {
-      const primaryKey = input.dataset.key ? [input.dataset.key] : [];
-      const altKeys = (input.dataset.altKeys || '')
-        .split(',')
-        .map((key) => key.trim())
-        .filter(Boolean);
-
-      return {
-        element: input,
-        keys: [...primaryKey, ...altKeys],
-      };
-    });
-
-    function applyFilters() {
-      rows.forEach((row) => {
-        let visible = true;
-
-        for (const config of filterConfigs) {
-          const value = config.element.value.trim().toLowerCase();
-          if (value === '') {
-            continue;
-          }
-
-          const matches = config.keys.some((datasetKey) => {
-            if (!datasetKey) {
-              return false;
-            }
-
-            const raw = row.dataset[datasetKey] || '';
-            return raw.toLowerCase().includes(value);
-          });
-
-          if (!matches) {
-            visible = false;
-            break;
-          }
-        }
-
-        row.style.display = visible ? '' : 'none';
-      });
-    }
-
-    let sortKey = null;
-    let sortDirection = 'asc';
-
-    function parseNumber(value) {
-      const number = parseFloat(value);
-      return Number.isNaN(number) ? 0 : number;
-    }
-
-    function applySort() {
-      if (!sortKey) {
+    function showTab(targetId) {
+      if (!targetId) {
         return;
       }
 
-      const header = headers.find((th) => th.dataset.sortKey === sortKey);
-      const sortType = header ? (header.dataset.sortType || 'string') : 'string';
-      const direction = sortDirection === 'asc' ? 1 : -1;
+      tabs.forEach((tab) => {
+        const isActive = tab.dataset.reportTab === targetId;
+        tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        tab.setAttribute('tabindex', isActive ? '0' : '-1');
+      });
 
-      const sorted = [...rows].sort((a, b) => {
-        const aRaw = a.dataset[sortKey] || '';
-        const bRaw = b.dataset[sortKey] || '';
+      panels.forEach((panel) => {
+        if (!(panel instanceof HTMLElement)) {
+          return;
+        }
 
-        if (sortType === 'number') {
-          const aNum = parseNumber(aRaw);
-          const bNum = parseNumber(bRaw);
+        const isActive = panel.dataset.reportPanel === targetId;
+        if (isActive) {
+          panel.removeAttribute('hidden');
+        } else {
+          panel.setAttribute('hidden', 'hidden');
+        }
+      });
+    }
 
-          if (aNum === bNum) {
+    tabs.forEach((tab, index) => {
+      tab.addEventListener('click', () => {
+        showTab(tab.dataset.reportTab || '');
+      });
+
+      tab.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          showTab(tab.dataset.reportTab || '');
+        }
+
+        if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+          event.preventDefault();
+          const offset = event.key === 'ArrowRight' ? 1 : -1;
+          const nextIndex = (index + offset + tabs.length) % tabs.length;
+          const nextTab = tabs[nextIndex];
+          nextTab.focus();
+          showTab(nextTab.dataset.reportTab || '');
+        }
+      });
+    });
+
+    const initiallySelected = tabs.find((tab) => tab.getAttribute('aria-selected') === 'true');
+    if (initiallySelected) {
+      showTab(initiallySelected.dataset.reportTab || '');
+    } else if (tabs[0]) {
+      showTab(tabs[0].dataset.reportTab || '');
+    }
+  })();
+
+  (function () {
+    const tables = Array.from(document.querySelectorAll('.inventory-table'));
+    if (tables.length === 0) {
+      return;
+    }
+
+    tables.forEach((table) => {
+      const tbody = table.querySelector('tbody');
+      if (!tbody) {
+        return;
+      }
+
+      const rows = Array.from(tbody.querySelectorAll('tr[data-item]'));
+      const filters = Array.from(table.querySelectorAll('.column-filter'));
+      const headers = Array.from(table.querySelectorAll('thead th[data-sort-key]'));
+
+      const filterConfigs = filters.map((input) => {
+        const primaryKey = input.dataset.key ? [input.dataset.key] : [];
+        const altKeys = (input.dataset.altKeys || '')
+          .split(',')
+          .map((key) => key.trim())
+          .filter(Boolean);
+
+        return {
+          element: input,
+          keys: [...primaryKey, ...altKeys],
+        };
+      });
+
+      function applyFilters() {
+        if (rows.length === 0) {
+          return;
+        }
+
+        rows.forEach((row) => {
+          let visible = true;
+
+          for (const config of filterConfigs) {
+            const value = config.element.value.trim().toLowerCase();
+            if (value === '') {
+              continue;
+            }
+
+            const matches = config.keys.some((datasetKey) => {
+              if (!datasetKey) {
+                return false;
+              }
+
+              const raw = row.dataset[datasetKey] || '';
+              return raw.toLowerCase().includes(value);
+            });
+
+            if (!matches) {
+              visible = false;
+              break;
+            }
+          }
+
+          row.style.display = visible ? '' : 'none';
+        });
+      }
+
+      let sortKey = null;
+      let sortDirection = 'asc';
+
+      function parseNumber(value) {
+        const number = parseFloat(value);
+        return Number.isNaN(number) ? 0 : number;
+      }
+
+      function applySort() {
+        if (!sortKey) {
+          return;
+        }
+
+        const header = headers.find((th) => th.dataset.sortKey === sortKey);
+        const sortType = header ? (header.dataset.sortType || 'string') : 'string';
+        const direction = sortDirection === 'asc' ? 1 : -1;
+
+        const sorted = [...rows].sort((a, b) => {
+          const aRaw = a.dataset[sortKey] || '';
+          const bRaw = b.dataset[sortKey] || '';
+
+          if (sortType === 'number') {
+            const aNum = parseNumber(aRaw);
+            const bNum = parseNumber(bRaw);
+
+            if (aNum === bNum) {
+              return (parseNumber(a.dataset.index || '0') - parseNumber(b.dataset.index || '0'));
+            }
+
+            return (aNum - bNum) * direction;
+          }
+
+          const comparison = aRaw.toLowerCase().localeCompare(bRaw.toLowerCase(), undefined, {
+            numeric: true,
+            sensitivity: 'base',
+          });
+
+          if (comparison === 0) {
             return (parseNumber(a.dataset.index || '0') - parseNumber(b.dataset.index || '0'));
           }
 
-          return (aNum - bNum) * direction;
-        }
-
-        const comparison = aRaw.toLowerCase().localeCompare(bRaw.toLowerCase(), undefined, {
-          numeric: true,
-          sensitivity: 'base',
+          return comparison * direction;
         });
 
-        if (comparison === 0) {
-          return (parseNumber(a.dataset.index || '0') - parseNumber(b.dataset.index || '0'));
-        }
-
-        return comparison * direction;
-      });
-
-      sorted.forEach((row) => {
-        tbody.appendChild(row);
-      });
-    }
-
-    headers.forEach((header) => {
-      const key = header.dataset.sortKey;
-      if (!key) {
-        return;
+        sorted.forEach((row) => {
+          tbody.appendChild(row);
+        });
       }
 
-      header.setAttribute('tabindex', '0');
-
-      header.addEventListener('click', () => {
-        if (sortKey === key) {
-          sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
-        } else {
-          sortKey = key;
-          sortDirection = 'asc';
+      headers.forEach((header) => {
+        const key = header.dataset.sortKey;
+        if (!key) {
+          return;
         }
 
-        headers.forEach((th) => {
-          if (th.dataset.sortKey === sortKey) {
-            th.setAttribute('aria-sort', sortDirection);
-            th.setAttribute('data-sort-direction', sortDirection);
+        header.setAttribute('tabindex', '0');
+
+        header.addEventListener('click', () => {
+          if (sortKey === key) {
+            sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
           } else {
-            th.setAttribute('aria-sort', 'none');
-            th.removeAttribute('data-sort-direction');
+            sortKey = key;
+            sortDirection = 'asc';
           }
+
+          headers.forEach((th) => {
+            if (th.dataset.sortKey === sortKey) {
+              th.setAttribute('aria-sort', sortDirection);
+              th.setAttribute('data-sort-direction', sortDirection);
+            } else {
+              th.setAttribute('aria-sort', 'none');
+              th.removeAttribute('data-sort-direction');
+            }
+          });
+
+          applySort();
         });
 
-        applySort();
+        header.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            header.click();
+          }
+        });
       });
 
-      header.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          header.click();
-        }
+      filters.forEach((input) => {
+        input.addEventListener('input', applyFilters);
       });
-    });
 
-    filters.forEach((input) => {
-      input.addEventListener('input', applyFilters);
+      applyFilters();
     });
-
-    applyFilters();
   })();
   </script>
 </body>

@@ -135,6 +135,15 @@ if (!function_exists('loadInventory')) {
         return number_format($quantity);
     }
 
+    function inventoryFormatDailyUse(?float $dailyUse): string
+    {
+        if ($dailyUse === null) {
+            return '—';
+        }
+
+        return number_format($dailyUse, 2, '.', '');
+    }
+
     function inventoryNormalizeFinish(?string $finish): ?string
     {
         if ($finish === null) {
@@ -267,6 +276,7 @@ if (!function_exists('loadInventory')) {
                 'part_number' => "ALTER TABLE inventory_items ADD COLUMN part_number TEXT NOT NULL DEFAULT ''",
                 'finish' => 'ALTER TABLE inventory_items ADD COLUMN finish TEXT NULL',
                 'committed_qty' => 'ALTER TABLE inventory_items ADD COLUMN committed_qty INTEGER NOT NULL DEFAULT 0',
+                'average_daily_use' => 'ALTER TABLE inventory_items ADD COLUMN average_daily_use NUMERIC(12,4) NULL',
             ];
 
             foreach ($required as $column => $sql) {
@@ -675,7 +685,7 @@ if (!function_exists('loadInventory')) {
             $statement = $db->query(
                 'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, i.committed_qty, '
                 . '(i.stock - i.committed_qty) AS available_qty, i.status, i.supplier, i.supplier_contact, '
-                . 'i.reorder_point, i.lead_time_days, '
+                . 'i.reorder_point, i.lead_time_days, i.average_daily_use, '
                 . ($supportsReservations ? 'COALESCE(res.active_reservations, 0)' : '0') . ' AS active_reservations '
                 . 'FROM inventory_items i '
                 . ($supportsReservations
@@ -714,6 +724,7 @@ if (!function_exists('loadInventory')) {
                         'supplier_contact' => $row['supplier_contact'] !== null ? (string) $row['supplier_contact'] : null,
                         'reorder_point' => $reorderPoint,
                         'lead_time_days' => (int) $row['lead_time_days'],
+                        'average_daily_use' => $row['average_daily_use'] !== null ? (float) $row['average_daily_use'] : null,
                         'active_reservations' => (int) $row['active_reservations'],
                         'discontinued' => inventoryIsDiscontinuedStatus($storedStatus),
                     ];
@@ -794,6 +805,7 @@ if (!function_exists('loadInventory')) {
      *   supplier_contact:?string,
      *   reorder_point:int,
      *   lead_time_days:int,
+     *   average_daily_use:?float,
      *   active_reservations:int,
      *   discontinued:bool,
      *   id:int
@@ -818,7 +830,7 @@ if (!function_exists('loadInventory')) {
         $statement = $db->prepare(
             'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, i.committed_qty, '
             . '(i.stock - i.committed_qty) AS available_qty, i.status, i.supplier, i.supplier_contact, '
-            . 'i.reorder_point, i.lead_time_days, ' . $activeSelect . ' AS active_reservations '
+            . 'i.reorder_point, i.lead_time_days, i.average_daily_use, ' . $activeSelect . ' AS active_reservations '
             . 'FROM inventory_items i '
             . $joinClause
             . 'WHERE i.id = :id'
@@ -852,6 +864,7 @@ if (!function_exists('loadInventory')) {
             'supplier_contact' => $row['supplier_contact'] !== null ? (string) $row['supplier_contact'] : null,
             'reorder_point' => $reorderPoint,
             'lead_time_days' => (int) $row['lead_time_days'],
+            'average_daily_use' => $row['average_daily_use'] !== null ? (float) $row['average_daily_use'] : null,
             'active_reservations' => (int) $row['active_reservations'],
             'discontinued' => inventoryIsDiscontinuedStatus($storedStatus),
         ];
@@ -876,6 +889,7 @@ if (!function_exists('loadInventory')) {
      *   supplier_contact:?string,
      *   reorder_point:int,
      *   lead_time_days:int,
+     *   average_daily_use:?float,
      *   active_reservations:int,
      *   discontinued:bool,
      *   id:int
@@ -900,7 +914,7 @@ if (!function_exists('loadInventory')) {
         $statement = $db->prepare(
             'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, i.committed_qty, '
             . '(i.stock - i.committed_qty) AS available_qty, i.status, i.supplier, i.supplier_contact, '
-            . 'i.reorder_point, i.lead_time_days, ' . $activeSelect . ' AS active_reservations '
+            . 'i.reorder_point, i.lead_time_days, i.average_daily_use, ' . $activeSelect . ' AS active_reservations '
             . 'FROM inventory_items i '
             . $joinClause
             . 'WHERE i.sku = :sku LIMIT 1'
@@ -934,6 +948,7 @@ if (!function_exists('loadInventory')) {
             'supplier_contact' => $row['supplier_contact'] !== null ? (string) $row['supplier_contact'] : null,
             'reorder_point' => $reorderPoint,
             'lead_time_days' => (int) $row['lead_time_days'],
+            'average_daily_use' => $row['average_daily_use'] !== null ? (float) $row['average_daily_use'] : null,
             'active_reservations' => (int) $row['active_reservations'],
             'discontinued' => inventoryIsDiscontinuedStatus($storedStatus),
         ];
@@ -954,6 +969,7 @@ if (!function_exists('loadInventory')) {
      *   supplier_contact:?string,
      *   reorder_point:int,
      *   lead_time_days:int,
+     *   average_daily_use:?string|float,
      *   committed_qty?:int
      * } $payload
      */
@@ -963,9 +979,9 @@ if (!function_exists('loadInventory')) {
 
         $statement = $db->prepare(
             'INSERT INTO inventory_items (item, sku, part_number, finish, location, stock, committed_qty, status, supplier, '
-            . 'supplier_contact, reorder_point, lead_time_days) '
+            . 'supplier_contact, reorder_point, lead_time_days, average_daily_use) '
             . 'VALUES (:item, :sku, :part_number, :finish, :location, :stock, :committed_qty, :status, :supplier, :supplier_contact, '
-            . ':reorder_point, :lead_time_days) RETURNING id'
+            . ':reorder_point, :lead_time_days, :average_daily_use) RETURNING id'
         );
 
         $statement->execute([
@@ -981,6 +997,7 @@ if (!function_exists('loadInventory')) {
             ':supplier_contact' => $payload['supplier_contact'],
             ':reorder_point' => $payload['reorder_point'],
             ':lead_time_days' => $payload['lead_time_days'],
+            ':average_daily_use' => $payload['average_daily_use'],
         ]);
 
         return (int) $statement->fetchColumn();
@@ -1001,6 +1018,7 @@ if (!function_exists('loadInventory')) {
      *   supplier_contact:?string,
      *   reorder_point:int,
      *   lead_time_days:int,
+     *   average_daily_use:?string|float,
      *   committed_qty?:int
      * } $payload
      */
@@ -1011,7 +1029,8 @@ if (!function_exists('loadInventory')) {
         $statement = $db->prepare(
             'UPDATE inventory_items SET item = :item, sku = :sku, part_number = :part_number, finish = :finish, '
             . 'location = :location, stock = :stock, committed_qty = :committed_qty, status = :status, supplier = :supplier, '
-            . 'supplier_contact = :supplier_contact, reorder_point = :reorder_point, lead_time_days = :lead_time_days WHERE id = :id'
+            . 'supplier_contact = :supplier_contact, reorder_point = :reorder_point, lead_time_days = :lead_time_days, '
+            . 'average_daily_use = :average_daily_use WHERE id = :id'
         );
 
         $statement->execute([
@@ -1028,6 +1047,7 @@ if (!function_exists('loadInventory')) {
             ':supplier_contact' => $payload['supplier_contact'],
             ':reorder_point' => $payload['reorder_point'],
             ':lead_time_days' => $payload['lead_time_days'],
+            ':average_daily_use' => $payload['average_daily_use'],
         ]);
     }
 }

@@ -106,6 +106,7 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
         <ul>
           <li>Item, Part Number, Finish</li>
           <li>Location, Stock, Reorder Point, Lead Time (days)</li>
+          <li>Average Daily Use (optional for consumption reporting)</li>
           <li>Supplier, Supplier Contact (Status optional; set to "Discontinued" to keep manual)</li>
         </ul>
 

@@ -43,6 +43,7 @@ if (!function_exists('seedInventoryFromXlsx')) {
             'supplier' => ['labels' => ['supplier', 'vendor'], 'required' => true],
             'supplier_contact' => ['labels' => ['supplier contact', 'contact', 'email'], 'required' => false, 'default' => ''],
             'lead_time_days' => ['labels' => ['lead time', 'lead time (days)', 'lead time days', 'lt'], 'required' => false, 'default' => '0'],
+            'average_daily_use' => ['labels' => ['average daily use', 'avg daily use', 'average use', 'daily use'], 'required' => false, 'default' => ''],
             'status' => ['labels' => ['status', 'state', 'stock status'], 'required' => false, 'default' => ''],
         ];
 
@@ -145,6 +146,23 @@ if (!function_exists('seedInventoryFromXlsx')) {
                 $leadTime = 0;
             }
 
+            $dailyUseRaw = isset($values['average_daily_use']) ? trim((string) $values['average_daily_use']) : '';
+            $averageDailyUseProvided = $dailyUseRaw !== '';
+            $averageDailyUseParsed = null;
+
+            if ($averageDailyUseProvided) {
+                $dailyUseNumeric = filter_var($dailyUseRaw, FILTER_VALIDATE_FLOAT);
+                if ($dailyUseNumeric === false || $dailyUseNumeric < 0) {
+                    $result['messages'][] = [
+                        'type' => 'warning',
+                        'text' => sprintf('Row %d average daily use "%s" is invalid; value ignored.', $rowNumber, $dailyUseRaw),
+                    ];
+                    $averageDailyUseProvided = false;
+                } else {
+                    $averageDailyUseParsed = (float) $dailyUseNumeric;
+                }
+            }
+
             $statusValue = $values['status'] ?? '';
             $explicitStatusProvided = $statusValue !== '';
             $requestedDiscontinued = $explicitStatusProvided && inventoryIsDiscontinuedStatus($statusValue);
@@ -185,12 +203,21 @@ if (!function_exists('seedInventoryFromXlsx')) {
                 'supplier_contact' => $supplierContact,
                 'reorder_point' => $reorder,
                 'lead_time_days' => $leadTime,
+                'average_daily_use' => null,
             ];
 
             try {
                 $existing = findInventoryItemBySku($db, $sku);
 
                 $payload['committed_qty'] = $existing !== null ? (int) $existing['committed_qty'] : 0;
+                $existingDailyUse = $existing !== null ? ($existing['average_daily_use'] ?? null) : null;
+
+                if ($averageDailyUseProvided && $averageDailyUseParsed !== null) {
+                    $payload['average_daily_use'] = number_format($averageDailyUseParsed, 4, '.', '');
+                } elseif ($existingDailyUse !== null) {
+                    $payload['average_daily_use'] = number_format((float) $existingDailyUse, 4, '.', '');
+                }
+
                 $shouldDiscontinue = $requestedDiscontinued
                     || (!$explicitStatusProvided && $existing !== null && ($existing['discontinued'] ?? false));
                 $availableQty = $payload['stock'] - $payload['committed_qty'];

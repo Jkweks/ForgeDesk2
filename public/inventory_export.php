@@ -38,7 +38,7 @@ header('Content-Disposition: attachment; filename="' . $filename . '"');
 header('Pragma: no-cache');
 header('Expires: 0');
 
-fputcsv($output, ['SKU', 'On Hand', 'Committed', 'Available']);
+fputcsv($output, ['SKU', 'On Hand', 'Committed', 'Available', 'Average Daily Use']);
 
 foreach ($inventory as $row) {
     fputcsv($output, [
@@ -46,6 +46,9 @@ foreach ($inventory as $row) {
         $row['stock'],
         $row['committed_qty'],
         $row['available_qty'],
+        $row['average_daily_use'] !== null
+            ? number_format((float) $row['average_daily_use'], 4, '.', '')
+            : '',
     ]);
 }
 
