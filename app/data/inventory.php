@@ -3,6 +3,37 @@
 declare(strict_types=1);
 
 if (!function_exists('loadInventory')) {
+    function inventoryIsDiscontinuedStatus(string $status): bool
+    {
+        return strcasecmp(trim($status), 'Discontinued') === 0;
+    }
+
+    function inventoryStatusFromAvailable(int $availableQty, int $reorderPoint): string
+    {
+        $normalizedReorder = max($reorderPoint, 0);
+
+        if ($availableQty < $normalizedReorder) {
+            return 'Critical';
+        }
+
+        $lowThreshold = (int) floor($normalizedReorder * 1.3);
+
+        if ($availableQty <= $lowThreshold) {
+            return 'Low';
+        }
+
+        return 'In Stock';
+    }
+
+    function inventoryResolveStatus(int $availableQty, int $reorderPoint, string $storedStatus): string
+    {
+        if (inventoryIsDiscontinuedStatus($storedStatus)) {
+            return 'Discontinued';
+        }
+
+        return inventoryStatusFromAvailable($availableQty, $reorderPoint);
+    }
+
     /**
      * @return list<string>
      */
@@ -102,6 +133,164 @@ if (!function_exists('loadInventory')) {
     function inventoryFormatQuantity(int $quantity): string
     {
         return number_format($quantity);
+    }
+
+    function inventoryFormatDailyUse(?float $dailyUse): string
+    {
+        if ($dailyUse === null) {
+            return '—';
+        }
+
+        return number_format($dailyUse, 2, '.', '');
+    }
+
+    /**
+     * Number of trailing days used when calculating average daily usage.
+     */
+    function inventoryAverageDailyUseWindowDays(): int
+    {
+        return 30;
+    }
+
+    /**
+     * Ensure the daily usage aggregation table exists.
+     */
+    function inventoryEnsureUsageSchema(\PDO $db): void
+    {
+        static $ensuredUsage = false;
+
+        if ($ensuredUsage) {
+            return;
+        }
+
+        $db->exec(
+            'CREATE TABLE IF NOT EXISTS inventory_daily_usage (
+                inventory_item_id INTEGER NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
+                usage_date DATE NOT NULL,
+                quantity_used INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (inventory_item_id, usage_date)
+            )'
+        );
+
+        $db->exec('CREATE INDEX IF NOT EXISTS idx_inventory_daily_usage_date ON inventory_daily_usage (usage_date)');
+
+        $ensuredUsage = true;
+    }
+
+    /**
+     * Persist per-item usage totals for a specific calendar day.
+     *
+     * @param array<int,int> $usageByItem
+     */
+    function inventoryRecordDailyUsage(\PDO $db, string $usageDate, array $usageByItem): void
+    {
+        if ($usageByItem === []) {
+            return;
+        }
+
+        inventoryEnsureUsageSchema($db);
+
+        $statement = $db->prepare(
+            'INSERT INTO inventory_daily_usage (inventory_item_id, usage_date, quantity_used)
+             VALUES (:inventory_item_id, :usage_date, :quantity_used)
+             ON CONFLICT (inventory_item_id, usage_date) DO UPDATE
+             SET quantity_used = inventory_daily_usage.quantity_used + EXCLUDED.quantity_used'
+        );
+
+        foreach ($usageByItem as $itemId => $quantity) {
+            if ($quantity <= 0) {
+                continue;
+            }
+
+            $statement->execute([
+                ':inventory_item_id' => $itemId,
+                ':usage_date' => $usageDate,
+                ':quantity_used' => $quantity,
+            ]);
+        }
+    }
+
+    /**
+     * Calculate trailing average daily usage for the provided inventory items.
+     *
+     * @param list<int> $itemIds
+     * @return array<int,?float>
+     */
+    function inventoryCalculateAverageDailyUseMap(\PDO $db, array $itemIds): array
+    {
+        $itemIds = array_values(array_unique(array_map('intval', $itemIds)));
+
+        if ($itemIds === []) {
+            return [];
+        }
+
+        inventoryEnsureUsageSchema($db);
+
+        $windowDays = inventoryAverageDailyUseWindowDays();
+        $today = new \DateTimeImmutable('today');
+        $startDate = $today->modify(sprintf('-%d days', $windowDays - 1))->format('Y-m-d');
+
+        $placeholders = implode(', ', array_fill(0, count($itemIds), '?'));
+
+        $statement = $db->prepare(
+            'SELECT inventory_item_id, SUM(quantity_used) AS total_used, MIN(usage_date) AS first_usage
+             FROM inventory_daily_usage
+             WHERE usage_date >= ? AND inventory_item_id IN (' . $placeholders . ')
+             GROUP BY inventory_item_id'
+        );
+
+        $statement->execute(array_merge([$startDate], $itemIds));
+
+        /** @var array<int,array{inventory_item_id:int,total_used:string,first_usage:string|null}> $rows */
+        $rows = $statement->fetchAll();
+
+        $totals = [];
+        foreach ($rows as $row) {
+            $totals[(int) $row['inventory_item_id']] = [
+                'total_used' => isset($row['total_used']) ? (float) $row['total_used'] : 0.0,
+                'first_usage' => $row['first_usage'],
+            ];
+        }
+
+        $averages = [];
+
+        foreach ($itemIds as $itemId) {
+            if (!isset($totals[$itemId])) {
+                $averages[$itemId] = 0.0;
+                continue;
+            }
+
+            $totalUsed = $totals[$itemId]['total_used'];
+            $firstUsageRaw = $totals[$itemId]['first_usage'];
+
+            if ($firstUsageRaw === null) {
+                $averages[$itemId] = 0.0;
+                continue;
+            }
+
+            try {
+                $firstUsage = new \DateTimeImmutable($firstUsageRaw);
+            } catch (\Exception $exception) {
+                $averages[$itemId] = 0.0;
+                continue;
+            }
+
+            $daysDiff = (int) $today->diff($firstUsage)->days;
+            $daysCovered = max(1, min($windowDays, $daysDiff + 1));
+
+            $averages[$itemId] = round($totalUsed / $daysCovered, 4);
+        }
+
+        $update = $db->prepare('UPDATE inventory_items SET average_daily_use = :average_daily_use WHERE id = :id');
+
+        foreach ($averages as $itemId => $average) {
+            $update->execute([
+                ':id' => $itemId,
+                ':average_daily_use' => $average,
+            ]);
+        }
+
+        return $averages;
     }
 
     function inventoryNormalizeFinish(?string $finish): ?string
@@ -235,7 +424,7 @@ if (!function_exists('loadInventory')) {
                 'lead_time_days' => 'ALTER TABLE inventory_items ADD COLUMN lead_time_days INTEGER NOT NULL DEFAULT 0',
                 'part_number' => "ALTER TABLE inventory_items ADD COLUMN part_number TEXT NOT NULL DEFAULT ''",
                 'finish' => 'ALTER TABLE inventory_items ADD COLUMN finish TEXT NULL',
-                'committed_qty' => 'ALTER TABLE inventory_items ADD COLUMN committed_qty INTEGER NOT NULL DEFAULT 0',
+                'average_daily_use' => 'ALTER TABLE inventory_items ADD COLUMN average_daily_use NUMERIC(12,4) NULL',
             ];
 
             foreach ($required as $column => $sql) {
@@ -253,6 +442,10 @@ if (!function_exists('loadInventory')) {
         }
 
         inventoryEnsureTransactionsSchema($db);
+
+        if (inventorySupportsReservations($db)) {
+            inventoryEnsureCommitmentView($db);
+        }
     }
 
     /**
@@ -298,6 +491,34 @@ if (!function_exists('loadInventory')) {
         $db->exec('CREATE INDEX IF NOT EXISTS idx_inventory_transaction_lines_transaction ON inventory_transaction_lines (transaction_id)');
         $db->exec('CREATE INDEX IF NOT EXISTS idx_inventory_transaction_lines_item ON inventory_transaction_lines (inventory_item_id)');
 
+        inventoryEnsureUsageSchema($db);
+
+        $ensured = true;
+    }
+
+    function inventoryEnsureCommitmentView(\PDO $db): void
+    {
+        static $ensured = false;
+
+        if ($ensured) {
+            return;
+        }
+
+        $db->exec(
+            "CREATE OR REPLACE VIEW inventory_item_commitments AS\n"
+            . "SELECT\n"
+            . "    i.id AS inventory_item_id,\n"
+            . "    COALESCE(SUM(CASE\n"
+            . "        WHEN jr.status IN ('active', 'committed', 'in_progress', 'on_hold')\n"
+            . "            THEN jri.committed_qty\n"
+            . "        ELSE 0\n"
+            . "    END), 0) AS committed_qty\n"
+            . "FROM inventory_items i\n"
+            . "LEFT JOIN job_reservation_items jri ON jri.inventory_item_id = i.id\n"
+            . "LEFT JOIN job_reservations jr ON jr.id = jri.reservation_id\n"
+            . "GROUP BY i.id"
+        );
+
         $ensured = true;
     }
 
@@ -328,6 +549,43 @@ if (!function_exists('loadInventory')) {
     }
 
     /**
+     * Fetch committed inventory totals keyed by item id.
+     *
+     * @param list<int> $itemIds
+     *
+     * @return array<int,int>
+     */
+    function inventoryCommittedTotals(\PDO $db, array $itemIds = []): array
+    {
+        if (!inventorySupportsReservations($db)) {
+            return [];
+        }
+
+        $sql = 'SELECT inventory_item_id AS id, committed_qty FROM inventory_item_commitments';
+        $params = [];
+
+        if ($itemIds !== []) {
+            $placeholders = implode(',', array_fill(0, count($itemIds), '?'));
+            $sql .= ' WHERE inventory_item_id IN (' . $placeholders . ')';
+            $params = array_values($itemIds);
+        }
+
+        $statement = $db->prepare($sql);
+        $statement->execute($params);
+
+        /** @var list<array{ id:int|string, committed_qty:int|string|null }> $rows */
+        $rows = $statement->fetchAll(\PDO::FETCH_ASSOC);
+
+        $totals = [];
+
+        foreach ($rows as $row) {
+            $totals[(int) $row['id']] = (int) ($row['committed_qty'] ?? 0);
+        }
+
+        return $totals;
+    }
+
+    /**
      * Retrieve inventory rows for lookup widgets.
      *
      * @return list<array{id:int,item:string,sku:string,part_number:string,stock:int,available_qty:int}>
@@ -337,21 +595,33 @@ if (!function_exists('loadInventory')) {
         ensureInventorySchema($db);
 
         $statement = $db->query(
-            'SELECT id, item, sku, part_number, stock, committed_qty, (stock - committed_qty) AS available_qty '
-            . 'FROM inventory_items ORDER BY item ASC'
+            'SELECT id, item, sku, part_number, stock FROM inventory_items ORDER BY item ASC'
         );
 
         $rows = $statement !== false ? $statement->fetchAll() : [];
 
+        $ids = array_map(
+            static fn (array $row): int => (int) $row['id'],
+            $rows
+        );
+
+        $committedTotals = $ids !== [] ? inventoryCommittedTotals($db, $ids) : [];
+
         return array_map(
-            static fn (array $row): array => [
-                'id' => (int) $row['id'],
-                'item' => (string) $row['item'],
-                'sku' => (string) $row['sku'],
-                'part_number' => (string) $row['part_number'],
-                'stock' => (int) $row['stock'],
-                'available_qty' => isset($row['available_qty']) ? (int) $row['available_qty'] : ((int) $row['stock'] - (int) $row['committed_qty']),
-            ],
+            static function (array $row) use ($committedTotals): array {
+                $id = (int) $row['id'];
+                $stock = (int) $row['stock'];
+                $committed = $committedTotals[$id] ?? 0;
+
+                return [
+                    'id' => $id,
+                    'item' => (string) $row['item'],
+                    'sku' => (string) $row['sku'],
+                    'part_number' => (string) $row['part_number'],
+                    'stock' => $stock,
+                    'available_qty' => $stock - $committed,
+                ];
+            },
             $rows
         );
     }
@@ -445,14 +715,23 @@ if (!function_exists('loadInventory')) {
             $db->beginTransaction();
 
             $transactionStatement = $db->prepare(
-                'INSERT INTO inventory_transactions (reference, notes) VALUES (:reference, :notes) RETURNING id'
+                'INSERT INTO inventory_transactions (reference, notes) VALUES (:reference, :notes) RETURNING id, created_at'
             );
             $transactionStatement->execute([
                 ':reference' => $payload['reference'],
                 ':notes' => $payload['notes'],
             ]);
 
-            $transactionId = (int) $transactionStatement->fetchColumn();
+            /** @var array{0:int,1:string}|false $transactionRow */
+            $transactionRow = $transactionStatement->fetch(\PDO::FETCH_NUM);
+
+            if ($transactionRow === false) {
+                throw new \RuntimeException('Unable to create inventory transaction.');
+            }
+
+            $transactionId = (int) $transactionRow[0];
+            $createdAt = $transactionRow[1] ?? null;
+            $usageDate = $createdAt !== null ? substr($createdAt, 0, 10) : date('Y-m-d');
 
             $lockStatement = $db->prepare('SELECT stock FROM inventory_items WHERE id = :id FOR UPDATE');
             $updateStatement = $db->prepare('UPDATE inventory_items SET stock = :stock WHERE id = :id');
@@ -460,6 +739,8 @@ if (!function_exists('loadInventory')) {
                 'INSERT INTO inventory_transaction_lines (transaction_id, inventory_item_id, quantity_change, note, stock_before, stock_after) '
                 . 'VALUES (:transaction_id, :inventory_item_id, :quantity_change, :note, :stock_before, :stock_after)'
             );
+
+            $usageByItem = [];
 
             foreach ($payload['lines'] as $line) {
                 $itemId = (int) $line['item_id'];
@@ -493,6 +774,15 @@ if (!function_exists('loadInventory')) {
                     ':stock_before' => $stockBefore,
                     ':stock_after' => $stockAfter,
                 ]);
+
+                if ($quantityChange < 0) {
+                    $usageByItem[$itemId] = ($usageByItem[$itemId] ?? 0) + abs($quantityChange);
+                }
+            }
+
+            if ($usageByItem !== []) {
+                inventoryRecordDailyUsage($db, $usageDate, $usageByItem);
+                inventoryCalculateAverageDailyUseMap($db, array_keys($usageByItem));
             }
 
             $db->commit();
@@ -630,6 +920,7 @@ if (!function_exists('loadInventory')) {
      *   reorder_point:int,
      *   lead_time_days:int,
      *   active_reservations:int,
+     *   discontinued:bool,
      *   id:int
      * }>
      */
@@ -640,45 +931,66 @@ if (!function_exists('loadInventory')) {
         try {
             $supportsReservations = inventorySupportsReservations($db);
 
+            $committedSelect = $supportsReservations ? 'COALESCE(commitments.committed_qty, 0)' : '0';
+            $activeSelect = $supportsReservations ? 'COALESCE(res.active_reservations, 0)' : '0';
+            $availableExpr = 'i.stock - ' . $committedSelect;
+
+            $joinCommitments = $supportsReservations
+                ? 'LEFT JOIN inventory_item_commitments commitments ON commitments.inventory_item_id = i.id '
+                : '';
+
+            $joinReservations = $supportsReservations
+                ? "LEFT JOIN (\n                    SELECT jri.inventory_item_id,\n                        COUNT(*) FILTER (WHERE jr.status IN ('draft', 'committed', 'active', 'in_progress', 'on_hold')) AS active_reservations\n                    FROM job_reservation_items jri\n                    JOIN job_reservations jr ON jr.id = jri.reservation_id\n                    GROUP BY jri.inventory_item_id\n                ) res ON res.inventory_item_id = i.id "
+                : '';
+
             $statement = $db->query(
-                'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, i.committed_qty, '
-                . '(i.stock - i.committed_qty) AS available_qty, i.status, i.supplier, i.supplier_contact, '
-                . 'i.reorder_point, i.lead_time_days, '
-                . ($supportsReservations ? 'COALESCE(res.active_reservations, 0)' : '0') . ' AS active_reservations '
+                'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, '
+                . $committedSelect . ' AS committed_qty, '
+                . $availableExpr . ' AS available_qty, i.status, i.supplier, i.supplier_contact, '
+                . 'i.reorder_point, i.lead_time_days, i.average_daily_use, '
+                . $activeSelect . ' AS active_reservations '
                 . 'FROM inventory_items i '
-                . ($supportsReservations
-                    ? 'LEFT JOIN (
-                    SELECT jri.inventory_item_id,
-                        COUNT(*) FILTER (WHERE jr.status IN (\'draft\', \'committed\', \'in_progress\')) AS active_reservations
-                    FROM job_reservation_items jri
-                    JOIN job_reservations jr ON jr.id = jri.reservation_id
-                    GROUP BY jri.inventory_item_id
-                ) res ON res.inventory_item_id = i.id '
-                    : ''
-                )
+                . $joinCommitments
+                . $joinReservations
                 . 'ORDER BY i.item ASC'
             );
 
             $rows = $statement->fetchAll();
 
+            $idList = array_map(
+                static fn (array $row): int => (int) $row['id'],
+                $rows
+            );
+
+            $averageUsage = inventoryCalculateAverageDailyUseMap($db, $idList);
+
             return array_map(
-                static fn (array $row): array => [
-                    'id' => (int) $row['id'],
-                    'item' => (string) $row['item'],
-                    'sku' => (string) $row['sku'],
-                    'part_number' => (string) $row['part_number'],
-                    'finish' => $row['finish'] !== null ? inventoryNormalizeFinish((string) $row['finish']) : null,
-                    'location' => (string) $row['location'],
-                    'stock' => (int) $row['stock'],
-                    'committed_qty' => (int) $row['committed_qty'],
-                    'available_qty' => (int) $row['available_qty'],
-                    'status' => (string) $row['status'],
-                    'supplier' => (string) $row['supplier'],
-                    'supplier_contact' => $row['supplier_contact'] !== null ? (string) $row['supplier_contact'] : null,
-                    'reorder_point' => (int) $row['reorder_point'],
-                    'lead_time_days' => (int) $row['lead_time_days'],
-                    'active_reservations' => (int) $row['active_reservations'],
-                ],
+                static function (array $row) use ($averageUsage): array {
+                    $available = (int) $row['available_qty'];
+                    $reorderPoint = (int) $row['reorder_point'];
+                    $storedStatus = (string) $row['status'];
+                    $id = (int) $row['id'];
+
+                    return [
+                        'id' => $id,
+                        'item' => (string) $row['item'],
+                        'sku' => (string) $row['sku'],
+                        'part_number' => (string) $row['part_number'],
+                        'finish' => $row['finish'] !== null ? inventoryNormalizeFinish((string) $row['finish']) : null,
+                        'location' => (string) $row['location'],
+                        'stock' => (int) $row['stock'],
+                        'committed_qty' => (int) $row['committed_qty'],
+                        'available_qty' => $available,
+                        'status' => inventoryResolveStatus($available, $reorderPoint, $storedStatus),
+                        'supplier' => (string) $row['supplier'],
+                        'supplier_contact' => $row['supplier_contact'] !== null ? (string) $row['supplier_contact'] : null,
+                        'reorder_point' => $reorderPoint,
+                        'lead_time_days' => (int) $row['lead_time_days'],
+                        'average_daily_use' => $averageUsage[$id] ?? null,
+                        'active_reservations' => (int) $row['active_reservations'],
+                        'discontinued' => inventoryIsDiscontinuedStatus($storedStatus),
+                    ];
+                },
                 $rows
             );
         } catch (\PDOException $exception) {
@@ -697,13 +1009,18 @@ if (!function_exists('loadInventory')) {
     {
         ensureInventorySchema($db);
 
+        $supportsReservations = inventorySupportsReservations($db);
+
         try {
+            $committedSelect = $supportsReservations ? 'COALESCE(commitments.committed_qty, 0)' : '0';
+
             $totalsStatement = $db->query(
                 'SELECT '
-                . 'COALESCE(SUM(stock), 0) AS total_stock, '
-                . 'COALESCE(SUM(committed_qty), 0) AS total_committed, '
-                . 'COALESCE(SUM(stock - committed_qty), 0) AS total_available '
-                . 'FROM inventory_items'
+                . 'COALESCE(SUM(i.stock), 0) AS total_stock, '
+                . 'COALESCE(SUM(' . $committedSelect . '), 0) AS total_committed, '
+                . 'COALESCE(SUM(i.stock - ' . $committedSelect . '), 0) AS total_available '
+                . 'FROM inventory_items i '
+                . ($supportsReservations ? 'LEFT JOIN inventory_item_commitments commitments ON commitments.inventory_item_id = i.id' : '')
             );
 
             $totals = $totalsStatement !== false ? (array) $totalsStatement->fetch() : [];
@@ -713,11 +1030,11 @@ if (!function_exists('loadInventory')) {
 
         $activeReservations = 0;
 
-        if (inventorySupportsReservations($db)) {
+        if ($supportsReservations) {
             try {
                 $reservationStatement = $db->query(
                     "SELECT COUNT(*) AS active_count FROM job_reservations "
-                    . "WHERE status IN ('draft', 'committed', 'in_progress')"
+                    . "WHERE status IN ('draft', 'committed', 'active', 'in_progress', 'on_hold')"
                 );
 
                 if ($reservationStatement !== false) {
@@ -755,7 +1072,9 @@ if (!function_exists('loadInventory')) {
      *   supplier_contact:?string,
      *   reorder_point:int,
      *   lead_time_days:int,
+     *   average_daily_use:?float,
      *   active_reservations:int,
+     *   discontinued:bool,
      *   id:int
      * }|null
      */
@@ -764,22 +1083,24 @@ if (!function_exists('loadInventory')) {
         ensureInventorySchema($db);
 
         $supportsReservations = inventorySupportsReservations($db);
+        $committedSelect = $supportsReservations ? 'COALESCE(commitments.committed_qty, 0)' : '0';
         $activeSelect = $supportsReservations ? 'COALESCE(res.active_reservations, 0)' : '0';
+
+        $joinCommitments = $supportsReservations
+            ? 'LEFT JOIN inventory_item_commitments commitments ON commitments.inventory_item_id = i.id '
+            : '';
+
         $joinClause = $supportsReservations
-            ? 'LEFT JOIN (
-                SELECT jri.inventory_item_id,
-                    COUNT(*) FILTER (WHERE jr.status IN (\'draft\', \'committed\', \'in_progress\')) AS active_reservations
-                FROM job_reservation_items jri
-                JOIN job_reservations jr ON jr.id = jri.reservation_id
-                GROUP BY jri.inventory_item_id
-            ) res ON res.inventory_item_id = i.id '
+            ? "LEFT JOIN (\n                SELECT jri.inventory_item_id,\n                    COUNT(*) FILTER (WHERE jr.status IN ('draft', 'committed', 'active', 'in_progress', 'on_hold')) AS active_reservations\n                FROM job_reservation_items jri\n                JOIN job_reservations jr ON jr.id = jri.reservation_id\n                GROUP BY jri.inventory_item_id\n            ) res ON res.inventory_item_id = i.id "
             : '';
 
         $statement = $db->prepare(
-            'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, i.committed_qty, '
-            . '(i.stock - i.committed_qty) AS available_qty, i.status, i.supplier, i.supplier_contact, '
-            . 'i.reorder_point, i.lead_time_days, ' . $activeSelect . ' AS active_reservations '
+            'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, '
+            . $committedSelect . ' AS committed_qty, '
+            . '(i.stock - ' . $committedSelect . ') AS available_qty, i.status, i.supplier, i.supplier_contact, '
+            . 'i.reorder_point, i.lead_time_days, i.average_daily_use, ' . $activeSelect . ' AS active_reservations '
             . 'FROM inventory_items i '
+            . $joinCommitments
             . $joinClause
             . 'WHERE i.id = :id'
         );
@@ -793,8 +1114,15 @@ if (!function_exists('loadInventory')) {
             return null;
         }
 
+        $available = (int) $row['available_qty'];
+        $reorderPoint = (int) $row['reorder_point'];
+        $storedStatus = (string) $row['status'];
+        $id = (int) $row['id'];
+
+        $averageUsage = inventoryCalculateAverageDailyUseMap($db, [$id]);
+
         return [
-            'id' => (int) $row['id'],
+            'id' => $id,
             'item' => (string) $row['item'],
             'sku' => (string) $row['sku'],
             'part_number' => (string) $row['part_number'],
@@ -802,13 +1130,15 @@ if (!function_exists('loadInventory')) {
             'location' => (string) $row['location'],
             'stock' => (int) $row['stock'],
             'committed_qty' => (int) $row['committed_qty'],
-            'available_qty' => (int) $row['available_qty'],
-            'status' => (string) $row['status'],
+            'available_qty' => $available,
+            'status' => inventoryResolveStatus($available, $reorderPoint, $storedStatus),
             'supplier' => (string) $row['supplier'],
             'supplier_contact' => $row['supplier_contact'] !== null ? (string) $row['supplier_contact'] : null,
-            'reorder_point' => (int) $row['reorder_point'],
+            'reorder_point' => $reorderPoint,
             'lead_time_days' => (int) $row['lead_time_days'],
+            'average_daily_use' => $averageUsage[$id] ?? null,
             'active_reservations' => (int) $row['active_reservations'],
+            'discontinued' => inventoryIsDiscontinuedStatus($storedStatus),
         ];
     }
 
@@ -831,7 +1161,9 @@ if (!function_exists('loadInventory')) {
      *   supplier_contact:?string,
      *   reorder_point:int,
      *   lead_time_days:int,
+     *   average_daily_use:?float,
      *   active_reservations:int,
+     *   discontinued:bool,
      *   id:int
      * }|null
      */
@@ -840,22 +1172,24 @@ if (!function_exists('loadInventory')) {
         ensureInventorySchema($db);
 
         $supportsReservations = inventorySupportsReservations($db);
+        $committedSelect = $supportsReservations ? 'COALESCE(commitments.committed_qty, 0)' : '0';
         $activeSelect = $supportsReservations ? 'COALESCE(res.active_reservations, 0)' : '0';
+
+        $joinCommitments = $supportsReservations
+            ? 'LEFT JOIN inventory_item_commitments commitments ON commitments.inventory_item_id = i.id '
+            : '';
+
         $joinClause = $supportsReservations
-            ? 'LEFT JOIN (
-                SELECT jri.inventory_item_id,
-                    COUNT(*) FILTER (WHERE jr.status IN (\'draft\', \'committed\', \'in_progress\')) AS active_reservations
-                FROM job_reservation_items jri
-                JOIN job_reservations jr ON jr.id = jri.reservation_id
-                GROUP BY jri.inventory_item_id
-            ) res ON res.inventory_item_id = i.id '
+            ? "LEFT JOIN (\n                SELECT jri.inventory_item_id,\n                    COUNT(*) FILTER (WHERE jr.status IN ('draft', 'committed', 'active', 'in_progress', 'on_hold')) AS active_reservations\n                FROM job_reservation_items jri\n                JOIN job_reservations jr ON jr.id = jri.reservation_id\n                GROUP BY jri.inventory_item_id\n            ) res ON res.inventory_item_id = i.id "
             : '';
 
         $statement = $db->prepare(
-            'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, i.committed_qty, '
-            . '(i.stock - i.committed_qty) AS available_qty, i.status, i.supplier, i.supplier_contact, '
-            . 'i.reorder_point, i.lead_time_days, ' . $activeSelect . ' AS active_reservations '
+            'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, '
+            . $committedSelect . ' AS committed_qty, '
+            . '(i.stock - ' . $committedSelect . ') AS available_qty, i.status, i.supplier, i.supplier_contact, '
+            . 'i.reorder_point, i.lead_time_days, i.average_daily_use, ' . $activeSelect . ' AS active_reservations '
             . 'FROM inventory_items i '
+            . $joinCommitments
             . $joinClause
             . 'WHERE i.sku = :sku LIMIT 1'
         );
@@ -869,8 +1203,15 @@ if (!function_exists('loadInventory')) {
             return null;
         }
 
+        $available = (int) $row['available_qty'];
+        $reorderPoint = (int) $row['reorder_point'];
+        $storedStatus = (string) $row['status'];
+        $id = (int) $row['id'];
+
+        $averageUsage = inventoryCalculateAverageDailyUseMap($db, [$id]);
+
         return [
-            'id' => (int) $row['id'],
+            'id' => $id,
             'item' => (string) $row['item'],
             'sku' => (string) $row['sku'],
             'part_number' => (string) $row['part_number'],
@@ -878,13 +1219,15 @@ if (!function_exists('loadInventory')) {
             'location' => (string) $row['location'],
             'stock' => (int) $row['stock'],
             'committed_qty' => (int) $row['committed_qty'],
-            'available_qty' => (int) $row['available_qty'],
-            'status' => (string) $row['status'],
+            'available_qty' => $available,
+            'status' => inventoryResolveStatus($available, $reorderPoint, $storedStatus),
             'supplier' => (string) $row['supplier'],
             'supplier_contact' => $row['supplier_contact'] !== null ? (string) $row['supplier_contact'] : null,
-            'reorder_point' => (int) $row['reorder_point'],
+            'reorder_point' => $reorderPoint,
             'lead_time_days' => (int) $row['lead_time_days'],
+            'average_daily_use' => $averageUsage[$id] ?? null,
             'active_reservations' => (int) $row['active_reservations'],
+            'discontinued' => inventoryIsDiscontinuedStatus($storedStatus),
         ];
     }
 
@@ -902,8 +1245,7 @@ if (!function_exists('loadInventory')) {
      *   supplier:string,
      *   supplier_contact:?string,
      *   reorder_point:int,
-     *   lead_time_days:int,
-     *   committed_qty?:int
+     *   lead_time_days:int
      * } $payload
      */
     function createInventoryItem(\PDO $db, array $payload): int
@@ -911,10 +1253,10 @@ if (!function_exists('loadInventory')) {
         ensureInventorySchema($db);
 
         $statement = $db->prepare(
-            'INSERT INTO inventory_items (item, sku, part_number, finish, location, stock, committed_qty, status, supplier, '
-            . 'supplier_contact, reorder_point, lead_time_days) '
-            . 'VALUES (:item, :sku, :part_number, :finish, :location, :stock, :committed_qty, :status, :supplier, :supplier_contact, '
-            . ':reorder_point, :lead_time_days) RETURNING id'
+            'INSERT INTO inventory_items (item, sku, part_number, finish, location, stock, status, supplier, '
+            . 'supplier_contact, reorder_point, lead_time_days, average_daily_use) '
+            . 'VALUES (:item, :sku, :part_number, :finish, :location, :stock, :status, :supplier, :supplier_contact, '
+            . ':reorder_point, :lead_time_days, :average_daily_use) RETURNING id'
         );
 
         $statement->execute([
@@ -924,12 +1266,12 @@ if (!function_exists('loadInventory')) {
             ':finish' => $payload['finish'],
             ':location' => $payload['location'],
             ':stock' => $payload['stock'],
-            ':committed_qty' => $payload['committed_qty'] ?? 0,
             ':status' => $payload['status'],
             ':supplier' => $payload['supplier'],
             ':supplier_contact' => $payload['supplier_contact'],
             ':reorder_point' => $payload['reorder_point'],
             ':lead_time_days' => $payload['lead_time_days'],
+            ':average_daily_use' => null,
         ]);
 
         return (int) $statement->fetchColumn();
@@ -949,8 +1291,7 @@ if (!function_exists('loadInventory')) {
      *   supplier:string,
      *   supplier_contact:?string,
      *   reorder_point:int,
-     *   lead_time_days:int,
-     *   committed_qty?:int
+     *   lead_time_days:int
      * } $payload
      */
     function updateInventoryItem(\PDO $db, int $id, array $payload): void
@@ -959,8 +1300,9 @@ if (!function_exists('loadInventory')) {
 
         $statement = $db->prepare(
             'UPDATE inventory_items SET item = :item, sku = :sku, part_number = :part_number, finish = :finish, '
-            . 'location = :location, stock = :stock, committed_qty = :committed_qty, status = :status, supplier = :supplier, '
-            . 'supplier_contact = :supplier_contact, reorder_point = :reorder_point, lead_time_days = :lead_time_days WHERE id = :id'
+            . 'location = :location, stock = :stock, status = :status, supplier = :supplier, '
+            . 'supplier_contact = :supplier_contact, reorder_point = :reorder_point, lead_time_days = :lead_time_days, '
+            . 'average_daily_use = :average_daily_use WHERE id = :id'
         );
 
         $statement->execute([
@@ -971,12 +1313,12 @@ if (!function_exists('loadInventory')) {
             ':finish' => $payload['finish'],
             ':location' => $payload['location'],
             ':stock' => $payload['stock'],
-            ':committed_qty' => $payload['committed_qty'] ?? 0,
             ':status' => $payload['status'],
             ':supplier' => $payload['supplier'],
             ':supplier_contact' => $payload['supplier_contact'],
             ':reorder_point' => $payload['reorder_point'],
             ':lead_time_days' => $payload['lead_time_days'],
+            ':average_daily_use' => null,
         ]);
     }
 }

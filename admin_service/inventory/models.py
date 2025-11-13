@@ -20,6 +20,7 @@ class InventoryItem(models.Model):
     supplier_contact = models.CharField(max_length=255, blank=True, null=True)
     reorder_point = models.IntegerField()
     lead_time_days = models.IntegerField()
+    average_daily_use = models.DecimalField(max_digits=12, decimal_places=4, blank=True, null=True)
 
     class Meta:
         managed = False
@@ -165,3 +166,54 @@ class CycleCountLine(models.Model):
 
     def __str__(self) -> str:  # pragma: no cover - trivial
         return f"{self.session.name} - {self.inventory_item.sku}"
+
+
+class InventoryTransaction(models.Model):
+    """A posted stock movement for audit tracking."""
+
+    id = models.AutoField(primary_key=True)
+    reference = models.CharField(max_length=255)
+    notes = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField()
+
+    class Meta:
+        managed = False
+        db_table = "inventory_transactions"
+        ordering = ["-created_at"]
+        verbose_name = "Inventory transaction"
+        verbose_name_plural = "Inventory transactions"
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return self.reference
+
+
+class InventoryTransactionLine(models.Model):
+    """Line-level quantity adjustments associated with a transaction."""
+
+    id = models.AutoField(primary_key=True)
+    transaction = models.ForeignKey(
+        InventoryTransaction,
+        on_delete=models.CASCADE,
+        db_column="transaction_id",
+        related_name="lines",
+    )
+    inventory_item = models.ForeignKey(
+        InventoryItem,
+        on_delete=models.DO_NOTHING,
+        db_column="inventory_item_id",
+        related_name="transaction_lines",
+    )
+    quantity_change = models.IntegerField()
+    note = models.TextField(blank=True, null=True)
+    stock_before = models.IntegerField()
+    stock_after = models.IntegerField()
+
+    class Meta:
+        managed = False
+        db_table = "inventory_transaction_lines"
+        ordering = ["-id"]
+        verbose_name = "Inventory transaction line"
+        verbose_name_plural = "Inventory transaction lines"
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return f"{self.transaction.reference} → {self.inventory_item.sku}"

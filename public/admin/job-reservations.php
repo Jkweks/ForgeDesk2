@@ -591,7 +591,7 @@ $statusLabels = reservationStatusLabels();
                                                 <?php $hasAction = true; ?>
                                                 <a class="button ghost" href="?edit=<?= e((string) $reservation['id']) ?>">View &amp; Edit</a>
                                             <?php endif; ?>
-                                            <?php if ($statusKey === 'committed'): ?>
+                                            <?php if ($statusKey === 'active'): ?>
                                                 <?php $hasAction = true; ?>
                                                 <form method="post" class="inline-form">
                                                     <input type="hidden" name="action" value="status">

@@ -13,10 +13,15 @@ if (!function_exists('reservationStatusLabels')) {
     function reservationStatusLabels(): array
     {
         return [
-            'committed' => [
-                'label' => 'Holding',
+            'active' => [
+                'label' => 'Active',
                 'order' => 1,
                 'description' => 'Inventory has been committed and is waiting to be pulled.',
+            ],
+            'on_hold' => [
+                'label' => 'On Hold',
+                'order' => 1,
+                'description' => 'Inventory is reserved but temporarily paused pending review.',
             ],
             'in_progress' => [
                 'label' => 'In Process',
@@ -170,12 +175,6 @@ if (!function_exists('reservationUpdateItems')) {
                 ':notes' => $notes !== '' ? $notes : null,
             ]);
 
-            $selectInventory = $db->prepare(
-                'SELECT id, committed_qty FROM inventory_items WHERE id = :id FOR UPDATE'
-            );
-            $adjustInventory = $db->prepare(
-                'UPDATE inventory_items SET committed_qty = committed_qty + :delta WHERE id = :id'
-            );
             $updateReservationItem = $db->prepare(
                 'UPDATE job_reservation_items SET requested_qty = :requested_qty, committed_qty = :committed_qty '
                 . 'WHERE id = :id'
@@ -213,24 +212,6 @@ if (!function_exists('reservationUpdateItems')) {
                 $delta = $targetCommitted - $currentCommitted;
 
                 if ($delta !== 0) {
-                    $selectInventory->execute([':id' => $inventoryItemId]);
-                    $inventoryRow = $selectInventory->fetch(\PDO::FETCH_ASSOC);
-
-                    if ($inventoryRow === false) {
-                        throw new \RuntimeException('Unable to load inventory item #' . $inventoryItemId . '.');
-                    }
-
-                    $currentCommittedTotal = (int) $inventoryRow['committed_qty'];
-
-                    if ($delta < 0 && $currentCommittedTotal < abs($delta)) {
-                        throw new \RuntimeException('Inventory commitments are out of sync for item #' . $inventoryItemId . '.');
-                    }
-
-                    $adjustInventory->execute([
-                        ':delta' => $delta,
-                        ':id' => $inventoryItemId,
-                    ]);
-
                     if ($delta > 0) {
                         $committedDelta += $delta;
                     } else {
@@ -258,18 +239,6 @@ if (!function_exists('reservationUpdateItems')) {
                 if (isset($existingByInventory[$inventoryItemId])) {
                     throw new \InvalidArgumentException('Inventory item #' . $inventoryItemId . ' is already part of this reservation.');
                 }
-
-                $selectInventory->execute([':id' => $inventoryItemId]);
-                $inventoryRow = $selectInventory->fetch(\PDO::FETCH_ASSOC);
-
-                if ($inventoryRow === false) {
-                    throw new \RuntimeException('Unable to load inventory item #' . $inventoryItemId . ' for reservation update.');
-                }
-
-                $adjustInventory->execute([
-                    ':delta' => $line['committed_qty'],
-                    ':id' => $inventoryItemId,
-                ]);
 
                 $insertReservationItem->execute([
                     ':reservation_id' => $reservationId,
@@ -416,9 +385,11 @@ if (!function_exists('reservationFetch')) {
 
         $itemsStatement = $db->prepare(
             'SELECT jri.id, jri.inventory_item_id, jri.requested_qty, jri.committed_qty, jri.consumed_qty, '
-            . 'i.item, i.sku, i.part_number, i.finish, i.stock, i.committed_qty AS inventory_committed '
+            . 'i.item, i.sku, i.part_number, i.finish, i.stock, '
+            . 'COALESCE(commitments.committed_qty, 0) AS inventory_committed '
             . 'FROM job_reservation_items jri '
             . 'JOIN inventory_items i ON i.id = jri.inventory_item_id '
+            . 'LEFT JOIN inventory_item_commitments commitments ON commitments.inventory_item_id = i.id '
             . 'WHERE jri.reservation_id = :id '
             . 'ORDER BY i.item, i.part_number'
         );
@@ -527,14 +498,14 @@ if (!function_exists('reservationUpdateStatus')) {
             }
 
             $transitions = [
-                'committed' => ['in_progress'],
+                'active' => ['in_progress'],
             ];
 
             if (!isset($transitions[$currentStatus]) || !in_array($targetStatus, $transitions[$currentStatus], true)) {
                 throw new \RuntimeException('That status change is not allowed.');
             }
 
-            if ($currentStatus === 'committed' && $targetStatus === 'in_progress') {
+            if ($currentStatus === 'active' && $targetStatus === 'in_progress') {
                 $itemStatement = $db->prepare(
                     'SELECT jri.inventory_item_id, jri.committed_qty, i.item, i.sku, i.stock, i.location '
                     . 'FROM job_reservation_items jri '
@@ -668,10 +639,10 @@ if (!function_exists('reservationComplete')) {
             }
 
             $selectInventory = $db->prepare(
-                'SELECT item, sku, part_number, finish, stock, committed_qty FROM inventory_items WHERE id = :id FOR UPDATE'
+                'SELECT item, sku, part_number, finish, stock FROM inventory_items WHERE id = :id FOR UPDATE'
             );
             $updateInventory = $db->prepare(
-                'UPDATE inventory_items SET stock = stock - :consume, committed_qty = committed_qty - :release WHERE id = :id'
+                'UPDATE inventory_items SET stock = stock - :consume WHERE id = :id'
             );
             $updateReservationItem = $db->prepare(
                 'UPDATE job_reservation_items SET committed_qty = 0, consumed_qty = :consumed WHERE id = :id'
@@ -708,20 +679,14 @@ if (!function_exists('reservationComplete')) {
                 $consumeDelta = $targetConsumed - $alreadyConsumed;
                 $releaseQty = $committedQty;
 
-                if ($releaseQty > (int) $inventoryRow['committed_qty']) {
-                    throw new \RuntimeException('Inventory commitments are out of sync for item #' . $inventoryItemId . '.');
-                }
-
                 if ($consumeDelta > 0) {
                     $updateInventory->execute([
                         ':consume' => $consumeDelta,
-                        ':release' => $releaseQty,
                         ':id' => $inventoryItemId,
                     ]);
                 } else {
                     $updateInventory->execute([
                         ':consume' => 0,
-                        ':release' => $releaseQty,
                         ':id' => $inventoryItemId,
                     ]);
                 }
@@ -845,7 +810,7 @@ if (!function_exists('reservationCommitItems')) {
                 ':job_name' => $jobName,
                 ':requested_by' => $requestedBy,
                 ':needed_by' => $neededBy,
-                ':status' => 'committed',
+                ':status' => 'active',
                 ':notes' => $notes !== '' ? $notes : null,
             ]);
 
@@ -856,11 +821,8 @@ if (!function_exists('reservationCommitItems')) {
             }
 
             $selectInventory = $db->prepare(
-                'SELECT id, item, sku, part_number, finish, stock, committed_qty '
+                'SELECT id, item, sku, part_number, finish, stock '
                 . 'FROM inventory_items WHERE id = :id FOR UPDATE'
-            );
-            $updateInventory = $db->prepare(
-                'UPDATE inventory_items SET committed_qty = committed_qty + :commit_qty WHERE id = :id'
             );
             $insertReservationItem = $db->prepare(
                 'INSERT INTO job_reservation_items (reservation_id, inventory_item_id, requested_qty, committed_qty, consumed_qty) '
@@ -889,12 +851,9 @@ if (!function_exists('reservationCommitItems')) {
                     throw new \RuntimeException('Unable to load inventory item #' . $itemId . ' for reservation.');
                 }
 
-                $availableBefore = (int) $inventoryRow['stock'] - (int) $inventoryRow['committed_qty'];
-
-                $updateInventory->execute([
-                    ':commit_qty' => $commitQty,
-                    ':id' => $itemId,
-                ]);
+                $committedTotals = inventoryCommittedTotals($db, [$itemId]);
+                $committedBefore = $committedTotals[$itemId] ?? 0;
+                $availableBefore = (int) $inventoryRow['stock'] - $committedBefore;
 
                 $insertReservationItem->execute([
                     ':reservation_id' => $reservationId,
