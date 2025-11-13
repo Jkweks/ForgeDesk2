@@ -192,7 +192,6 @@ if ($dbError === null) {
 
         if ($errors === []) {
             $committedQty = $existingItem['committed_qty'] ?? 0;
-            $payload['committed_qty'] = $committedQty;
             $availableQty = $payload['stock'] - $committedQty;
             $payload['status'] = $isDiscontinued
                 ? 'Discontinued'

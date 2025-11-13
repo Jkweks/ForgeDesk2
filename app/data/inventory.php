@@ -424,7 +424,6 @@ if (!function_exists('loadInventory')) {
                 'lead_time_days' => 'ALTER TABLE inventory_items ADD COLUMN lead_time_days INTEGER NOT NULL DEFAULT 0',
                 'part_number' => "ALTER TABLE inventory_items ADD COLUMN part_number TEXT NOT NULL DEFAULT ''",
                 'finish' => 'ALTER TABLE inventory_items ADD COLUMN finish TEXT NULL',
-                'committed_qty' => 'ALTER TABLE inventory_items ADD COLUMN committed_qty INTEGER NOT NULL DEFAULT 0',
                 'average_daily_use' => 'ALTER TABLE inventory_items ADD COLUMN average_daily_use NUMERIC(12,4) NULL',
             ];
 
@@ -443,6 +442,10 @@ if (!function_exists('loadInventory')) {
         }
 
         inventoryEnsureTransactionsSchema($db);
+
+        if (inventorySupportsReservations($db)) {
+            inventoryEnsureCommitmentView($db);
+        }
     }
 
     /**
@@ -493,6 +496,32 @@ if (!function_exists('loadInventory')) {
         $ensured = true;
     }
 
+    function inventoryEnsureCommitmentView(\PDO $db): void
+    {
+        static $ensured = false;
+
+        if ($ensured) {
+            return;
+        }
+
+        $db->exec(
+            "CREATE OR REPLACE VIEW inventory_item_commitments AS\n"
+            . "SELECT\n"
+            . "    i.id AS inventory_item_id,\n"
+            . "    COALESCE(SUM(CASE\n"
+            . "        WHEN jr.status IN ('active', 'committed', 'in_progress', 'on_hold')\n"
+            . "            THEN jri.committed_qty\n"
+            . "        ELSE 0\n"
+            . "    END), 0) AS committed_qty\n"
+            . "FROM inventory_items i\n"
+            . "LEFT JOIN job_reservation_items jri ON jri.inventory_item_id = i.id\n"
+            . "LEFT JOIN job_reservations jr ON jr.id = jri.reservation_id\n"
+            . "GROUP BY i.id"
+        );
+
+        $ensured = true;
+    }
+
     function inventorySupportsReservations(\PDO $db): bool
     {
         static $supports = null;
@@ -520,6 +549,43 @@ if (!function_exists('loadInventory')) {
     }
 
     /**
+     * Fetch committed inventory totals keyed by item id.
+     *
+     * @param list<int> $itemIds
+     *
+     * @return array<int,int>
+     */
+    function inventoryCommittedTotals(\PDO $db, array $itemIds = []): array
+    {
+        if (!inventorySupportsReservations($db)) {
+            return [];
+        }
+
+        $sql = 'SELECT inventory_item_id AS id, committed_qty FROM inventory_item_commitments';
+        $params = [];
+
+        if ($itemIds !== []) {
+            $placeholders = implode(',', array_fill(0, count($itemIds), '?'));
+            $sql .= ' WHERE inventory_item_id IN (' . $placeholders . ')';
+            $params = array_values($itemIds);
+        }
+
+        $statement = $db->prepare($sql);
+        $statement->execute($params);
+
+        /** @var list<array{ id:int|string, committed_qty:int|string|null }> $rows */
+        $rows = $statement->fetchAll(\PDO::FETCH_ASSOC);
+
+        $totals = [];
+
+        foreach ($rows as $row) {
+            $totals[(int) $row['id']] = (int) ($row['committed_qty'] ?? 0);
+        }
+
+        return $totals;
+    }
+
+    /**
      * Retrieve inventory rows for lookup widgets.
      *
      * @return list<array{id:int,item:string,sku:string,part_number:string,stock:int,available_qty:int}>
@@ -529,21 +595,33 @@ if (!function_exists('loadInventory')) {
         ensureInventorySchema($db);
 
         $statement = $db->query(
-            'SELECT id, item, sku, part_number, stock, committed_qty, (stock - committed_qty) AS available_qty '
-            . 'FROM inventory_items ORDER BY item ASC'
+            'SELECT id, item, sku, part_number, stock FROM inventory_items ORDER BY item ASC'
         );
 
         $rows = $statement !== false ? $statement->fetchAll() : [];
 
+        $ids = array_map(
+            static fn (array $row): int => (int) $row['id'],
+            $rows
+        );
+
+        $committedTotals = $ids !== [] ? inventoryCommittedTotals($db, $ids) : [];
+
         return array_map(
-            static fn (array $row): array => [
-                'id' => (int) $row['id'],
-                'item' => (string) $row['item'],
-                'sku' => (string) $row['sku'],
-                'part_number' => (string) $row['part_number'],
-                'stock' => (int) $row['stock'],
-                'available_qty' => isset($row['available_qty']) ? (int) $row['available_qty'] : ((int) $row['stock'] - (int) $row['committed_qty']),
-            ],
+            static function (array $row) use ($committedTotals): array {
+                $id = (int) $row['id'];
+                $stock = (int) $row['stock'];
+                $committed = $committedTotals[$id] ?? 0;
+
+                return [
+                    'id' => $id,
+                    'item' => (string) $row['item'],
+                    'sku' => (string) $row['sku'],
+                    'part_number' => (string) $row['part_number'],
+                    'stock' => $stock,
+                    'available_qty' => $stock - $committed,
+                ];
+            },
             $rows
         );
     }
@@ -853,22 +931,27 @@ if (!function_exists('loadInventory')) {
         try {
             $supportsReservations = inventorySupportsReservations($db);
 
+            $committedSelect = $supportsReservations ? 'COALESCE(commitments.committed_qty, 0)' : '0';
+            $activeSelect = $supportsReservations ? 'COALESCE(res.active_reservations, 0)' : '0';
+            $availableExpr = 'i.stock - ' . $committedSelect;
+
+            $joinCommitments = $supportsReservations
+                ? 'LEFT JOIN inventory_item_commitments commitments ON commitments.inventory_item_id = i.id '
+                : '';
+
+            $joinReservations = $supportsReservations
+                ? "LEFT JOIN (\n                    SELECT jri.inventory_item_id,\n                        COUNT(*) FILTER (WHERE jr.status IN ('draft', 'committed', 'active', 'in_progress', 'on_hold')) AS active_reservations\n                    FROM job_reservation_items jri\n                    JOIN job_reservations jr ON jr.id = jri.reservation_id\n                    GROUP BY jri.inventory_item_id\n                ) res ON res.inventory_item_id = i.id "
+                : '';
+
             $statement = $db->query(
-                'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, i.committed_qty, '
-                . '(i.stock - i.committed_qty) AS available_qty, i.status, i.supplier, i.supplier_contact, '
+                'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, '
+                . $committedSelect . ' AS committed_qty, '
+                . $availableExpr . ' AS available_qty, i.status, i.supplier, i.supplier_contact, '
                 . 'i.reorder_point, i.lead_time_days, i.average_daily_use, '
-                . ($supportsReservations ? 'COALESCE(res.active_reservations, 0)' : '0') . ' AS active_reservations '
+                . $activeSelect . ' AS active_reservations '
                 . 'FROM inventory_items i '
-                . ($supportsReservations
-                    ? 'LEFT JOIN (
-                    SELECT jri.inventory_item_id,
-                        COUNT(*) FILTER (WHERE jr.status IN (\'draft\', \'committed\', \'in_progress\')) AS active_reservations
-                    FROM job_reservation_items jri
-                    JOIN job_reservations jr ON jr.id = jri.reservation_id
-                    GROUP BY jri.inventory_item_id
-                ) res ON res.inventory_item_id = i.id '
-                    : ''
-                )
+                . $joinCommitments
+                . $joinReservations
                 . 'ORDER BY i.item ASC'
             );
 
@@ -926,13 +1009,18 @@ if (!function_exists('loadInventory')) {
     {
         ensureInventorySchema($db);
 
+        $supportsReservations = inventorySupportsReservations($db);
+
         try {
+            $committedSelect = $supportsReservations ? 'COALESCE(commitments.committed_qty, 0)' : '0';
+
             $totalsStatement = $db->query(
                 'SELECT '
-                . 'COALESCE(SUM(stock), 0) AS total_stock, '
-                . 'COALESCE(SUM(committed_qty), 0) AS total_committed, '
-                . 'COALESCE(SUM(stock - committed_qty), 0) AS total_available '
-                . 'FROM inventory_items'
+                . 'COALESCE(SUM(i.stock), 0) AS total_stock, '
+                . 'COALESCE(SUM(' . $committedSelect . '), 0) AS total_committed, '
+                . 'COALESCE(SUM(i.stock - ' . $committedSelect . '), 0) AS total_available '
+                . 'FROM inventory_items i '
+                . ($supportsReservations ? 'LEFT JOIN inventory_item_commitments commitments ON commitments.inventory_item_id = i.id' : '')
             );
 
             $totals = $totalsStatement !== false ? (array) $totalsStatement->fetch() : [];
@@ -942,11 +1030,11 @@ if (!function_exists('loadInventory')) {
 
         $activeReservations = 0;
 
-        if (inventorySupportsReservations($db)) {
+        if ($supportsReservations) {
             try {
                 $reservationStatement = $db->query(
                     "SELECT COUNT(*) AS active_count FROM job_reservations "
-                    . "WHERE status IN ('draft', 'committed', 'in_progress')"
+                    . "WHERE status IN ('draft', 'committed', 'active', 'in_progress', 'on_hold')"
                 );
 
                 if ($reservationStatement !== false) {
@@ -995,22 +1083,24 @@ if (!function_exists('loadInventory')) {
         ensureInventorySchema($db);
 
         $supportsReservations = inventorySupportsReservations($db);
+        $committedSelect = $supportsReservations ? 'COALESCE(commitments.committed_qty, 0)' : '0';
         $activeSelect = $supportsReservations ? 'COALESCE(res.active_reservations, 0)' : '0';
+
+        $joinCommitments = $supportsReservations
+            ? 'LEFT JOIN inventory_item_commitments commitments ON commitments.inventory_item_id = i.id '
+            : '';
+
         $joinClause = $supportsReservations
-            ? 'LEFT JOIN (
-                SELECT jri.inventory_item_id,
-                    COUNT(*) FILTER (WHERE jr.status IN (\'draft\', \'committed\', \'in_progress\')) AS active_reservations
-                FROM job_reservation_items jri
-                JOIN job_reservations jr ON jr.id = jri.reservation_id
-                GROUP BY jri.inventory_item_id
-            ) res ON res.inventory_item_id = i.id '
+            ? "LEFT JOIN (\n                SELECT jri.inventory_item_id,\n                    COUNT(*) FILTER (WHERE jr.status IN ('draft', 'committed', 'active', 'in_progress', 'on_hold')) AS active_reservations\n                FROM job_reservation_items jri\n                JOIN job_reservations jr ON jr.id = jri.reservation_id\n                GROUP BY jri.inventory_item_id\n            ) res ON res.inventory_item_id = i.id "
             : '';
 
         $statement = $db->prepare(
-            'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, i.committed_qty, '
-            . '(i.stock - i.committed_qty) AS available_qty, i.status, i.supplier, i.supplier_contact, '
+            'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, '
+            . $committedSelect . ' AS committed_qty, '
+            . '(i.stock - ' . $committedSelect . ') AS available_qty, i.status, i.supplier, i.supplier_contact, '
             . 'i.reorder_point, i.lead_time_days, i.average_daily_use, ' . $activeSelect . ' AS active_reservations '
             . 'FROM inventory_items i '
+            . $joinCommitments
             . $joinClause
             . 'WHERE i.id = :id'
         );
@@ -1082,22 +1172,24 @@ if (!function_exists('loadInventory')) {
         ensureInventorySchema($db);
 
         $supportsReservations = inventorySupportsReservations($db);
+        $committedSelect = $supportsReservations ? 'COALESCE(commitments.committed_qty, 0)' : '0';
         $activeSelect = $supportsReservations ? 'COALESCE(res.active_reservations, 0)' : '0';
+
+        $joinCommitments = $supportsReservations
+            ? 'LEFT JOIN inventory_item_commitments commitments ON commitments.inventory_item_id = i.id '
+            : '';
+
         $joinClause = $supportsReservations
-            ? 'LEFT JOIN (
-                SELECT jri.inventory_item_id,
-                    COUNT(*) FILTER (WHERE jr.status IN (\'draft\', \'committed\', \'in_progress\')) AS active_reservations
-                FROM job_reservation_items jri
-                JOIN job_reservations jr ON jr.id = jri.reservation_id
-                GROUP BY jri.inventory_item_id
-            ) res ON res.inventory_item_id = i.id '
+            ? "LEFT JOIN (\n                SELECT jri.inventory_item_id,\n                    COUNT(*) FILTER (WHERE jr.status IN ('draft', 'committed', 'active', 'in_progress', 'on_hold')) AS active_reservations\n                FROM job_reservation_items jri\n                JOIN job_reservations jr ON jr.id = jri.reservation_id\n                GROUP BY jri.inventory_item_id\n            ) res ON res.inventory_item_id = i.id "
             : '';
 
         $statement = $db->prepare(
-            'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, i.committed_qty, '
-            . '(i.stock - i.committed_qty) AS available_qty, i.status, i.supplier, i.supplier_contact, '
+            'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, '
+            . $committedSelect . ' AS committed_qty, '
+            . '(i.stock - ' . $committedSelect . ') AS available_qty, i.status, i.supplier, i.supplier_contact, '
             . 'i.reorder_point, i.lead_time_days, i.average_daily_use, ' . $activeSelect . ' AS active_reservations '
             . 'FROM inventory_items i '
+            . $joinCommitments
             . $joinClause
             . 'WHERE i.sku = :sku LIMIT 1'
         );
@@ -1153,8 +1245,7 @@ if (!function_exists('loadInventory')) {
      *   supplier:string,
      *   supplier_contact:?string,
      *   reorder_point:int,
-     *   lead_time_days:int,
-     *   committed_qty?:int
+     *   lead_time_days:int
      * } $payload
      */
     function createInventoryItem(\PDO $db, array $payload): int
@@ -1162,9 +1253,9 @@ if (!function_exists('loadInventory')) {
         ensureInventorySchema($db);
 
         $statement = $db->prepare(
-            'INSERT INTO inventory_items (item, sku, part_number, finish, location, stock, committed_qty, status, supplier, '
+            'INSERT INTO inventory_items (item, sku, part_number, finish, location, stock, status, supplier, '
             . 'supplier_contact, reorder_point, lead_time_days, average_daily_use) '
-            . 'VALUES (:item, :sku, :part_number, :finish, :location, :stock, :committed_qty, :status, :supplier, :supplier_contact, '
+            . 'VALUES (:item, :sku, :part_number, :finish, :location, :stock, :status, :supplier, :supplier_contact, '
             . ':reorder_point, :lead_time_days, :average_daily_use) RETURNING id'
         );
 
@@ -1175,7 +1266,6 @@ if (!function_exists('loadInventory')) {
             ':finish' => $payload['finish'],
             ':location' => $payload['location'],
             ':stock' => $payload['stock'],
-            ':committed_qty' => $payload['committed_qty'] ?? 0,
             ':status' => $payload['status'],
             ':supplier' => $payload['supplier'],
             ':supplier_contact' => $payload['supplier_contact'],
@@ -1201,8 +1291,7 @@ if (!function_exists('loadInventory')) {
      *   supplier:string,
      *   supplier_contact:?string,
      *   reorder_point:int,
-     *   lead_time_days:int,
-     *   committed_qty?:int
+     *   lead_time_days:int
      * } $payload
      */
     function updateInventoryItem(\PDO $db, int $id, array $payload): void
@@ -1211,7 +1300,7 @@ if (!function_exists('loadInventory')) {
 
         $statement = $db->prepare(
             'UPDATE inventory_items SET item = :item, sku = :sku, part_number = :part_number, finish = :finish, '
-            . 'location = :location, stock = :stock, committed_qty = :committed_qty, status = :status, supplier = :supplier, '
+            . 'location = :location, stock = :stock, status = :status, supplier = :supplier, '
             . 'supplier_contact = :supplier_contact, reorder_point = :reorder_point, lead_time_days = :lead_time_days, '
             . 'average_daily_use = :average_daily_use WHERE id = :id'
         );
@@ -1224,7 +1313,6 @@ if (!function_exists('loadInventory')) {
             ':finish' => $payload['finish'],
             ':location' => $payload['location'],
             ':stock' => $payload['stock'],
-            ':committed_qty' => $payload['committed_qty'] ?? 0,
             ':status' => $payload['status'],
             ':supplier' => $payload['supplier'],
             ':supplier_contact' => $payload['supplier_contact'],

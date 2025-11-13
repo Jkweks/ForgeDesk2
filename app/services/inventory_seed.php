@@ -201,11 +201,10 @@ if (!function_exists('seedInventoryFromXlsx')) {
             try {
                 $existing = findInventoryItemBySku($db, $sku);
 
-                $payload['committed_qty'] = $existing !== null ? (int) $existing['committed_qty'] : 0;
-
                 $shouldDiscontinue = $requestedDiscontinued
                     || (!$explicitStatusProvided && $existing !== null && ($existing['discontinued'] ?? false));
-                $availableQty = $payload['stock'] - $payload['committed_qty'];
+                $committedQty = $existing !== null ? (int) $existing['committed_qty'] : 0;
+                $availableQty = $payload['stock'] - $committedQty;
                 $payload['status'] = $shouldDiscontinue
                     ? 'Discontinued'
                     : inventoryStatusFromAvailable($availableQty, $payload['reorder_point']);

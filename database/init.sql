@@ -6,7 +6,6 @@ CREATE TABLE IF NOT EXISTS inventory_items (
     finish TEXT NULL,
     location TEXT NOT NULL,
     stock INTEGER NOT NULL DEFAULT 0,
-    committed_qty INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'In Stock',
     supplier TEXT NOT NULL DEFAULT 'Unknown Supplier',
     supplier_contact TEXT NULL,
@@ -22,7 +21,6 @@ ALTER TABLE inventory_items
     ADD COLUMN IF NOT EXISTS lead_time_days INTEGER NOT NULL DEFAULT 0,
     ADD COLUMN IF NOT EXISTS part_number TEXT NOT NULL DEFAULT '',
     ADD COLUMN IF NOT EXISTS finish TEXT NULL,
-    ADD COLUMN IF NOT EXISTS committed_qty INTEGER NOT NULL DEFAULT 0,
     ADD COLUMN IF NOT EXISTS average_daily_use NUMERIC(12,4) NULL;
 
 CREATE TABLE IF NOT EXISTS inventory_metrics (
@@ -41,6 +39,8 @@ BEGIN
         CREATE TYPE job_reservation_status AS ENUM (
             'draft',
             'committed',
+            'active',
+            'on_hold',
             'in_progress',
             'fulfilled',
             'cancelled'
@@ -90,6 +90,19 @@ CREATE INDEX IF NOT EXISTS idx_job_reservation_items_reservation
 
 CREATE INDEX IF NOT EXISTS idx_job_reservation_items_inventory
     ON job_reservation_items (inventory_item_id);
+
+CREATE OR REPLACE VIEW inventory_item_commitments AS
+SELECT
+    i.id AS inventory_item_id,
+    COALESCE(SUM(CASE
+        WHEN jr.status IN ('active', 'committed', 'in_progress', 'on_hold')
+            THEN jri.committed_qty
+        ELSE 0
+    END), 0) AS committed_qty
+FROM inventory_items i
+LEFT JOIN job_reservation_items jri ON jri.inventory_item_id = i.id
+LEFT JOIN job_reservations jr ON jr.id = jri.reservation_id
+GROUP BY i.id;
 
 CREATE TABLE IF NOT EXISTS cycle_count_sessions (
     id SERIAL PRIMARY KEY,
@@ -171,7 +184,6 @@ ON CONFLICT (sku) DO UPDATE SET
     lead_time_days = EXCLUDED.lead_time_days,
     part_number = EXCLUDED.part_number,
     finish = EXCLUDED.finish,
-    committed_qty = EXCLUDED.committed_qty,
     average_daily_use = EXCLUDED.average_daily_use;
 
 INSERT INTO inventory_metrics (label, value, delta, timeframe, accent, sort_order) VALUES
@@ -188,7 +200,7 @@ ON CONFLICT (label) DO UPDATE SET
 
 INSERT INTO job_reservations (job_number, job_name, requested_by, needed_by, status, notes)
 VALUES
-    ('JOB-2024-001', 'Downtown Lobby Retrofit', 'Morgan Smith', CURRENT_DATE + INTERVAL '14 days', 'committed', 'Initial staging reservation for retrofit work')
+    ('JOB-2024-001', 'Downtown Lobby Retrofit', 'Morgan Smith', CURRENT_DATE + INTERVAL '14 days', 'active', 'Initial staging reservation for retrofit work')
 ON CONFLICT (job_number) DO UPDATE SET
     job_name = EXCLUDED.job_name,
     requested_by = EXCLUDED.requested_by,
