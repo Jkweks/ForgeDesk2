@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/purchase_orders.php';
+
 if (!function_exists('loadInventory')) {
     function inventoryIsDiscontinuedStatus(string $status): bool
     {
@@ -142,6 +144,70 @@ if (!function_exists('loadInventory')) {
         }
 
         return number_format($dailyUse, 2, '.', '');
+    }
+
+    /**
+     * Normalize numeric values persisted as NUMERIC/DECIMAL strings into floats.
+     *
+     * @param mixed $value
+     */
+    function inventoryNormalizeNumericValue($value): float
+    {
+        if ($value === null) {
+            return 0.0;
+        }
+
+        if (is_float($value) || is_int($value)) {
+            return (float) $value;
+        }
+
+        $stringValue = is_string($value) ? trim($value) : '';
+
+        return is_numeric($stringValue) ? (float) $stringValue : 0.0;
+    }
+
+    function inventoryRoundUpToIncrement(float $quantity, float $increment): float
+    {
+        if ($quantity <= 0.0) {
+            return 0.0;
+        }
+
+        if ($increment <= 0.0) {
+            return $quantity;
+        }
+
+        return ceil($quantity / $increment) * $increment;
+    }
+
+    function inventoryCalculateRecommendedOrderQuantity(
+        float $projectedAvailable,
+        ?float $averageDailyUse,
+        int $leadTimeDays,
+        float $safetyStock,
+        float $minOrderQty,
+        float $orderMultiple,
+        float $packSize
+    ): float {
+        $averageDailyUse = $averageDailyUse !== null && $averageDailyUse > 0 ? $averageDailyUse : 0.0;
+        $leadTimeDays = max(0, $leadTimeDays);
+        $safetyStock = max(0.0, $safetyStock);
+        $minOrderQty = max(0.0, $minOrderQty);
+        $orderMultiple = max(0.0, $orderMultiple);
+        $packSize = max(0.0, $packSize);
+
+        $demandDuringLeadTime = $averageDailyUse * $leadTimeDays;
+        $targetStock = $demandDuringLeadTime + $safetyStock;
+        $shortfall = $targetStock - $projectedAvailable;
+
+        if ($shortfall <= 0.0) {
+            return 0.0;
+        }
+
+        $recommended = max($shortfall, $minOrderQty);
+        $recommended = inventoryRoundUpToIncrement($recommended, $orderMultiple);
+        $recommended = inventoryRoundUpToIncrement($recommended, $packSize);
+
+        return round($recommended, 3);
     }
 
     /**
@@ -291,6 +357,196 @@ if (!function_exists('loadInventory')) {
         }
 
         return $averages;
+    }
+
+    /**
+     * Compose replenishment-oriented metrics for inventory items, including purchase order projections.
+     *
+     * @return list<array{
+     *   id:int,
+     *   item:string,
+     *   sku:string,
+     *   part_number:string,
+     *   finish:?string,
+     *   location:string,
+     *   stock:int,
+     *   committed_qty:int,
+     *   available_now:int,
+     *   on_order_qty:float,
+     *   projected_available:float,
+     *   average_daily_use:?float,
+     *   demand_during_lead_time:float,
+     *   target_stock:float,
+     *   projected_shortfall:float,
+     *   recommended_order_qty:float,
+     *   days_of_supply:?float,
+     *   safety_stock:float,
+     *   min_order_qty:float,
+     *   order_multiple:float,
+     *   pack_size:float,
+     *   purchase_uom:?string,
+     *   stock_uom:?string,
+     *   supplier_id:?int,
+     *   supplier_display:string,
+     *   supplier_name:?string,
+     *   supplier_sku:?string,
+     *   supplier_contact_name:?string,
+     *   supplier_contact_email:?string,
+     *   supplier_contact_phone:?string,
+     *   legacy_supplier:string,
+     *   legacy_supplier_contact:?string,
+     *   lead_time_days:int,
+     *   effective_lead_time_days:int,
+     *   reorder_point:int,
+     *   status:string,
+     *   discontinued:bool,
+     *   active_reservations:int
+     * }>
+     */
+    function inventoryLoadReplenishmentSnapshot(\PDO $db): array
+    {
+        ensureInventorySchema($db);
+        purchaseOrderEnsureSchema($db);
+
+        $supportsReservations = inventorySupportsReservations($db);
+        $committedSelect = $supportsReservations ? 'COALESCE(commitments.committed_qty, 0)' : '0';
+        $activeSelect = $supportsReservations ? 'COALESCE(res.active_reservations, 0)' : '0';
+
+        $joinCommitments = $supportsReservations
+            ? 'LEFT JOIN inventory_item_commitments commitments ON commitments.inventory_item_id = i.id '
+            : '';
+
+        $joinReservations = $supportsReservations
+            ? "LEFT JOIN (\n                SELECT jri.inventory_item_id,\n                    COUNT(*) FILTER (WHERE jr.status IN ('draft', 'committed', 'active', 'in_progress', 'on_hold')) AS active_reservations\n                FROM job_reservation_items jri\n                JOIN job_reservations jr ON jr.id = jri.reservation_id\n                GROUP BY jri.inventory_item_id\n            ) res ON res.inventory_item_id = i.id "
+            : '';
+
+        $statement = $db->query(
+            'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, i.status, '
+            . $committedSelect . ' AS committed_qty, i.reorder_point, i.lead_time_days, i.average_daily_use, '
+            . 'i.on_order_qty, i.safety_stock, i.min_order_qty, i.order_multiple, i.pack_size, i.purchase_uom, i.stock_uom, '
+            . 'i.supplier_id, i.supplier_sku, i.supplier, i.supplier_contact, '
+            . $activeSelect . ' AS active_reservations, '
+            . 's.name AS supplier_name, s.contact_name AS supplier_contact_name, s.contact_email AS supplier_contact_email, '
+            . 's.contact_phone AS supplier_contact_phone, s.default_lead_time_days AS supplier_default_lead_time '
+            . 'FROM inventory_items i '
+            . $joinCommitments
+            . $joinReservations
+            . 'LEFT JOIN suppliers s ON s.id = i.supplier_id '
+            . 'ORDER BY i.item ASC'
+        );
+
+        if ($statement === false) {
+            return [];
+        }
+
+        /** @var array<int,array<string,mixed>> $rows */
+        $rows = $statement->fetchAll();
+
+        if ($rows === []) {
+            return [];
+        }
+
+        $idList = array_map(
+            static fn (array $row): int => (int) $row['id'],
+            $rows
+        );
+
+        $averageUsage = inventoryCalculateAverageDailyUseMap($db, $idList);
+        $onOrderMap = purchaseOrderOutstandingQuantities($db, $idList);
+        $updateOnOrder = $db->prepare('UPDATE inventory_items SET on_order_qty = :on_order_qty WHERE id = :id');
+
+        $results = [];
+
+        foreach ($rows as $row) {
+            $id = (int) $row['id'];
+            $stock = (int) $row['stock'];
+            $committedQty = (int) $row['committed_qty'];
+            $availableNow = $stock - $committedQty;
+            $storedOnOrder = inventoryNormalizeNumericValue($row['on_order_qty'] ?? 0.0);
+            $onOrder = $onOrderMap[$id] ?? 0.0;
+
+            if (abs($storedOnOrder - $onOrder) >= 0.0001) {
+                $updateOnOrder->execute([
+                    ':id' => $id,
+                    ':on_order_qty' => $onOrder,
+                ]);
+            }
+
+            $projectedAvailable = $availableNow + $onOrder;
+            $averageDailyUse = $averageUsage[$id] ?? ($row['average_daily_use'] !== null ? (float) $row['average_daily_use'] : null);
+
+            $leadTimeDays = (int) $row['lead_time_days'];
+            $supplierLead = $row['supplier_default_lead_time'] !== null ? (int) $row['supplier_default_lead_time'] : 0;
+            $effectiveLead = $leadTimeDays > 0 ? $leadTimeDays : $supplierLead;
+
+            $safetyStock = inventoryNormalizeNumericValue($row['safety_stock'] ?? 0.0);
+            $minOrderQty = inventoryNormalizeNumericValue($row['min_order_qty'] ?? 0.0);
+            $orderMultiple = inventoryNormalizeNumericValue($row['order_multiple'] ?? 0.0);
+            $packSize = inventoryNormalizeNumericValue($row['pack_size'] ?? 0.0);
+
+            $demandDuringLeadTime = $averageDailyUse !== null ? $averageDailyUse * max(0, $effectiveLead) : 0.0;
+            $targetStock = $demandDuringLeadTime + $safetyStock;
+            $projectedShortfall = max(0.0, $targetStock - $projectedAvailable);
+            $recommended = inventoryCalculateRecommendedOrderQuantity(
+                $projectedAvailable,
+                $averageDailyUse,
+                $effectiveLead,
+                $safetyStock,
+                $minOrderQty,
+                $orderMultiple,
+                $packSize
+            );
+
+            $daysOfSupply = ($averageDailyUse !== null && $averageDailyUse > 0)
+                ? round($projectedAvailable / $averageDailyUse, 2)
+                : null;
+
+            $reorderPoint = (int) $row['reorder_point'];
+            $storedStatus = (string) $row['status'];
+
+            $results[] = [
+                'id' => $id,
+                'item' => (string) $row['item'],
+                'sku' => (string) $row['sku'],
+                'part_number' => (string) $row['part_number'],
+                'finish' => $row['finish'] !== null ? inventoryNormalizeFinish((string) $row['finish']) : null,
+                'location' => (string) $row['location'],
+                'stock' => $stock,
+                'committed_qty' => $committedQty,
+                'available_now' => $availableNow,
+                'on_order_qty' => $onOrder,
+                'projected_available' => $projectedAvailable,
+                'average_daily_use' => $averageDailyUse,
+                'demand_during_lead_time' => $demandDuringLeadTime,
+                'target_stock' => $targetStock,
+                'projected_shortfall' => $projectedShortfall,
+                'recommended_order_qty' => $recommended,
+                'days_of_supply' => $daysOfSupply,
+                'safety_stock' => $safetyStock,
+                'min_order_qty' => $minOrderQty,
+                'order_multiple' => $orderMultiple,
+                'pack_size' => $packSize,
+                'purchase_uom' => $row['purchase_uom'] !== null ? (string) $row['purchase_uom'] : null,
+                'stock_uom' => $row['stock_uom'] !== null ? (string) $row['stock_uom'] : null,
+                'supplier_id' => $row['supplier_id'] !== null ? (int) $row['supplier_id'] : null,
+                'supplier_display' => $row['supplier_name'] !== null ? (string) $row['supplier_name'] : (string) $row['supplier'],
+                'supplier_name' => $row['supplier_name'] !== null ? (string) $row['supplier_name'] : null,
+                'supplier_sku' => $row['supplier_sku'] !== null ? (string) $row['supplier_sku'] : null,
+                'supplier_contact_name' => $row['supplier_contact_name'] !== null ? (string) $row['supplier_contact_name'] : null,
+                'supplier_contact_email' => $row['supplier_contact_email'] !== null ? (string) $row['supplier_contact_email'] : null,
+                'supplier_contact_phone' => $row['supplier_contact_phone'] !== null ? (string) $row['supplier_contact_phone'] : null,
+                'legacy_supplier' => (string) $row['supplier'],
+                'legacy_supplier_contact' => $row['supplier_contact'] !== null ? (string) $row['supplier_contact'] : null,
+                'lead_time_days' => $leadTimeDays,
+                'effective_lead_time_days' => $effectiveLead,
+                'reorder_point' => $reorderPoint,
+                'status' => inventoryResolveStatus($availableNow, $reorderPoint, $storedStatus),
+                'discontinued' => inventoryIsDiscontinuedStatus($storedStatus),
+                'active_reservations' => (int) $row['active_reservations'],
+            ];
+        }
+
+        return $results;
     }
 
     function inventoryNormalizeFinish(?string $finish): ?string
