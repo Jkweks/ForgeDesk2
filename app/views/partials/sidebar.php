@@ -17,7 +17,12 @@ foreach ($nav as &$groupItems) {
 /** @var string|null $sidebarAriaLabel */
 $sidebarAriaLabel = $sidebarAriaLabel ?? null;
 ?>
-<aside class="sidebar"<?= $sidebarAriaLabel !== null ? ' aria-label="' . e($sidebarAriaLabel) . '"' : '' ?>>
+<aside
+  class="sidebar"
+  id="app-sidebar"
+  tabindex="-1"
+  <?= $sidebarAriaLabel !== null ? ' aria-label="' . e($sidebarAriaLabel) . '"' : '' ?>
+>
   <div class="brand">
     <span class="brand-badge"><?= e($app['user']['avatar']) ?></span>
     <div>
@@ -43,4 +48,5 @@ $sidebarAriaLabel = $sidebarAriaLabel ?? null;
     </nav>
   <?php endforeach; ?>
 </aside>
+<div class="sidebar-backdrop" data-sidebar-backdrop hidden></div>
 <?php unset($sidebarAriaLabel); ?>

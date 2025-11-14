@@ -206,11 +206,21 @@ if (isset($_GET['success']) && $_GET['success'] === 'recorded') {
   <title><?= e($app['name']) ?> Inventory Transactions</title>
   <link rel="stylesheet" href="css/dashboard.css" />
 </head>
-<body>
+<body class="has-sidebar-toggle">
   <div class="layout">
     <?php $sidebarAriaLabel = 'Primary navigation'; require __DIR__ . '/../app/views/partials/sidebar.php'; ?>
 
     <header class="topbar">
+      <button
+        class="topbar-toggle"
+        type="button"
+        data-sidebar-toggle
+        aria-controls="app-sidebar"
+        aria-expanded="false"
+        aria-label="Toggle navigation"
+      >
+        <span aria-hidden="true"><?= icon('menu') ?></span>
+      </button>
       <form class="search" role="search" aria-label="Inventory search">
         <span aria-hidden="true"><?= icon('search') ?></span>
         <input type="search" name="q" placeholder="Search SKUs, bins, or components" />
@@ -503,6 +513,7 @@ if (isset($_GET['success']) && $_GET['success'] === 'recorded') {
     </tr>
   </template>
 
+  <script src="js/dashboard.js"></script>
   <script>
     (function () {
       const container = document.getElementById('transaction-lines');

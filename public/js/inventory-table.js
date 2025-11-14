@@ -5,7 +5,7 @@
       return;
     }
 
-    containers.forEach((container) => {
+    containers.forEach((container, containerIndex) => {
       const table = container.querySelector('table');
       if (!(table instanceof HTMLTableElement)) {
         return;
@@ -48,6 +48,106 @@
       let sortDirection = 'asc';
       let filteredRows = [...allRows];
       let currentPage = 1;
+
+      const tableId = table.id || container.id || '';
+      const storageKey = tableId
+        ? `inventoryTableState:${tableId}`
+        : `inventoryTableState:index-${containerIndex}`;
+
+      function loadState() {
+        if (typeof window === 'undefined' || !('localStorage' in window)) {
+          return null;
+        }
+
+        try {
+          const raw = window.localStorage.getItem(storageKey);
+          if (!raw) {
+            return null;
+          }
+
+          const parsed = JSON.parse(raw);
+          return typeof parsed === 'object' && parsed !== null ? parsed : null;
+        } catch (error) {
+          return null;
+        }
+      }
+
+      function persistState() {
+        if (typeof window === 'undefined' || !('localStorage' in window)) {
+          return;
+        }
+
+        try {
+          const data = {
+            sortKey,
+            sortDirection,
+            currentPage,
+            filters: filters.map((input, index) => ({
+              key: input.dataset.key || '',
+              index,
+              value: input instanceof HTMLInputElement ? input.value : '',
+            })),
+          };
+
+          const hasFilterValues = data.filters.some((entry) => entry.value.trim() !== '');
+          const shouldStore = hasFilterValues || data.sortKey !== '' || data.currentPage > 1;
+
+          if (!shouldStore) {
+            window.localStorage.removeItem(storageKey);
+            return;
+          }
+
+          window.localStorage.setItem(storageKey, JSON.stringify(data));
+        } catch (error) {
+          // Ignore storage errors.
+        }
+      }
+
+      function restoreFilters(savedFilters) {
+        if (!Array.isArray(savedFilters)) {
+          return;
+        }
+
+        savedFilters.forEach((saved) => {
+          if (!saved || typeof saved !== 'object') {
+            return;
+          }
+
+          const target = filters.find((input, index) => {
+            const key = input.dataset.key || '';
+            if (saved.key && saved.key === key) {
+              return true;
+            }
+
+            if (typeof saved.index === 'number' && saved.index === index) {
+              return true;
+            }
+
+            return false;
+          });
+
+          if (target instanceof HTMLInputElement) {
+            target.value = typeof saved.value === 'string' ? saved.value : '';
+          }
+        });
+      }
+
+      const savedState = loadState();
+      if (savedState) {
+        if (typeof savedState.sortKey === 'string') {
+          sortKey = savedState.sortKey;
+        }
+
+        if (savedState.sortDirection === 'asc' || savedState.sortDirection === 'desc') {
+          sortDirection = savedState.sortDirection;
+        }
+
+        if (typeof savedState.currentPage === 'number' && Number.isFinite(savedState.currentPage)) {
+          currentPage = Math.max(1, Math.floor(savedState.currentPage));
+        }
+
+        restoreFilters(savedState.filters);
+      }
 
       function getDatasetValue(element, key) {
         if (!key) {
@@ -132,6 +232,7 @@
           if (nextButton instanceof HTMLButtonElement) {
             nextButton.disabled = true;
           }
+          persistState();
           return;
         }
 
@@ -153,9 +254,11 @@
         if (nextButton instanceof HTMLButtonElement) {
           nextButton.disabled = currentPage >= totalPages;
         }
+
+        persistState();
       }
 
-      function applyFilters() {
+      function applyFilters(options) {
         filteredRows = allRows.filter(({ element }) => {
           return filters.every((input) => {
             const rawValue = input instanceof HTMLInputElement ? input.value : '';
@@ -188,7 +291,12 @@
           });
         });
 
-        currentPage = 1;
+        const preservePage = typeof options === 'object' && options !== null && options.preservePage === true;
+
+        if (!preservePage) {
+          currentPage = 1;
+        }
+
         sortFilteredRows();
         renderPage();
       }
@@ -246,8 +354,13 @@
       }
 
       updateHeaderAria();
-      sortFilteredRows();
-      renderPage();
+
+      if (savedState) {
+        applyFilters({ preservePage: true });
+      } else {
+        sortFilteredRows();
+        renderPage();
+      }
     });
   }
 

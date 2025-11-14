@@ -272,7 +272,11 @@ $activeModalTab = !empty($errors['category']) ? 'categories' : 'details';
 
 $modalRequested = isset($_GET['modal']) && $_GET['modal'] === 'open';
 $modalOpen = $modalRequested || $editingId !== null || ($errors !== [] && $_SERVER['REQUEST_METHOD'] === 'POST');
-$bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
+$bodyClasses = ['has-sidebar-toggle'];
+if ($modalOpen) {
+    $bodyClasses[] = 'modal-open';
+}
+$bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
 ?>
 <!doctype html>
 <html lang="en">
@@ -285,6 +289,28 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
 <body<?= $bodyAttributes ?>>
   <div class="layout">
     <?php require __DIR__ . '/../app/views/partials/sidebar.php'; ?>
+
+    <header class="topbar">
+      <button
+        class="topbar-toggle"
+        type="button"
+        data-sidebar-toggle
+        aria-controls="app-sidebar"
+        aria-expanded="false"
+        aria-label="Toggle navigation"
+      >
+        <span aria-hidden="true"><?= icon('menu') ?></span>
+      </button>
+      <form class="search" role="search" aria-label="Inventory search">
+        <span aria-hidden="true"><?= icon('search') ?></span>
+        <input type="search" name="q" placeholder="Search SKUs, bins, or components" />
+      </form>
+      <button class="user" type="button">
+        <span class="user-avatar" aria-hidden="true"><?= e($app['user']['avatar']) ?></span>
+        <span class="user-email"><?= e($app['user']['email']) ?></span>
+        <span aria-hidden="true"><?= icon('chev') ?></span>
+      </button>
+    </header>
 
     <main class="content">
       <section class="panel" aria-labelledby="inventory-manager-title">
@@ -546,6 +572,7 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
     </div>
   </div>
 
+  <script src="js/dashboard.js"></script>
   <script src="js/inventory-table.js"></script>
   <script>
   (function () {
