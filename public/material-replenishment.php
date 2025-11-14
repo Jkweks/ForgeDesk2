@@ -336,20 +336,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $dbError === null && $db instanceof
                 }
 
                 if ($action === 'generate_tubelite') {
-                    $templatePath = __DIR__ . '/EZ Estimate - 5002 Plainfield.xlsx';
+                    $templatePath = __DIR__ . '/../app/helpers/EZ_Estimate.xlsm';
                     $tempBase = tempnam(sys_get_temp_dir(), 'fd_tubelite_');
                     if ($tempBase === false) {
                         $formErrors[] = 'Unable to create a temporary file for the workbook.';
                     } else {
-                        $workbookPath = $tempBase . '.xlsx';
+                        $workbookPath = $tempBase . '.xlsm';
                         if (!rename($tempBase, $workbookPath)) {
                             unlink($tempBase);
                             $formErrors[] = 'Unable to prepare the workbook for download.';
                         } else {
                             try {
                                 generateTubeliteEzEstimateOrder($db, (int) $purchaseOrder['id'], $templatePath, $workbookPath);
-                                header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-                                header('Content-Disposition: attachment; filename="' . $filenameBase . '.xlsx"');
+                                header('Content-Type: application/vnd.ms-excel.sheet.macroEnabled.12');
+                                header('Content-Disposition: attachment; filename="' . $filenameBase . '.xlsm"');
                                 header('Content-Length: ' . (string) filesize($workbookPath));
                                 header('Cache-Control: no-store, no-cache, must-revalidate');
                                 header('Pragma: no-cache');
@@ -460,6 +460,16 @@ function materialReplenishmentFormatDecimal(float $value, int $precision = 2): s
           <p class="small">Track projected availability, recommended order quantities, and generate purchase orders by supplier.</p>
         </div>
       </header>
+
+      <section class="process-callout" role="region" aria-labelledby="replenishment-process-heading">
+        <h2 id="replenishment-process-heading">How purchase orders are created from this page</h2>
+        <p>This workspace produces a draft purchase order for the supplier whenever you generate a PDF or Tubelite workbook.</p>
+        <ol>
+          <li><strong>Select line items</strong> for a supplier tab and confirm the order quantities and unit costs you want to place.</li>
+          <li><strong>Submit using one of the Generate buttons</strong>. ForgeDesk saves the selected lines on a draft purchase order and then streams the requested document.</li>
+          <li><strong>Review the new draft</strong> from the Receive Material page to monitor confirmations, receipts, and close out the order when stock arrives.</li>
+        </ol>
+      </section>
 
       <?php if ($dbError !== null): ?>
         <div class="alert error" role="alert">
@@ -769,15 +779,15 @@ function materialReplenishmentFormatDecimal(float $value, int $precision = 2): s
                     <footer>
                       <div class="button-group">
                         <button type="submit" name="action" value="generate_pdf" class="button primary">
-                          Generate Purchase Order PDF
+                          Save Draft &amp; Generate Purchase Order PDF
                         </button>
                         <?php if ($group['is_tubelite']): ?>
                           <button type="submit" name="action" value="generate_tubelite" class="button secondary">
-                            Generate Tubelite EZ Estimate
+                            Save Draft &amp; Generate Tubelite EZ Estimate
                           </button>
                         <?php endif; ?>
                       </div>
-                      <p class="small">Quantities entered above will be saved on a draft purchase order before generating the selected output.</p>
+                      <p class="small">The selected action saves these lines as a draft purchase order (visible in Receive Material) before downloading the supplier-ready file.</p>
                     </footer>
                   </form>
                 </section>
