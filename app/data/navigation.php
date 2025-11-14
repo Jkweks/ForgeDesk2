@@ -11,6 +11,7 @@ return [
         ['icon' => 'search', 'label' => 'EZ Estimate Check', 'href' => '/admin/estimate-check.php'],
         ['icon' => 'calendar', 'label' => 'Job Reservations', 'href' => '/admin/job-reservations.php'],
         ['icon' => 'repeat', 'label' => 'Material Replenishment', 'href' => '/material-replenishment.php'],
+        ['icon' => 'inbox', 'label' => 'Receive Material', 'href' => '/receive-material.php'],
         ['icon' => 'box', 'label' => 'Stock Levels', 'badge' => 'soon'],
         ['icon' => 'layers', 'label' => 'Kitting', 'badge' => 'soon'],
         ['icon' => 'tag', 'label' => 'Suppliers'],

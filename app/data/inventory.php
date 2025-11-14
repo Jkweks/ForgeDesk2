@@ -967,8 +967,13 @@ if (!function_exists('loadInventory')) {
             throw new \InvalidArgumentException('At least one transaction line is required.');
         }
 
+        $startedTransaction = false;
+
         try {
-            $db->beginTransaction();
+            if (!$db->inTransaction()) {
+                $db->beginTransaction();
+                $startedTransaction = true;
+            }
 
             $transactionStatement = $db->prepare(
                 'INSERT INTO inventory_transactions (reference, notes) VALUES (:reference, :notes) RETURNING id, created_at'
@@ -1041,11 +1046,13 @@ if (!function_exists('loadInventory')) {
                 inventoryCalculateAverageDailyUseMap($db, array_keys($usageByItem));
             }
 
-            $db->commit();
+            if ($startedTransaction) {
+                $db->commit();
+            }
 
             return $transactionId;
         } catch (\Throwable $exception) {
-            if ($db->inTransaction()) {
+            if ($db->inTransaction() && $startedTransaction) {
                 $db->rollBack();
             }
 

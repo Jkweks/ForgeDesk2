@@ -520,6 +520,237 @@ body.sidebar-open{overflow:hidden}
   border:1px solid rgba(90,200,166,.35);
 }
 
+.replenishment-toolbar{
+  display:flex;
+  justify-content:flex-end;
+  margin-bottom:12px;
+}
+
+.replenishment-filter{
+  min-width:260px;
+  padding:10px 14px;
+  border-radius:10px;
+  border:1px solid rgba(255,255,255,.1);
+  background:var(--panel-3);
+  color:var(--text);
+}
+
+.replenishment-filter:focus{
+  outline:none;
+  border-color:var(--accent);
+  box-shadow:0 0 0 1px rgba(90,200,166,.35);
+}
+
+.replenishment-table tr[hidden]{
+  display:none;
+}
+
+.replenishment-table tr.over-allocated{
+  background:rgba(255,155,80,.12);
+}
+
+.replenishment-table tr.over-allocated td{
+  color:var(--text);
+}
+
+.replenishment-table input.is-invalid{
+  border-color:var(--danger);
+  box-shadow:0 0 0 1px rgba(255,107,107,.35);
+}
+
+.table-responsive{
+  overflow-x:auto;
+  border-radius:var(--radius);
+  border:1px solid rgba(255,255,255,.06);
+}
+
+.form-grid{
+  display:grid;
+  gap:var(--gap);
+  margin-top:var(--gap);
+}
+
+.form-grid .field{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+
+.form-grid label{
+  font-weight:600;
+}
+
+.form-grid input,
+.form-grid textarea{
+  width:100%;
+  padding:10px 12px;
+  border-radius:10px;
+  border:1px solid rgba(255,255,255,.12);
+  background:var(--panel-3);
+  color:var(--text);
+  resize:vertical;
+}
+
+.form-grid input:focus,
+.form-grid textarea:focus{
+  outline:none;
+  border-color:var(--accent);
+  box-shadow:0 0 0 1px rgba(90,200,166,.35);
+}
+
+.receiving-grid{
+  display:grid;
+  grid-template-columns:320px 1fr;
+  gap:var(--gap);
+  align-items:start;
+}
+
+.receiving-sidebar{
+  background:var(--panel-2);
+  border-radius:var(--radius);
+  padding:18px;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  max-height:calc(100vh - 160px);
+  overflow:auto;
+}
+
+.receiving-sidebar h2{
+  margin:0;
+  font-size:1.1rem;
+}
+
+.receiving-order-list{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+
+.receiving-order{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  padding:12px 14px;
+  border-radius:12px;
+  border:1px solid rgba(255,255,255,.08);
+  background:rgba(255,255,255,.02);
+  transition:border-color .2s ease, background .2s ease;
+}
+
+.receiving-order .order-title{
+  font-weight:600;
+}
+
+.receiving-order .order-meta{
+  font-size:.85rem;
+  color:var(--muted);
+}
+
+.receiving-order:hover,
+.receiving-order:focus{
+  border-color:rgba(90,200,166,.5);
+  background:rgba(90,200,166,.08);
+}
+
+.receiving-order.active{
+  border-color:var(--accent);
+  background:rgba(90,200,166,.12);
+}
+
+.receiving-main{
+  display:flex;
+  flex-direction:column;
+  gap:var(--gap);
+}
+
+.receiving-form .form-actions{
+  display:flex;
+  gap:12px;
+  margin-top:var(--gap);
+}
+
+.receiving-form .input-cell{
+  min-width:160px;
+}
+
+.receiving-form input[type="number"]{
+  width:100%;
+  padding:8px 10px;
+  border-radius:8px;
+  border:1px solid rgba(255,255,255,.12);
+  background:var(--panel-3);
+  color:var(--text);
+}
+
+.receiving-form input[type="number"]:focus{
+  outline:none;
+  border-color:var(--accent);
+  box-shadow:0 0 0 1px rgba(90,200,166,.35);
+}
+
+.receipt-history{
+  list-style:none;
+  margin:0;
+  padding:0;
+  display:flex;
+  flex-direction:column;
+  gap:var(--gap);
+}
+
+.receipt-history .receipt-header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+}
+
+.receipt-history table{
+  width:100%;
+  border-collapse:collapse;
+  margin-top:8px;
+}
+
+.receipt-history th,
+.receipt-history td{
+  text-align:left;
+  padding:6px 0;
+  border-bottom:1px solid rgba(255,255,255,.06);
+}
+
+.receipt-history tbody tr:last-child td{
+  border-bottom:0;
+}
+
+.field-error{
+  color:var(--danger);
+  font-size:.75rem;
+  margin-top:6px;
+}
+
+a.link{
+  color:var(--accent);
+  text-decoration:underline;
+}
+
+a.link:hover,
+a.link:focus{
+  text-decoration:none;
+}
+
+.receiving-sidebar::-webkit-scrollbar,
+.receiving-order-list::-webkit-scrollbar,
+.table-responsive::-webkit-scrollbar{
+  width:8px;
+}
+
+.receiving-sidebar::-webkit-scrollbar-thumb,
+.receiving-order-list::-webkit-scrollbar-thumb,
+.table-responsive::-webkit-scrollbar-thumb{
+  background:rgba(255,255,255,.1);
+  border-radius:999px;
+}
+
 .table tbody td.reservations{
   white-space:nowrap;
 }

@@ -8,6 +8,7 @@ require_once __DIR__ . '/../app/helpers/icons.php';
 require_once __DIR__ . '/../app/helpers/database.php';
 require_once __DIR__ . '/../app/helpers/view.php';
 require_once __DIR__ . '/../app/data/inventory.php';
+require_once __DIR__ . '/../app/data/purchase_orders.php';
 
 foreach ($nav as &$groupItems) {
     foreach ($groupItems as &$item) {
@@ -23,6 +24,7 @@ $generalErrors = [];
 $errors = [];
 $lineErrors = [];
 $recentTransactions = [];
+$recentReceipts = [];
 $inventoryOptions = [];
 
 $formData = [
@@ -180,6 +182,12 @@ if ($dbError === null) {
         $recentTransactions = loadRecentInventoryTransactions($db, 12);
     } catch (\Throwable $exception) {
         $generalErrors[] = 'Unable to load recent transactions: ' . $exception->getMessage();
+    }
+
+    try {
+        $recentReceipts = purchaseOrderLoadRecentReceipts($db, 8);
+    } catch (\Throwable $exception) {
+        $generalErrors[] = 'Unable to load purchase receipts: ' . $exception->getMessage();
     }
 }
 
@@ -405,10 +413,51 @@ if (isset($_GET['success']) && $_GET['success'] === 'recorded') {
           <span class="small">Latest inventory adjustments</span>
         </header>
 
-        <?php if ($recentTransactions === []): ?>
-          <p class="small">No inventory transactions recorded yet.</p>
+        <?php if ($recentTransactions === [] && $recentReceipts === []): ?>
+          <p class="small">No inventory transactions or purchase receipts recorded yet.</p>
         <?php else: ?>
           <div class="transaction-list">
+            <?php foreach ($recentReceipts as $receipt): ?>
+              <?php
+                $orderLabel = $receipt['order_number'] !== null
+                    ? 'PO ' . $receipt['order_number']
+                    : 'PO #' . $receipt['purchase_order_id'];
+                $timestamp = strtotime($receipt['created_at']);
+                $receivedQty = (float) $receipt['total_received'];
+                $cancelledQty = (float) $receipt['total_cancelled'];
+                $supplierName = $receipt['supplier_name'] ?? 'Unknown supplier';
+              ?>
+              <article class="transaction-card">
+                <header>
+                  <h3><?= e($receipt['reference']) ?></h3>
+                  <time datetime="<?= e($receipt['created_at']) ?>">
+                    <?= $timestamp !== false ? e(date('M j, Y g:ia', $timestamp)) : e($receipt['created_at']) ?>
+                  </time>
+                </header>
+                <p class="meta">
+                  <span><?= e($orderLabel) ?></span>
+                  <span>Supplier: <?= e($supplierName) ?></span>
+                </p>
+                <p class="meta">
+                  <span class="quantity positive">+<?= e(number_format($receivedQty, 2)) ?></span>
+                  received
+                  <?php if ($cancelledQty > 0.0001): ?>
+                    · <span class="quantity"><?= e(number_format($cancelledQty, 2)) ?></span> cancelled
+                  <?php endif; ?>
+                </p>
+                <?php if ($receipt['notes'] !== null && $receipt['notes'] !== ''): ?>
+                  <p class="note">Notes: <?= e($receipt['notes']) ?></p>
+                <?php endif; ?>
+                <p class="meta">
+                  <a class="link" href="/receive-material.php?po_id=<?= e((string) $receipt['purchase_order_id']) ?>">
+                    View receipt history
+                  </a>
+                  <?php if ($receipt['inventory_transaction_id'] !== null): ?>
+                    · Inventory TX #<?= e((string) $receipt['inventory_transaction_id']) ?>
+                  <?php endif; ?>
+                </p>
+              </article>
+            <?php endforeach; ?>
             <?php foreach ($recentTransactions as $transaction): ?>
               <article class="transaction-card">
                 <header>

@@ -592,24 +592,35 @@ function materialReplenishmentFormatDecimal(float $value, int $precision = 2): s
 
                     <input type="hidden" name="supplier_key" value="<?= e($key) ?>" />
 
+                    <div class="replenishment-toolbar">
+                      <label class="sr-only" for="filter-<?= e($key) ?>">Filter items</label>
+                      <input
+                        type="search"
+                        id="filter-<?= e($key) ?>"
+                        class="replenishment-filter"
+                        placeholder="Search items or SKUs"
+                        data-replenishment-filter
+                      />
+                    </div>
+
                     <div class="table-wrapper">
-                      <table class="table replenishment-table">
+                      <table class="table replenishment-table" data-replenishment-table>
                         <thead>
                           <tr>
                             <th scope="col">Include</th>
-                            <th scope="col">Item</th>
-                            <th scope="col">SKU</th>
-                            <th scope="col">On Hand</th>
-                            <th scope="col">Committed</th>
-                            <th scope="col">On Order</th>
-                            <th scope="col">Available</th>
-                            <th scope="col">Projected</th>
-                            <th scope="col">ADU</th>
-                            <th scope="col">Days of Supply</th>
-                            <th scope="col">Recommended</th>
-                            <th scope="col">Order Qty</th>
-                            <th scope="col">Unit Cost</th>
-                            <th scope="col">UOM</th>
+                            <th scope="col" class="sortable" data-sort-key="item" aria-sort="none">Item</th>
+                            <th scope="col" class="sortable" data-sort-key="sku" aria-sort="none">SKU</th>
+                            <th scope="col" class="sortable numeric" data-sort-key="on-hand" data-sort-type="number" aria-sort="none">On Hand</th>
+                            <th scope="col" class="sortable numeric" data-sort-key="committed" data-sort-type="number" aria-sort="none">Committed</th>
+                            <th scope="col" class="sortable numeric" data-sort-key="on-order" data-sort-type="number" aria-sort="none">On Order</th>
+                            <th scope="col" class="sortable numeric" data-sort-key="available" data-sort-type="number" aria-sort="none">Available</th>
+                            <th scope="col" class="sortable numeric" data-sort-key="projected" data-sort-type="number" aria-sort="none">Projected</th>
+                            <th scope="col" class="sortable numeric" data-sort-key="adu" data-sort-type="number" aria-sort="none">ADU</th>
+                            <th scope="col" class="sortable numeric" data-sort-key="days-of-supply" data-sort-type="number" aria-sort="none">Days of Supply</th>
+                            <th scope="col" class="sortable numeric" data-sort-key="recommended" data-sort-type="number" aria-sort="none">Recommended</th>
+                            <th scope="col" class="sortable numeric" data-sort-key="order-qty" data-sort-type="number" aria-sort="none">Order Qty</th>
+                            <th scope="col" class="sortable numeric" data-sort-key="unit-cost" data-sort-type="number" aria-sort="none">Unit Cost</th>
+                            <th scope="col" class="sortable" data-sort-key="uom" aria-sort="none">UOM</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -627,8 +638,30 @@ function materialReplenishmentFormatDecimal(float $value, int $precision = 2): s
                               if (isset($invalidLineIds[$itemId])) {
                                   $rowClasses[] = 'is-invalid';
                               }
+                              $averageDailyUse = $item['average_daily_use'];
+                              $daysOfSupply = $item['days_of_supply'];
+                              $dataAttributes = [
+                                  'item' => $item['item'],
+                                  'sku' => $item['sku'],
+                                  'on-hand' => number_format((float) $item['stock'], 3, '.', ''),
+                                  'committed' => number_format((float) $item['committed_qty'], 3, '.', ''),
+                                  'on-order' => number_format((float) $item['on_order_qty'], 3, '.', ''),
+                                  'available' => number_format((float) $item['available_now'], 3, '.', ''),
+                                  'projected' => number_format((float) $item['projected_available'], 3, '.', ''),
+                                  'adu' => $averageDailyUse !== null ? number_format((float) $averageDailyUse, 6, '.', '') : '',
+                                  'days-of-supply' => $daysOfSupply !== null ? number_format((float) $daysOfSupply, 6, '.', '') : '',
+                                  'recommended' => number_format($recommended, 6, '.', ''),
+                                  'order-qty' => $orderQuantity !== '' ? $orderQuantity : '',
+                                  'unit-cost' => $unitCost !== '' ? $unitCost : '',
+                                  'uom' => $item['purchase_uom'] ?? ($item['stock_uom'] ?? 'ea'),
+                              ];
+                              $attributeParts = [];
+                              foreach ($dataAttributes as $attrKey => $attrValue) {
+                                  $attributeParts[] = 'data-' . $attrKey . '="' . e((string) $attrValue) . '"';
+                              }
+                              $attributeString = $attributeParts !== [] ? ' ' . implode(' ', $attributeParts) : '';
                             ?>
-                            <tr<?= $rowClasses !== [] ? ' class="' . e(implode(' ', $rowClasses)) . '"' : '' ?>>
+                            <tr<?= $rowClasses !== [] ? ' class="' . e(implode(' ', $rowClasses)) . '"' : '' ?><?= $attributeString ?>>
                               <td data-title="Include">
                                 <label class="sr-only" for="include-<?= e((string) $itemId) ?>">Include <?= e($item['item']) ?></label>
                                 <input
@@ -673,6 +706,7 @@ function materialReplenishmentFormatDecimal(float $value, int $precision = 2): s
                                   class="js-quantity-input"
                                   data-line-id="<?= e((string) $itemId) ?>"
                                   data-recommended="<?= e((string) $recommended) ?>"
+                                  data-order-input
                                 />
                               </td>
                               <td data-title="Unit Cost" class="numeric">
@@ -684,6 +718,7 @@ function materialReplenishmentFormatDecimal(float $value, int $precision = 2): s
                                   id="cost-<?= e((string) $itemId) ?>"
                                   name="unit_cost[<?= e((string) $itemId) ?>]"
                                   value="<?= e($unitCost) ?>"
+                                  data-unit-cost-input
                                 />
                               </td>
                               <td data-title="UOM"><?= e($item['purchase_uom'] ?? $item['stock_uom'] ?? 'ea') ?></td>
