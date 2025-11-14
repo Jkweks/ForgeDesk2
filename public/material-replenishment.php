@@ -1,0 +1,761 @@
+<?php
+declare(strict_types=1);
+
+$app = require __DIR__ . '/../app/config/app.php';
+$nav = require __DIR__ . '/../app/data/navigation.php';
+
+require_once __DIR__ . '/../app/helpers/icons.php';
+require_once __DIR__ . '/../app/helpers/database.php';
+require_once __DIR__ . '/../app/helpers/view.php';
+require_once __DIR__ . '/../app/data/inventory.php';
+require_once __DIR__ . '/../app/data/purchase_orders.php';
+require_once __DIR__ . '/../app/services/purchase_order_documents.php';
+
+/**
+ * @param list<array<string,mixed>> $items
+ * @return array<string,array{
+ *   key:string,
+ *   supplier_id:?int,
+ *   name:string,
+ *   contact_name:?string,
+ *   contact_email:?string,
+ *   contact_phone:?string,
+ *   legacy_contact:?string,
+ *   legacy_supplier:?string,
+ *   items:list<array<string,mixed>>,
+ *   is_tubelite:bool,
+ *   recommended_total:float,
+ *   stock_total:int,
+ *   committed_total:int,
+ *   on_order_total:float
+ * }>
+ */
+function materialReplenishmentGroupItems(array $items): array
+{
+    $groups = [];
+
+    foreach ($items as $item) {
+        $supplierId = $item['supplier_id'] ?? null;
+        $display = trim((string) ($item['supplier_display'] ?? ''));
+        if ($display === '') {
+            $display = trim((string) ($item['legacy_supplier'] ?? ''));
+        }
+        if ($display === '') {
+            $display = 'Unassigned Supplier';
+        }
+
+        if ($supplierId !== null) {
+            $key = 'supplier-' . $supplierId;
+        } else {
+            $slugSource = preg_replace('/[^a-z0-9]+/i', '-', strtolower($display));
+            $slugSource = $slugSource !== null ? trim($slugSource, '-') : '';
+            if ($slugSource === '') {
+                $slugSource = 'unassigned';
+            }
+            $key = 'legacy-' . $slugSource;
+        }
+
+        if (!isset($groups[$key])) {
+            $contactName = $item['supplier_contact_name'] ?? null;
+            $contactEmail = $item['supplier_contact_email'] ?? null;
+            $contactPhone = $item['supplier_contact_phone'] ?? null;
+
+            if ($contactName === null && isset($item['legacy_supplier_contact'])) {
+                $contactName = (string) $item['legacy_supplier_contact'];
+            }
+
+            $groups[$key] = [
+                'key' => $key,
+                'supplier_id' => $supplierId !== null ? (int) $supplierId : null,
+                'name' => $display,
+                'contact_name' => $contactName !== null ? (string) $contactName : null,
+                'contact_email' => $contactEmail !== null ? (string) $contactEmail : null,
+                'contact_phone' => $contactPhone !== null ? (string) $contactPhone : null,
+                'legacy_contact' => $item['legacy_supplier_contact'] ?? null,
+                'legacy_supplier' => $item['legacy_supplier'] ?? null,
+                'items' => [],
+                'is_tubelite' => stripos($display, 'tubelite') !== false,
+                'recommended_total' => 0.0,
+                'stock_total' => 0,
+                'committed_total' => 0,
+                'on_order_total' => 0.0,
+            ];
+        }
+
+        $groups[$key]['items'][] = $item;
+        $groups[$key]['recommended_total'] += (float) $item['recommended_order_qty'];
+        $groups[$key]['stock_total'] += (int) $item['stock'];
+        $groups[$key]['committed_total'] += (int) $item['committed_qty'];
+        $groups[$key]['on_order_total'] += (float) $item['on_order_qty'];
+    }
+
+    foreach ($groups as &$group) {
+        usort(
+            $group['items'],
+            static function (array $a, array $b): int {
+                return strcasecmp((string) $a['item'], (string) $b['item']);
+            }
+        );
+    }
+    unset($group);
+
+    uasort(
+        $groups,
+        static function (array $a, array $b): int {
+            return strcasecmp($a['name'], $b['name']);
+        }
+    );
+
+    return $groups;
+}
+
+/**
+ * @param list<array<string,mixed>> $items
+ * @return array{item_count:int,needs_order:int,recommended_total:float,on_hand_total:int,committed_total:int,on_order_total:float}
+ */
+function materialReplenishmentTotals(array $items): array
+{
+    $totals = [
+        'item_count' => count($items),
+        'needs_order' => 0,
+        'recommended_total' => 0.0,
+        'on_hand_total' => 0,
+        'committed_total' => 0,
+        'on_order_total' => 0.0,
+    ];
+
+    foreach ($items as $item) {
+        $recommended = (float) $item['recommended_order_qty'];
+        if ($recommended > 0.0001) {
+            $totals['needs_order'] += 1;
+        }
+
+        $totals['recommended_total'] += $recommended;
+        $totals['on_hand_total'] += (int) $item['stock'];
+        $totals['committed_total'] += (int) $item['committed_qty'];
+        $totals['on_order_total'] += (float) $item['on_order_qty'];
+    }
+
+    return $totals;
+}
+
+$databaseConfig = $app['database'];
+$dbError = null;
+$replenishment = [];
+$supplierGroups = [];
+$totals = [
+    'item_count' => 0,
+    'needs_order' => 0,
+    'recommended_total' => 0.0,
+    'on_hand_total' => 0,
+    'committed_total' => 0,
+    'on_order_total' => 0.0,
+];
+$pageErrors = [];
+$formErrors = [];
+$invalidLineIds = [];
+$activeSupplierKey = null;
+$postedSelected = [];
+$postedQuantities = [];
+$postedUnitCosts = [];
+$postedNotes = '';
+$postedOrderNumber = '';
+$shouldReloadSnapshot = false;
+
+foreach ($nav as &$groupItems) {
+    foreach ($groupItems as &$item) {
+        $item['active'] = ($item['label'] ?? '') === 'Material Replenishment';
+    }
+}
+unset($groupItems, $item);
+
+try {
+    $db = db($databaseConfig);
+} catch (\Throwable $exception) {
+    $dbError = $exception->getMessage();
+}
+
+if (!isset($db)) {
+    $db = null;
+}
+
+if ($dbError === null && $db instanceof \PDO) {
+    try {
+        $replenishment = inventoryLoadReplenishmentSnapshot($db);
+        $supplierGroups = materialReplenishmentGroupItems($replenishment);
+        $totals = materialReplenishmentTotals($replenishment);
+        $activeSupplierKey = $supplierGroups !== [] ? (string) array_key_first($supplierGroups) : null;
+    } catch (\Throwable $exception) {
+        $pageErrors[] = 'Unable to load replenishment data: ' . $exception->getMessage();
+    }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $dbError === null && $db instanceof \PDO) {
+    $activeSupplierKey = isset($_POST['supplier_key']) ? (string) $_POST['supplier_key'] : $activeSupplierKey;
+    $postedNotes = isset($_POST['notes']) ? trim((string) $_POST['notes']) : '';
+    $postedOrderNumber = isset($_POST['order_number']) ? trim((string) $_POST['order_number']) : '';
+    $action = isset($_POST['action']) ? (string) $_POST['action'] : '';
+
+    $selectedRaw = $_POST['selected'] ?? [];
+    if (is_array($selectedRaw)) {
+        $postedSelected = array_values(array_unique(array_map('intval', $selectedRaw)));
+    } elseif ($selectedRaw !== null && $selectedRaw !== '') {
+        $postedSelected = [(int) $selectedRaw];
+    }
+
+    $quantityRaw = $_POST['quantity'] ?? [];
+    if (is_array($quantityRaw)) {
+        foreach ($quantityRaw as $key => $value) {
+            $itemId = is_string($key) ? (int) $key : (int) $key;
+            $postedQuantities[$itemId] = is_string($value) ? trim($value) : (string) $value;
+        }
+    }
+
+    $unitCostRaw = $_POST['unit_cost'] ?? [];
+    if (is_array($unitCostRaw)) {
+        foreach ($unitCostRaw as $key => $value) {
+            $itemId = is_string($key) ? (int) $key : (int) $key;
+            $postedUnitCosts[$itemId] = is_string($value) ? trim($value) : (string) $value;
+        }
+    }
+
+    if (!isset($supplierGroups[$activeSupplierKey])) {
+        $formErrors[] = 'The selected supplier view is no longer available.';
+    } else {
+        $group = $supplierGroups[$activeSupplierKey];
+        $itemsById = [];
+        foreach ($group['items'] as $item) {
+            $itemsById[(int) $item['id']] = $item;
+        }
+
+        if ($action === '') {
+            $formErrors[] = 'Choose an action to generate the replenishment output.';
+        } elseif ($action === 'generate_tubelite' && !$group['is_tubelite']) {
+            $formErrors[] = 'Tubelite workbooks are only available for Tubelite suppliers.';
+        } elseif ($action !== 'generate_tubelite' && $action !== 'generate_pdf') {
+            $formErrors[] = 'Unknown action requested.';
+        }
+
+        if ($postedSelected === []) {
+            $formErrors[] = 'Select at least one inventory item to include in the order.';
+        }
+
+        $lineInputs = [];
+
+        foreach ($postedSelected as $itemId) {
+            if (!isset($itemsById[$itemId])) {
+                $formErrors[] = 'One or more selected items are no longer available.';
+                $invalidLineIds[$itemId] = true;
+                continue;
+            }
+
+            $quantityString = $postedQuantities[$itemId] ?? '';
+            $quantityNormalized = str_replace(',', '', (string) $quantityString);
+            $quantityValue = $quantityNormalized !== '' ? filter_var($quantityNormalized, FILTER_VALIDATE_FLOAT) : false;
+
+            if ($quantityValue === false || $quantityValue <= 0) {
+                $formErrors[] = 'Enter a positive quantity for ' . $itemsById[$itemId]['item'] . '.';
+                $invalidLineIds[$itemId] = true;
+                continue;
+            }
+
+            $unitCostString = $postedUnitCosts[$itemId] ?? '';
+            $unitCostNormalized = str_replace(',', '', (string) $unitCostString);
+            $unitCostValue = $unitCostNormalized !== '' ? filter_var($unitCostNormalized, FILTER_VALIDATE_FLOAT) : 0.0;
+
+            if ($unitCostValue === false || $unitCostValue < 0) {
+                $formErrors[] = 'Unit cost must be zero or greater for ' . $itemsById[$itemId]['item'] . '.';
+                $invalidLineIds[$itemId] = true;
+                continue;
+            }
+
+            $lineInputs[] = [
+                'item' => $itemsById[$itemId],
+                'quantity' => (float) $quantityValue,
+                'unit_cost' => (float) $unitCostValue,
+            ];
+        }
+
+        if ($formErrors === [] && $lineInputs !== []) {
+            $notes = $postedNotes !== ''
+                ? $postedNotes
+                : sprintf('Material replenishment order generated on %s', date('Y-m-d H:i'));
+
+            $expectedDate = null;
+            $orderLines = [];
+            $today = new DateTimeImmutable('today');
+
+            foreach ($lineInputs as $line) {
+                $item = $line['item'];
+                $leadDays = isset($item['effective_lead_time_days']) ? max(0, (int) $item['effective_lead_time_days']) : 0;
+                $lineExpected = null;
+                if ($leadDays > 0) {
+                    $lineExpected = $today->modify(sprintf('+%d days', $leadDays))->format('Y-m-d');
+                    if ($expectedDate === null || $lineExpected > $expectedDate) {
+                        $expectedDate = $lineExpected;
+                    }
+                }
+
+                $description = (string) ($item['item'] ?? '');
+                if ($description === '' && isset($item['sku'])) {
+                    $description = (string) $item['sku'];
+                }
+
+                $orderLines[] = [
+                    'inventory_item_id' => (int) $item['id'],
+                    'supplier_sku' => $item['supplier_sku'] ?? null,
+                    'description' => $description,
+                    'quantity_ordered' => $line['quantity'],
+                    'unit_cost' => $line['unit_cost'],
+                    'expected_date' => $lineExpected,
+                ];
+            }
+
+            try {
+                $orderId = createPurchaseOrder($db, [
+                    'order_number' => $postedOrderNumber !== '' ? $postedOrderNumber : null,
+                    'supplier_id' => $group['supplier_id'],
+                    'status' => 'draft',
+                    'order_date' => date('Y-m-d'),
+                    'expected_date' => $expectedDate,
+                    'notes' => $notes,
+                    'lines' => $orderLines,
+                ]);
+                $shouldReloadSnapshot = true;
+                $purchaseOrder = loadPurchaseOrder($db, $orderId);
+            } catch (\Throwable $exception) {
+                $formErrors[] = 'Unable to create the purchase order: ' . $exception->getMessage();
+                $purchaseOrder = null;
+            }
+
+            if ($formErrors === [] && isset($purchaseOrder) && $purchaseOrder !== null) {
+                $orderNumber = $purchaseOrder['order_number'] ?? sprintf('purchase-order-%d', $purchaseOrder['id']);
+                $filenameBase = preg_replace('/[^A-Za-z0-9._-]/', '-', $orderNumber);
+                if ($filenameBase === '' || $filenameBase === null) {
+                    $filenameBase = 'purchase-order';
+                }
+
+                if ($action === 'generate_tubelite') {
+                    $templatePath = __DIR__ . '/EZ Estimate - 5002 Plainfield.xlsx';
+                    $tempBase = tempnam(sys_get_temp_dir(), 'fd_tubelite_');
+                    if ($tempBase === false) {
+                        $formErrors[] = 'Unable to create a temporary file for the workbook.';
+                    } else {
+                        $workbookPath = $tempBase . '.xlsx';
+                        if (!rename($tempBase, $workbookPath)) {
+                            unlink($tempBase);
+                            $formErrors[] = 'Unable to prepare the workbook for download.';
+                        } else {
+                            try {
+                                generateTubeliteEzEstimateOrder($db, (int) $purchaseOrder['id'], $templatePath, $workbookPath);
+                                header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+                                header('Content-Disposition: attachment; filename="' . $filenameBase . '.xlsx"');
+                                header('Content-Length: ' . (string) filesize($workbookPath));
+                                header('Cache-Control: no-store, no-cache, must-revalidate');
+                                header('Pragma: no-cache');
+                                readfile($workbookPath);
+                                unlink($workbookPath);
+                                exit;
+                            } catch (\Throwable $exception) {
+                                $formErrors[] = 'Unable to build the Tubelite EZ Estimate workbook: ' . $exception->getMessage();
+                                unlink($workbookPath);
+                            }
+                        }
+                    }
+                } elseif ($action === 'generate_pdf') {
+                    try {
+                        $lines = purchaseOrderBuildPdfLines($purchaseOrder);
+                        $pdfContent = purchaseOrderGenerateSimplePdf($lines);
+                        header('Content-Type: application/pdf');
+                        header('Content-Disposition: attachment; filename="' . $filenameBase . '.pdf"');
+                        header('Content-Length: ' . strlen($pdfContent));
+                        header('Cache-Control: no-store, no-cache, must-revalidate');
+                        header('Pragma: no-cache');
+                        echo $pdfContent;
+                        exit;
+                    } catch (\Throwable $exception) {
+                        $formErrors[] = 'Unable to generate the purchase order PDF: ' . $exception->getMessage();
+                    }
+                }
+            }
+        }
+    }
+
+    if ($shouldReloadSnapshot) {
+        try {
+            $replenishment = inventoryLoadReplenishmentSnapshot($db);
+            $supplierGroups = materialReplenishmentGroupItems($replenishment);
+            $totals = materialReplenishmentTotals($replenishment);
+        } catch (\Throwable $exception) {
+            $pageErrors[] = 'Unable to refresh replenishment data: ' . $exception->getMessage();
+        }
+        $postedSelected = [];
+        $postedQuantities = [];
+        $postedUnitCosts = [];
+        $postedNotes = '';
+        $postedOrderNumber = '';
+        $invalidLineIds = [];
+    }
+}
+
+foreach ($nav as &$groupItems) {
+    foreach ($groupItems as &$item) {
+        if (($item['label'] ?? '') === 'Database Health') {
+            $item['badge'] = $dbError === null ? 'Live' : 'Error';
+            $item['badge_class'] = $dbError === null ? 'success' : 'danger';
+        }
+    }
+}
+unset($groupItems, $item);
+
+$supplierGroups = $supplierGroups ?? [];
+if ($supplierGroups !== [] && ($activeSupplierKey === null || !isset($supplierGroups[$activeSupplierKey]))) {
+    $activeSupplierKey = (string) array_key_first($supplierGroups);
+}
+
+function materialReplenishmentFormatDecimal(float $value, int $precision = 2): string
+{
+    return number_format($value, $precision, '.', ',');
+}
+
+?>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title><?= e($app['name']) ?> · Material Replenishment</title>
+  <link rel="stylesheet" href="css/dashboard.css" />
+</head>
+<body class="has-sidebar-toggle">
+  <div class="layout">
+    <?php require __DIR__ . '/../app/views/partials/sidebar.php'; ?>
+
+    <header class="topbar">
+      <button
+        class="topbar-toggle"
+        type="button"
+        data-sidebar-toggle
+        aria-controls="app-sidebar"
+        aria-expanded="false"
+        aria-label="Toggle navigation"
+      >
+        <span aria-hidden="true"><?= icon('menu') ?></span>
+      </button>
+      <form class="search" role="search" aria-label="Inventory search">
+        <span aria-hidden="true"><?= icon('search') ?></span>
+        <input type="search" name="q" placeholder="Search SKUs, bins, or components" />
+      </form>
+      <button class="user" type="button">
+        <span class="user-avatar" aria-hidden="true"><?= e($app['user']['avatar']) ?></span>
+        <span class="user-email"><?= e($app['user']['email']) ?></span>
+        <span aria-hidden="true"><?= icon('chev') ?></span>
+      </button>
+    </header>
+
+    <main class="content">
+      <header class="content-header">
+        <div>
+          <h1>Material Replenishment</h1>
+          <p class="small">Track projected availability, recommended order quantities, and generate purchase orders by supplier.</p>
+        </div>
+      </header>
+
+      <?php if ($dbError !== null): ?>
+        <div class="alert error" role="alert">
+          <strong>Database connection issue:</strong> <?= e($dbError) ?>
+        </div>
+      <?php endif; ?>
+
+      <?php foreach ($pageErrors as $error): ?>
+        <div class="alert error" role="alert">
+          <?= e($error) ?>
+        </div>
+      <?php endforeach; ?>
+
+      <section class="metrics" aria-label="Replenishment summary metrics">
+        <article class="metric">
+          <div class="metric-header">
+            <span>Total SKUs</span>
+          </div>
+          <p class="metric-value"><?= e(inventoryFormatQuantity($totals['item_count'])) ?></p>
+          <p class="metric-delta small">Inventory items evaluated for replenishment.</p>
+        </article>
+        <article class="metric">
+          <div class="metric-header">
+            <span>Needs Order</span>
+          </div>
+          <p class="metric-value"><?= e(inventoryFormatQuantity($totals['needs_order'])) ?></p>
+          <p class="metric-delta small">Items below target stock based on demand and safety buffers.</p>
+        </article>
+        <article class="metric">
+          <div class="metric-header">
+            <span>On Hand</span>
+          </div>
+          <p class="metric-value"><?= e(inventoryFormatQuantity($totals['on_hand_total'])) ?></p>
+          <p class="metric-delta small">Current physical stock across the evaluated items.</p>
+        </article>
+        <article class="metric">
+          <div class="metric-header">
+            <span>On Order</span>
+          </div>
+          <p class="metric-value"><?= e(materialReplenishmentFormatDecimal($totals['on_order_total'], 2)) ?></p>
+          <p class="metric-delta small">Open purchase order balances still inbound.</p>
+        </article>
+        <article class="metric accent">
+          <div class="metric-header">
+            <span>Recommended Qty</span>
+          </div>
+          <p class="metric-value"><?= e(materialReplenishmentFormatDecimal($totals['recommended_total'], 2)) ?></p>
+          <p class="metric-delta small">Aggregate reorder quantity suggested across suppliers.</p>
+        </article>
+      </section>
+
+      <?php if ($supplierGroups === []): ?>
+        <p class="panel">No replenishment data is currently available. Add inventory items and supplier assignments to populate this report.</p>
+      <?php else: ?>
+        <div class="panel" aria-live="polite">
+          <div class="report-tabs" data-replenishment-tabs>
+            <div class="report-tabs__list" role="tablist" aria-label="Suppliers">
+              <?php $tabIndex = 0; ?>
+              <?php foreach ($supplierGroups as $key => $group): ?>
+                <?php
+                  $isActive = $activeSupplierKey === $key;
+                  $tabId = 'supplier-tab-' . $tabIndex;
+                  $panelId = 'supplier-panel-' . $tabIndex;
+                ?>
+                <button
+                  type="button"
+                  role="tab"
+                  id="<?= e($tabId) ?>"
+                  aria-controls="<?= e($panelId) ?>"
+                  aria-selected="<?= $isActive ? 'true' : 'false' ?>"
+                  tabindex="<?= $isActive ? '0' : '-1' ?>"
+                  data-replenishment-tab="<?= e($key) ?>"
+                  data-replenishment-target="<?= e($panelId) ?>"
+                >
+                  <?= e($group['name']) ?>
+                  <span class="report-tabs__count"><?= e(inventoryFormatQuantity(count($group['items']))) ?></span>
+                </button>
+                <?php $tabIndex++; ?>
+              <?php endforeach; ?>
+            </div>
+            <div class="report-tabs__panels">
+              <?php $tabIndex = 0; ?>
+              <?php foreach ($supplierGroups as $key => $group): ?>
+                <?php
+                  $panelId = 'supplier-panel-' . $tabIndex;
+                  $tabId = 'supplier-tab-' . $tabIndex;
+                  $isActive = $activeSupplierKey === $key;
+                  $selected = $isActive ? $postedSelected : [];
+                  $quantities = $isActive ? $postedQuantities : [];
+                  $unitCosts = $isActive ? $postedUnitCosts : [];
+                  $notesValue = $isActive && $postedNotes !== '' ? $postedNotes : '';
+                  $orderNumberValue = $isActive ? $postedOrderNumber : '';
+                ?>
+                <section
+                  id="<?= e($panelId) ?>"
+                  class="report-tabs__panel"
+                  role="tabpanel"
+                  aria-labelledby="<?= e($tabId) ?>"
+                  data-replenishment-panel="<?= e($key) ?>"
+                  <?= $isActive ? '' : ' hidden' ?>
+                >
+                  <form class="panel js-replenishment-form" method="post">
+                    <header>
+                      <h2><?= e($group['name']) ?></h2>
+                      <p class="small">
+                        <?php if (!empty($group['contact_name'])): ?>
+                          <strong>Contact:</strong> <?= e($group['contact_name']) ?>
+                        <?php elseif (!empty($group['legacy_contact'])): ?>
+                          <strong>Contact:</strong> <?= e($group['legacy_contact']) ?>
+                        <?php endif; ?>
+                        <?php if (!empty($group['contact_email'])): ?>
+                          · <a href="mailto:<?= e($group['contact_email']) ?>"><?= e($group['contact_email']) ?></a>
+                        <?php endif; ?>
+                        <?php if (!empty($group['contact_phone'])): ?>
+                          · <a href="tel:<?= e(preg_replace('/[^0-9+]/', '', $group['contact_phone'])) ?>"><?= e($group['contact_phone']) ?></a>
+                        <?php endif; ?>
+                      </p>
+                      <p class="small">Projected availability already reflects on-order balances and active reservations.</p>
+                    </header>
+
+                    <?php if ($isActive && $formErrors !== []): ?>
+                      <div class="alert error" role="alert">
+                        <ul>
+                          <?php foreach ($formErrors as $error): ?>
+                            <li><?= e($error) ?></li>
+                          <?php endforeach; ?>
+                        </ul>
+                      </div>
+                    <?php endif; ?>
+
+                    <input type="hidden" name="supplier_key" value="<?= e($key) ?>" />
+
+                    <div class="table-wrapper">
+                      <table class="table replenishment-table">
+                        <thead>
+                          <tr>
+                            <th scope="col">Include</th>
+                            <th scope="col">Item</th>
+                            <th scope="col">SKU</th>
+                            <th scope="col">On Hand</th>
+                            <th scope="col">Committed</th>
+                            <th scope="col">On Order</th>
+                            <th scope="col">Available</th>
+                            <th scope="col">Projected</th>
+                            <th scope="col">ADU</th>
+                            <th scope="col">Days of Supply</th>
+                            <th scope="col">Recommended</th>
+                            <th scope="col">Order Qty</th>
+                            <th scope="col">Unit Cost</th>
+                            <th scope="col">UOM</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <?php foreach ($group['items'] as $item): ?>
+                            <?php
+                              $itemId = (int) $item['id'];
+                              $recommended = (float) $item['recommended_order_qty'];
+                              $isSelected = $selected !== [] ? in_array($itemId, $selected, true) : ($recommended > 0.0001);
+                              $orderQuantity = $quantities[$itemId] ?? ($recommended > 0.0001 ? materialReplenishmentFormatDecimal($recommended, 3) : '');
+                              $unitCost = $unitCosts[$itemId] ?? '';
+                              $rowClasses = [];
+                              if ($recommended > 0.0001) {
+                                  $rowClasses[] = 'needs-action';
+                              }
+                              if (isset($invalidLineIds[$itemId])) {
+                                  $rowClasses[] = 'is-invalid';
+                              }
+                            ?>
+                            <tr<?= $rowClasses !== [] ? ' class="' . e(implode(' ', $rowClasses)) . '"' : '' ?>>
+                              <td data-title="Include">
+                                <label class="sr-only" for="include-<?= e((string) $itemId) ?>">Include <?= e($item['item']) ?></label>
+                                <input
+                                  type="checkbox"
+                                  id="include-<?= e((string) $itemId) ?>"
+                                  name="selected[]"
+                                  value="<?= e((string) $itemId) ?>"
+                                  class="js-line-select"
+                                  data-line-id="<?= e((string) $itemId) ?>"
+                                  <?= $isSelected ? 'checked' : '' ?>
+                                />
+                              </td>
+                              <td data-title="Item">
+                                <strong><?= e($item['item']) ?></strong>
+                                <?php if (!empty($item['supplier_sku'])): ?>
+                                  <div class="small">Supplier SKU: <?= e($item['supplier_sku']) ?></div>
+                                <?php endif; ?>
+                              </td>
+                              <td data-title="SKU"><?= e($item['sku'] !== '' ? $item['sku'] : '—') ?></td>
+                              <td data-title="On Hand" class="numeric"><?= e(inventoryFormatQuantity((int) $item['stock'])) ?></td>
+                              <td data-title="Committed" class="numeric"><?= e(inventoryFormatQuantity((int) $item['committed_qty'])) ?></td>
+                              <td data-title="On Order" class="numeric"><?= e(materialReplenishmentFormatDecimal((float) $item['on_order_qty'], 2)) ?></td>
+                              <td data-title="Available" class="numeric"><?= e(inventoryFormatQuantity((int) $item['available_now'])) ?></td>
+                              <td data-title="Projected" class="numeric"><?= e(materialReplenishmentFormatDecimal((float) $item['projected_available'], 2)) ?></td>
+                              <td data-title="ADU" class="numeric"><?= $item['average_daily_use'] !== null ? e(materialReplenishmentFormatDecimal((float) $item['average_daily_use'], 3)) : '—' ?></td>
+                              <td data-title="Days of Supply" class="numeric"><?= $item['days_of_supply'] !== null ? e(materialReplenishmentFormatDecimal((float) $item['days_of_supply'], 1)) : '—' ?></td>
+                              <td data-title="Recommended" class="numeric">
+                                <?= e(materialReplenishmentFormatDecimal($recommended, 3)) ?>
+                                <?php if ((float) $item['safety_stock'] > 0): ?>
+                                  <div class="small">Safety: <?= e(materialReplenishmentFormatDecimal((float) $item['safety_stock'], 2)) ?></div>
+                                <?php endif; ?>
+                              </td>
+                              <td data-title="Order Qty" class="numeric">
+                                <label class="sr-only" for="qty-<?= e((string) $itemId) ?>">Order quantity for <?= e($item['item']) ?></label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  id="qty-<?= e((string) $itemId) ?>"
+                                  name="quantity[<?= e((string) $itemId) ?>]"
+                                  value="<?= e($orderQuantity) ?>"
+                                  class="js-quantity-input"
+                                  data-line-id="<?= e((string) $itemId) ?>"
+                                  data-recommended="<?= e((string) $recommended) ?>"
+                                />
+                              </td>
+                              <td data-title="Unit Cost" class="numeric">
+                                <label class="sr-only" for="cost-<?= e((string) $itemId) ?>">Unit cost for <?= e($item['item']) ?></label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  id="cost-<?= e((string) $itemId) ?>"
+                                  name="unit_cost[<?= e((string) $itemId) ?>]"
+                                  value="<?= e($unitCost) ?>"
+                                />
+                              </td>
+                              <td data-title="UOM"><?= e($item['purchase_uom'] ?? $item['stock_uom'] ?? 'ea') ?></td>
+                            </tr>
+                          <?php endforeach; ?>
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div class="replenishment-summary" data-summary>
+                      <div>
+                        <strong>Selected Lines</strong>
+                        <span data-selected-count>0</span>
+                      </div>
+                      <div>
+                        <strong>Recommended Qty</strong>
+                        <span data-recommended-total>0</span>
+                      </div>
+                      <div>
+                        <strong>Order Qty</strong>
+                        <span data-selected-quantity>0</span>
+                      </div>
+                    </div>
+
+                    <div class="form-grid">
+                      <div class="field">
+                        <label for="order-number-<?= e($key) ?>">Order Number</label>
+                        <input
+                          type="text"
+                          id="order-number-<?= e($key) ?>"
+                          name="order_number"
+                          value="<?= e($orderNumberValue) ?>"
+                          placeholder="Auto-generate"
+                        />
+                        <p class="field-help">Optional reference. Leave blank to let the system assign one.</p>
+                      </div>
+                      <div class="field">
+                        <label for="order-notes-<?= e($key) ?>">Notes</label>
+                        <textarea
+                          id="order-notes-<?= e($key) ?>"
+                          name="notes"
+                          rows="3"
+                          placeholder="Instructions for the supplier"
+                        ><?= e($notesValue) ?></textarea>
+                      </div>
+                    </div>
+
+                    <footer>
+                      <div class="button-group">
+                        <button type="submit" name="action" value="generate_pdf" class="button primary">
+                          Generate Purchase Order PDF
+                        </button>
+                        <?php if ($group['is_tubelite']): ?>
+                          <button type="submit" name="action" value="generate_tubelite" class="button secondary">
+                            Generate Tubelite EZ Estimate
+                          </button>
+                        <?php endif; ?>
+                      </div>
+                      <p class="small">Quantities entered above will be saved on a draft purchase order before generating the selected output.</p>
+                    </footer>
+                  </form>
+                </section>
+                <?php $tabIndex++; ?>
+              <?php endforeach; ?>
+            </div>
+          </div>
+        </div>
+      <?php endif; ?>
+    </main>
+  </div>
+
+  <script src="js/dashboard.js"></script>
+  <script src="js/material-replenishment.js" defer></script>
+</body>
+</html>
