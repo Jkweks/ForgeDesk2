@@ -88,6 +88,9 @@ if (!function_exists('purchaseOrderTubeliteCategory')) {
             $r = $rowIndex + 1;
             $rowElement = $document->createElementNS($namespace, 'row');
             $rowElement->setAttribute('r', (string) $r);
+            if ($colCount > 0) {
+                $rowElement->setAttribute('spans', '1:' . $colCount);
+            }
 
             foreach ($row as $colIndex => $value) {
                 $column = purchaseOrderColumnFromIndex($colIndex);
@@ -135,6 +138,48 @@ if (!function_exists('purchaseOrderTubeliteCategory')) {
         }
 
         $archive->addFromString($sheetPath, $document->saveXML());
+    }
+
+    function purchaseOrderResetCalcChain(\ZipArchive $archive): void
+    {
+        $calcChainPath = 'xl/calcChain.xml';
+        if ($archive->locateName($calcChainPath) !== false) {
+            $archive->deleteName($calcChainPath);
+        }
+
+        $relsPath = 'xl/_rels/workbook.xml.rels';
+        $relsXml = $archive->getFromName($relsPath);
+
+        if ($relsXml === false) {
+            return;
+        }
+
+        $document = new \DOMDocument();
+        $document->preserveWhiteSpace = false;
+        $document->formatOutput = false;
+
+        if (@$document->loadXML($relsXml) === false) {
+            return;
+        }
+
+        $namespace = 'http://schemas.openxmlformats.org/package/2006/relationships';
+        $relationships = $document->getElementsByTagNameNS($namespace, 'Relationship');
+        $removed = false;
+
+        foreach (iterator_to_array($relationships) as $relationship) {
+            if (!$relationship instanceof \DOMElement) {
+                continue;
+            }
+
+            if ($relationship->getAttribute('Target') === 'calcChain.xml') {
+                $relationship->parentNode?->removeChild($relationship);
+                $removed = true;
+            }
+        }
+
+        if ($removed) {
+            $archive->addFromString($relsPath, $document->saveXML());
+        }
     }
 
     /**
@@ -208,6 +253,7 @@ if (!function_exists('purchaseOrderTubeliteCategory')) {
             foreach ($sheets as $sheetName => $rows) {
                 purchaseOrderWriteSheetRows($archive, $sheetName, $rows);
             }
+            purchaseOrderResetCalcChain($archive);
         } finally {
             $archive->close();
         }

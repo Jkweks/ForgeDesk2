@@ -79,7 +79,6 @@
   function initForm(form) {
     const summaryContainer = form.querySelector('[data-summary]');
     const selectedCountEl = summaryContainer ? summaryContainer.querySelector('[data-selected-count]') : null;
-    const recommendedTotalEl = summaryContainer ? summaryContainer.querySelector('[data-recommended-total]') : null;
     const orderTotalEl = summaryContainer ? summaryContainer.querySelector('[data-selected-quantity]') : null;
     const checkboxes = Array.from(form.querySelectorAll('.js-line-select'));
     const quantityInputs = Array.from(form.querySelectorAll('.js-quantity-input'));
@@ -91,19 +90,13 @@
 
     function updateSummary() {
       let selectedCount = 0;
-      let recommendedTotal = 0;
       let orderTotal = 0;
 
       checkboxes.forEach((checkbox) => {
         const lineId = checkbox.getAttribute('data-line-id') || checkbox.value;
         const quantityInput = getQuantityInput(lineId);
-        const recommendedValue = quantityInput ? Number.parseFloat(quantityInput.getAttribute('data-recommended') || '0') : 0;
-
         if (checkbox.checked) {
           selectedCount += 1;
-          if (Number.isFinite(recommendedValue)) {
-            recommendedTotal += recommendedValue;
-          }
 
           if (quantityInput) {
             const currentValue = Number.parseFloat(quantityInput.value || '0');
@@ -119,9 +112,6 @@
 
       if (selectedCountEl) {
         selectedCountEl.textContent = selectedCount.toString();
-      }
-      if (recommendedTotalEl) {
-        recommendedTotalEl.textContent = formatNumber(recommendedTotal);
       }
       if (orderTotalEl) {
         orderTotalEl.textContent = formatNumber(orderTotal);

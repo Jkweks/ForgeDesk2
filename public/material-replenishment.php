@@ -514,10 +514,10 @@ function materialReplenishmentFormatDecimal(float $value, int $precision = 2): s
         </article>
         <article class="metric accent">
           <div class="metric-header">
-            <span>Recommended Qty</span>
+            <span>Order Shortfall</span>
           </div>
           <p class="metric-value"><?= e(materialReplenishmentFormatDecimal($totals['recommended_total'], 2)) ?></p>
-          <p class="metric-delta small">Aggregate reorder quantity suggested across suppliers.</p>
+          <p class="metric-delta small">Sum of reorder point gaps currently prefilled for ordering.</p>
         </article>
       </section>
 
@@ -627,7 +627,6 @@ function materialReplenishmentFormatDecimal(float $value, int $precision = 2): s
                             <th scope="col" class="sortable numeric" data-sort-key="projected" data-sort-type="number" aria-sort="none">Projected</th>
                             <th scope="col" class="sortable numeric" data-sort-key="adu" data-sort-type="number" aria-sort="none">ADU</th>
                             <th scope="col" class="sortable numeric" data-sort-key="days-of-supply" data-sort-type="number" aria-sort="none">Days of Supply</th>
-                            <th scope="col" class="sortable numeric" data-sort-key="recommended" data-sort-type="number" aria-sort="none">Recommended</th>
                             <th scope="col" class="sortable numeric" data-sort-key="order-qty" data-sort-type="number" aria-sort="none">Order Qty</th>
                             <th scope="col" class="sortable numeric" data-sort-key="unit-cost" data-sort-type="number" aria-sort="none">Unit Cost</th>
                             <th scope="col" class="sortable" data-sort-key="uom" aria-sort="none">UOM</th>
@@ -660,7 +659,6 @@ function materialReplenishmentFormatDecimal(float $value, int $precision = 2): s
                                   'projected' => number_format((float) $item['projected_available'], 3, '.', ''),
                                   'adu' => $averageDailyUse !== null ? number_format((float) $averageDailyUse, 6, '.', '') : '',
                                   'days-of-supply' => $daysOfSupply !== null ? number_format((float) $daysOfSupply, 6, '.', '') : '',
-                                  'recommended' => number_format($recommended, 6, '.', ''),
                                   'order-qty' => $orderQuantity !== '' ? $orderQuantity : '',
                                   'unit-cost' => $unitCost !== '' ? $unitCost : '',
                                   'uom' => $item['purchase_uom'] ?? ($item['stock_uom'] ?? 'ea'),
@@ -698,12 +696,6 @@ function materialReplenishmentFormatDecimal(float $value, int $precision = 2): s
                               <td data-title="Projected" class="numeric"><?= e(materialReplenishmentFormatDecimal((float) $item['projected_available'], 2)) ?></td>
                               <td data-title="ADU" class="numeric"><?= $item['average_daily_use'] !== null ? e(materialReplenishmentFormatDecimal((float) $item['average_daily_use'], 3)) : '—' ?></td>
                               <td data-title="Days of Supply" class="numeric"><?= $item['days_of_supply'] !== null ? e(materialReplenishmentFormatDecimal((float) $item['days_of_supply'], 1)) : '—' ?></td>
-                              <td data-title="Recommended" class="numeric">
-                                <?= e(materialReplenishmentFormatDecimal($recommended, 3)) ?>
-                                <?php if ((float) $item['safety_stock'] > 0): ?>
-                                  <div class="small">Safety: <?= e(materialReplenishmentFormatDecimal((float) $item['safety_stock'], 2)) ?></div>
-                                <?php endif; ?>
-                              </td>
                               <td data-title="Order Qty" class="numeric">
                                 <label class="sr-only" for="qty-<?= e((string) $itemId) ?>">Order quantity for <?= e($item['item']) ?></label>
                                 <input
@@ -744,11 +736,7 @@ function materialReplenishmentFormatDecimal(float $value, int $precision = 2): s
                         <span data-selected-count>0</span>
                       </div>
                       <div>
-                        <strong>Recommended Qty</strong>
-                        <span data-recommended-total>0</span>
-                      </div>
-                      <div>
-                        <strong>Order Qty</strong>
+                        <strong>Total Order Qty</strong>
                         <span data-selected-quantity>0</span>
                       </div>
                     </div>

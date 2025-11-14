@@ -280,17 +280,21 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                   $label = $order['order_number'] !== null
                       ? $order['order_number']
                       : 'PO #' . $orderId;
+                  $supplierName = trim((string) ($order['supplier_name'] ?? ''));
+                  if ($supplierName === '') {
+                      $supplierName = 'Unassigned supplier';
+                  }
                   ?>
                   <a
                     class="receiving-order <?= $isActive ? 'active' : '' ?>"
                     href="/receive-material.php?po_id=<?= $orderId ?>"
                     data-order
                     data-order-title="<?= e($label) ?>"
-                    data-order-supplier="<?= e($order['supplier_name'] ?? 'Unknown supplier') ?>"
+                    data-order-supplier="<?= e($supplierName) ?>"
                   >
                     <span class="order-title"><?= e($label) ?></span>
                     <span class="order-meta">
-                      <?= e($order['supplier_name'] ?? 'Unknown supplier') ?> ·
+                      <?= e($supplierName) ?> ·
                       <?= e(inventoryFormatQuantity($order['outstanding_quantity'])) ?> open units
                     </span>
                   </a>

@@ -903,7 +903,7 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
             . "FROM purchase_orders po\n"
             . "JOIN purchase_order_lines pol ON pol.purchase_order_id = po.id\n"
             . "LEFT JOIN suppliers s ON s.id = po.supplier_id\n"
-            . "WHERE po.status IN ('sent', 'partially_received')\n"
+            . "WHERE po.status IN ('draft', 'sent', 'partially_received')\n"
             . "GROUP BY po.id, po.order_number, po.status, po.order_date, po.expected_date, s.name\n"
             . "HAVING SUM(GREATEST(pol.quantity_ordered - pol.quantity_received - COALESCE(pol.quantity_cancelled, 0), 0)) > 0\n"
             . "ORDER BY COALESCE(po.expected_date, po.order_date) ASC NULLS LAST, po.id ASC"

@@ -132,9 +132,15 @@ if (!function_exists('loadInventory')) {
         return $finish !== null && $finish !== '' ? strtoupper($finish) : '—';
     }
 
-    function inventoryFormatQuantity(int $quantity): string
+    function inventoryFormatQuantity(float $quantity): string
     {
-        return number_format($quantity);
+        $rounded = round($quantity);
+
+        if (abs($quantity - $rounded) < 0.0005) {
+            return number_format((int) $rounded);
+        }
+
+        return rtrim(rtrim(number_format($quantity, 3, '.', ','), '0'), '.');
     }
 
     function inventoryFormatDailyUse(?float $dailyUse): string
@@ -179,35 +185,18 @@ if (!function_exists('loadInventory')) {
         return ceil($quantity / $increment) * $increment;
     }
 
-    function inventoryCalculateRecommendedOrderQuantity(
-        float $projectedAvailable,
-        ?float $averageDailyUse,
-        int $leadTimeDays,
-        float $safetyStock,
-        float $minOrderQty,
-        float $orderMultiple,
-        float $packSize
-    ): float {
-        $averageDailyUse = $averageDailyUse !== null && $averageDailyUse > 0 ? $averageDailyUse : 0.0;
-        $leadTimeDays = max(0, $leadTimeDays);
-        $safetyStock = max(0.0, $safetyStock);
-        $minOrderQty = max(0.0, $minOrderQty);
-        $orderMultiple = max(0.0, $orderMultiple);
-        $packSize = max(0.0, $packSize);
+    function inventoryCalculateRecommendedOrderQuantity(int $reorderPoint, float $availableNow): float
+    {
+        $reorderPoint = max(0, $reorderPoint);
+        $availableNow = (float) $availableNow;
 
-        $demandDuringLeadTime = $averageDailyUse * $leadTimeDays;
-        $targetStock = $demandDuringLeadTime + $safetyStock;
-        $shortfall = $targetStock - $projectedAvailable;
+        $shortfall = $reorderPoint - $availableNow;
 
         if ($shortfall <= 0.0) {
             return 0.0;
         }
 
-        $recommended = max($shortfall, $minOrderQty);
-        $recommended = inventoryRoundUpToIncrement($recommended, $orderMultiple);
-        $recommended = inventoryRoundUpToIncrement($recommended, $packSize);
-
-        return round($recommended, 3);
+        return round($shortfall, 3);
     }
 
     /**
@@ -487,21 +476,12 @@ if (!function_exists('loadInventory')) {
             $demandDuringLeadTime = $averageDailyUse !== null ? $averageDailyUse * max(0, $effectiveLead) : 0.0;
             $targetStock = $demandDuringLeadTime + $safetyStock;
             $projectedShortfall = max(0.0, $targetStock - $projectedAvailable);
-            $recommended = inventoryCalculateRecommendedOrderQuantity(
-                $projectedAvailable,
-                $averageDailyUse,
-                $effectiveLead,
-                $safetyStock,
-                $minOrderQty,
-                $orderMultiple,
-                $packSize
-            );
+            $reorderPoint = (int) $row['reorder_point'];
+            $recommended = inventoryCalculateRecommendedOrderQuantity($reorderPoint, $availableNow);
 
             $daysOfSupply = ($averageDailyUse !== null && $averageDailyUse > 0)
                 ? round($projectedAvailable / $averageDailyUse, 2)
                 : null;
-
-            $reorderPoint = (int) $row['reorder_point'];
             $storedStatus = (string) $row['status'];
 
             $results[] = [
