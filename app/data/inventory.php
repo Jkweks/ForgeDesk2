@@ -132,8 +132,13 @@ if (!function_exists('loadInventory')) {
         return $finish !== null && $finish !== '' ? strtoupper($finish) : '—';
     }
 
-    function inventoryFormatQuantity(float $quantity): string
+    /**
+     * Format inventory quantities for display while accepting either ints or floats.
+     */
+    function inventoryFormatQuantity($quantity): string
     {
+        $quantity = (float) $quantity;
+
         $rounded = round($quantity);
 
         if (abs($quantity - $rounded) < 0.0005) {

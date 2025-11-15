@@ -32,24 +32,139 @@ if (!function_exists('purchaseOrderTubeliteCategory')) {
         return null;
     }
 
-    function purchaseOrderColumnFromIndex(int $index): string
+    function purchaseOrderGetOrCreateRow(\DOMDocument $document, \DOMElement $sheetData, array &$rowCache, int $rowNumber, string $namespace): \DOMElement
     {
-        $index = max(0, $index);
-        $column = '';
+        if (isset($rowCache[$rowNumber])) {
+            return $rowCache[$rowNumber];
+        }
 
-        do {
-            $remainder = $index % 26;
-            $column = chr(65 + $remainder) . $column;
-            $index = intdiv($index, 26) - 1;
-        } while ($index >= 0);
+        $row = $document->createElementNS($namespace, 'row');
+        $row->setAttribute('r', (string) $rowNumber);
 
-        return $column;
+        $inserted = false;
+        for ($node = $sheetData->firstChild; $node !== null; $node = $node->nextSibling) {
+            if (!$node instanceof \DOMElement || $node->namespaceURI !== $namespace || $node->localName !== 'row') {
+                continue;
+            }
+
+            $existingNumber = (int) $node->getAttribute('r');
+            if ($existingNumber > $rowNumber) {
+                $sheetData->insertBefore($row, $node);
+                $inserted = true;
+                break;
+            }
+        }
+
+        if (!$inserted) {
+            $sheetData->appendChild($row);
+        }
+
+        $rowCache[$rowNumber] = $row;
+
+        return $row;
+    }
+
+    function purchaseOrderGetOrCreateCell(\DOMDocument $document, \DOMElement $rowElement, string $column, int $rowNumber, string $namespace): \DOMElement
+    {
+        $cellReference = $column . $rowNumber;
+
+        for ($node = $rowElement->firstChild; $node !== null; $node = $node->nextSibling) {
+            if (!$node instanceof \DOMElement || $node->namespaceURI !== $namespace || $node->localName !== 'c') {
+                continue;
+            }
+
+            if ($node->getAttribute('r') === $cellReference) {
+                return $node;
+            }
+        }
+
+        $cell = $document->createElementNS($namespace, 'c');
+        $cell->setAttribute('r', $cellReference);
+
+        $targetIndex = xlsxColumnToIndex($column);
+        $inserted = false;
+
+        for ($node = $rowElement->firstChild; $node !== null; $node = $node->nextSibling) {
+            if (!$node instanceof \DOMElement || $node->namespaceURI !== $namespace || $node->localName !== 'c') {
+                continue;
+            }
+
+            $existingRef = $node->getAttribute('r');
+            $existingColumn = preg_replace('/\d+$/', '', $existingRef);
+            $existingIndex = $existingColumn !== null ? xlsxColumnToIndex((string) $existingColumn) : null;
+
+            if ($existingIndex !== null && $targetIndex !== null && $existingIndex > $targetIndex) {
+                $rowElement->insertBefore($cell, $node);
+                $inserted = true;
+                break;
+            }
+        }
+
+        if (!$inserted) {
+            $rowElement->appendChild($cell);
+        }
+
+        return $cell;
+    }
+
+    function purchaseOrderClearCell(\DOMElement $cell): void
+    {
+        while ($cell->firstChild !== null) {
+            $cell->removeChild($cell->firstChild);
+        }
+
+        if ($cell->hasAttribute('t')) {
+            $cell->removeAttribute('t');
+        }
+    }
+
+    function purchaseOrderSetNumericCell(\DOMDocument $document, \DOMElement $rowElement, string $column, int $rowNumber, ?float $value, string $namespace, ?int $precision = null): void
+    {
+        $cell = purchaseOrderGetOrCreateCell($document, $rowElement, $column, $rowNumber, $namespace);
+        purchaseOrderClearCell($cell);
+
+        if ($value === null) {
+            return;
+        }
+
+        if ($precision !== null) {
+            $formatted = number_format($value, $precision, '.', '');
+            $formatted = rtrim(rtrim($formatted, '0'), '.');
+            if ($formatted === '') {
+                $formatted = '0';
+            }
+        } else {
+            $formatted = (string) $value;
+        }
+
+        $cell->appendChild($document->createElementNS($namespace, 'v', $formatted));
+    }
+
+    function purchaseOrderSetTextCell(\DOMDocument $document, \DOMElement $rowElement, string $column, int $rowNumber, string $value, string $namespace): void
+    {
+        $cell = purchaseOrderGetOrCreateCell($document, $rowElement, $column, $rowNumber, $namespace);
+
+        if ($value === '') {
+            purchaseOrderClearCell($cell);
+            return;
+        }
+
+        purchaseOrderClearCell($cell);
+        $cell->setAttribute('t', 'inlineStr');
+
+        $is = $document->createElementNS($namespace, 'is');
+        $textNode = $document->createElementNS($namespace, 't');
+        $textNode->appendChild($document->createTextNode($value));
+        $is->appendChild($textNode);
+        $cell->appendChild($is);
     }
 
     /**
-     * @param list<list<string|float|int>> $rows
+     * Populate a Tubelite EZ Estimate worksheet without disturbing the rest of the template.
+     *
+     * @param list<array{quantity:float,part_number:string,finish:string,color?:string,description:string,unit_cost:float}> $rows
      */
-    function purchaseOrderWriteSheetRows(\ZipArchive $archive, string $sheetName, array $rows): void
+    function purchaseOrderPopulateEzEstimateSheet(\ZipArchive $archive, string $sheetName, array $rows, int $startRow = 11): void
     {
         $sheetPath = xlsxResolveSheetPath($archive, $sheetName);
         $original = $archive->getFromName($sheetPath);
@@ -67,74 +182,54 @@ if (!function_exists('purchaseOrderTubeliteCategory')) {
         }
 
         $namespace = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
-
         $sheetDataList = $document->getElementsByTagNameNS($namespace, 'sheetData');
-        if ($sheetDataList->length > 0) {
-            $sheetData = $sheetDataList->item(0);
-            if ($sheetData !== null && $sheetData->parentNode !== null) {
-                $sheetData->parentNode->removeChild($sheetData);
-            }
+
+        if ($sheetDataList->length === 0) {
+            throw new \RuntimeException(sprintf('Worksheet "%s" is missing data nodes.', $sheetName));
         }
 
-        $sheetData = $document->createElementNS($namespace, 'sheetData');
-        $document->documentElement->appendChild($sheetData);
+        /** @var \DOMElement $sheetData */
+        $sheetData = $sheetDataList->item(0);
 
-        $colCount = 0;
-        foreach ($rows as $row) {
-            $colCount = max($colCount, count($row));
-        }
-
-        foreach ($rows as $rowIndex => $row) {
-            $r = $rowIndex + 1;
-            $rowElement = $document->createElementNS($namespace, 'row');
-            $rowElement->setAttribute('r', (string) $r);
-            if ($colCount > 0) {
-                $rowElement->setAttribute('spans', '1:' . $colCount);
-            }
-
-            foreach ($row as $colIndex => $value) {
-                $column = purchaseOrderColumnFromIndex($colIndex);
-                $cell = $document->createElementNS($namespace, 'c');
-                $cell->setAttribute('r', $column . $r);
-
-                if (is_int($value) || is_float($value)) {
-                    $valueElement = $document->createElementNS($namespace, 'v', (string) $value);
-                    $cell->appendChild($valueElement);
-                } else {
-                    $cell->setAttribute('t', 'inlineStr');
-                    $is = $document->createElementNS($namespace, 'is');
-                    $textNode = $document->createElementNS($namespace, 't');
-                    $textNode->appendChild($document->createTextNode((string) $value));
-                    $is->appendChild($textNode);
-                    $cell->appendChild($is);
+        $rowCache = [];
+        for ($node = $sheetData->firstChild; $node !== null; $node = $node->nextSibling) {
+            if ($node instanceof \DOMElement && $node->namespaceURI === $namespace && $node->localName === 'row') {
+                $number = (int) $node->getAttribute('r');
+                if ($number > 0) {
+                    $rowCache[$number] = $node;
                 }
-
-                $rowElement->appendChild($cell);
             }
-
-            $sheetData->appendChild($rowElement);
         }
 
-        $dimensionRef = 'A1';
-        if ($rows !== [] && $colCount > 0) {
-            $dimensionRef = 'A1:' . purchaseOrderColumnFromIndex($colCount - 1) . count($rows);
-        }
+        $rowCount = count($rows);
+        $processCount = max($rowCount + 1, 1);
 
-        $dimensionList = $document->getElementsByTagNameNS($namespace, 'dimension');
-        if ($dimensionList->length > 0) {
-            $dimension = $dimensionList->item(0);
-            if ($dimension !== null) {
-                $dimension->setAttribute('ref', $dimensionRef);
-            }
-        } else {
-            $dimension = $document->createElementNS($namespace, 'dimension');
-            $dimension->setAttribute('ref', $dimensionRef);
-            $firstChild = $document->documentElement->firstChild;
-            if ($firstChild !== null) {
-                $document->documentElement->insertBefore($dimension, $firstChild);
-            } else {
-                $document->documentElement->appendChild($dimension);
-            }
+        for ($i = 0; $i < $processCount; $i++) {
+            $rowNumber = $startRow + $i;
+            $rowElement = purchaseOrderGetOrCreateRow($document, $sheetData, $rowCache, $rowNumber, $namespace);
+            $data = $rows[$i] ?? [
+                'quantity' => 0.0,
+                'part_number' => '',
+                'finish' => '',
+                'color' => '',
+                'description' => '',
+                'unit_cost' => 0.0,
+            ];
+
+            $quantity = isset($data['quantity']) ? (float) $data['quantity'] : 0.0;
+            $partNumber = isset($data['part_number']) ? (string) $data['part_number'] : '';
+            $finish = isset($data['finish']) ? strtoupper((string) $data['finish']) : '';
+            $color = isset($data['color']) ? (string) $data['color'] : '';
+            $description = isset($data['description']) ? (string) $data['description'] : '';
+            $unitCost = isset($data['unit_cost']) ? (float) $data['unit_cost'] : 0.0;
+
+            purchaseOrderSetNumericCell($document, $rowElement, 'A', $rowNumber, $quantity, $namespace, 3);
+            purchaseOrderSetTextCell($document, $rowElement, 'B', $rowNumber, $partNumber, $namespace);
+            purchaseOrderSetTextCell($document, $rowElement, 'C', $rowNumber, $finish, $namespace);
+            purchaseOrderSetTextCell($document, $rowElement, 'D', $rowNumber, $color, $namespace);
+            purchaseOrderSetTextCell($document, $rowElement, 'E', $rowNumber, $description, $namespace);
+            purchaseOrderSetNumericCell($document, $rowElement, 'F', $rowNumber, $unitCost, $namespace, 2);
+            purchaseOrderSetNumericCell($document, $rowElement, 'G', $rowNumber, $unitCost, $namespace, 2);
         }
 
         $archive->addFromString($sheetPath, $document->saveXML());
@@ -203,13 +298,9 @@ if (!function_exists('purchaseOrderTubeliteCategory')) {
             throw new \RuntimeException('Unable to copy EZ Estimate template.');
         }
 
-        $sheets = [
-            'Accessories' => [
-                ['Part Number', 'Description', 'Finish', 'Quantity', 'Unit Cost'],
-            ],
-            'Stock Lengths' => [
-                ['Part Number', 'Description', 'Finish', 'Quantity', 'Unit Cost'],
-            ],
+        $sheetRows = [
+            'Accessories' => [],
+            'Stock Lengths' => [],
         ];
 
         $unmapped = [];
@@ -235,12 +326,13 @@ if (!function_exists('purchaseOrderTubeliteCategory')) {
             $quantity = (float) $line['quantity_ordered'];
             $unitCost = (float) $line['unit_cost'];
 
-            $sheets[$sheetName][] = [
-                $partNumber,
-                $description,
-                $finish,
-                $quantity,
-                $unitCost,
+            $sheetRows[$sheetName][] = [
+                'quantity' => $quantity,
+                'part_number' => $partNumber,
+                'finish' => $finish,
+                'color' => '',
+                'description' => $description,
+                'unit_cost' => $unitCost,
             ];
         }
 
@@ -250,9 +342,8 @@ if (!function_exists('purchaseOrderTubeliteCategory')) {
         }
 
         try {
-            foreach ($sheets as $sheetName => $rows) {
-                purchaseOrderWriteSheetRows($archive, $sheetName, $rows);
-            }
+            purchaseOrderPopulateEzEstimateSheet($archive, 'Accessories', $sheetRows['Accessories']);
+            purchaseOrderPopulateEzEstimateSheet($archive, 'Stock Lengths', $sheetRows['Stock Lengths']);
             purchaseOrderResetCalcChain($archive);
         } finally {
             $archive->close();
@@ -261,8 +352,8 @@ if (!function_exists('purchaseOrderTubeliteCategory')) {
         return [
             'path' => $outputPath,
             'sheets' => [
-                'Accessories' => max(0, count($sheets['Accessories']) - 1),
-                'Stock Lengths' => max(0, count($sheets['Stock Lengths']) - 1),
+                'Accessories' => count($sheetRows['Accessories']),
+                'Stock Lengths' => count($sheetRows['Stock Lengths']),
             ],
             'unmapped' => $unmapped,
         ];
