@@ -27,4 +27,18 @@ assertAlmostEquals(10.0, $quantity);
 $quantity = inventoryCalculateRecommendedOrderQuantity(5, 1.6665);
 assertAlmostEquals(3.334, $quantity, 0.0005);
 
+// 5. Pack conversions map cleanly between pack and each quantities
+$eachQuantity = inventoryQuantityToEach(3, 12, 'pack');
+assertAlmostEquals(36.0, $eachQuantity);
+
+$packQuantity = inventoryEachToUnit(36, 12, 'pack');
+assertAlmostEquals(3.0, $packQuantity);
+
+// 6. Invalid pack sizes fall back to eaches
+$eachQuantity = inventoryQuantityToEach(5, 0, 'pack');
+assertAlmostEquals(5.0, $eachQuantity);
+
+$packQuantity = inventoryEachToUnit(5, 0, 'pack');
+assertAlmostEquals(5.0, $packQuantity);
+
 echo "All replenishment tests passed\n";

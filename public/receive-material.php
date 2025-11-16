@@ -377,6 +377,10 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                             $values = $formValues['lines'][$key];
                             $lineError = $lineErrors[$lineId] ?? [];
                             $outstandingAttribute = number_format($outstanding, 3, '.', '');
+                            $orderedLabel = purchaseOrderFormatLineQuantity($line);
+                            $receivedLabel = purchaseOrderFormatQuantityForLine($line, (float) $line['quantity_received']);
+                            $cancelledLabel = purchaseOrderFormatQuantityForLine($line, (float) $line['quantity_cancelled']);
+                            $outstandingLabel = purchaseOrderFormatQuantityForLine($line, (float) $outstanding);
                         ?>
                           <tr data-line-id="<?= $lineId ?>" data-outstanding-value="<?= e($outstandingAttribute) ?>">
                             <th scope="row">
@@ -389,11 +393,11 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                             <td>
                               <?= e($line['description'] ?? ($line['item'] ?? '')) ?>
                             </td>
-                            <td><?= e(inventoryFormatQuantity($line['quantity_ordered'])) ?></td>
-                            <td><?= e(inventoryFormatQuantity($line['quantity_received'])) ?></td>
-                            <td><?= e(inventoryFormatQuantity($line['quantity_cancelled'])) ?></td>
+                            <td><?= e($orderedLabel) ?></td>
+                            <td><?= e($receivedLabel) ?></td>
+                            <td><?= e($cancelledLabel) ?></td>
                             <td>
-                              <span data-outstanding><?= e(inventoryFormatQuantity($outstanding)) ?></span>
+                              <span data-outstanding><?= e($outstandingLabel) ?></span>
                             </td>
                             <td class="input-cell">
                               <label class="sr-only" for="receive-<?= $lineId ?>">Receive quantity</label>
@@ -441,7 +445,13 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
 
                   <div class="form-actions">
                     <button class="button primary" type="submit" <?= $hasOutstanding ? '' : 'disabled' ?>>Record receipt</button>
-                    <a class="button secondary" href="/purchase-orders.php">View purchase orders</a>
+                    <?php
+                      $purchaseOrderLink = '/purchase-orders.php';
+                      if ($selectedPurchaseOrder !== null) {
+                          $purchaseOrderLink .= '?po_id=' . urlencode((string) $selectedPurchaseOrder['id']);
+                      }
+                    ?>
+                    <a class="button secondary" href="<?= e($purchaseOrderLink) ?>">View purchase orders</a>
                   </div>
                 </form>
               </article>
@@ -478,8 +488,8 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                                   <th scope="row">
                                     <?= e($line['description'] ?? ($line['item'] ?? 'Line #' . $line['purchase_order_line_id'])) ?>
                                   </th>
-                                  <td><?= e(inventoryFormatQuantity($line['quantity_received'])) ?></td>
-                                  <td><?= e(inventoryFormatQuantity($line['quantity_cancelled'])) ?></td>
+                                  <td><?= e(purchaseOrderFormatQuantityForLine($line, (float) $line['quantity_received'])) ?></td>
+                                  <td><?= e(purchaseOrderFormatQuantityForLine($line, (float) $line['quantity_cancelled'])) ?></td>
                                 </tr>
                               <?php endforeach; ?>
                             </tbody>

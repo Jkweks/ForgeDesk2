@@ -158,6 +158,7 @@ $activeSupplierKey = null;
 $postedSelected = [];
 $postedQuantities = [];
 $postedUnitCosts = [];
+$postedUnits = [];
 $postedNotes = '';
 $postedOrderNumber = '';
 $shouldReloadSnapshot = false;
@@ -219,6 +220,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $dbError === null && $db instanceof
         }
     }
 
+    $unitSelections = $_POST['quantity_unit'] ?? [];
+    if (is_array($unitSelections)) {
+        foreach ($unitSelections as $key => $value) {
+            $itemId = is_string($key) ? (int) $key : (int) $key;
+            $unitValue = is_string($value) ? strtolower(trim($value)) : '';
+            $postedUnits[$itemId] = $unitValue === 'pack' ? 'pack' : 'each';
+        }
+    }
+
     if (!isset($supplierGroups[$activeSupplierKey])) {
         $formErrors[] = 'The selected supplier view is no longer available.';
     } else {
@@ -249,6 +259,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $dbError === null && $db instanceof
                 continue;
             }
 
+            $item = $itemsById[$itemId];
             $quantityString = $postedQuantities[$itemId] ?? '';
             $quantityNormalized = str_replace(',', '', (string) $quantityString);
             $quantityValue = $quantityNormalized !== '' ? filter_var($quantityNormalized, FILTER_VALIDATE_FLOAT) : false;
@@ -269,9 +280,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $dbError === null && $db instanceof
                 continue;
             }
 
+            $packSize = isset($item['pack_size']) ? max(0.0, (float) $item['pack_size']) : 0.0;
+            $unitChoice = $postedUnits[$itemId] ?? ($packSize > 1.0 ? 'pack' : 'each');
+            if ($unitChoice === 'pack' && $packSize <= 0.0) {
+                $unitChoice = 'each';
+            }
+
+            $purchaseUom = $item['purchase_uom'] ?? ($packSize > 1.0 ? 'pack' : null);
+            $purchaseUom = $purchaseUom !== null && $purchaseUom !== '' ? $purchaseUom : null;
+            $stockUom = $item['stock_uom'] ?? 'ea';
+            if ($stockUom === '') {
+                $stockUom = 'ea';
+            }
+
+            $quantityEach = inventoryQuantityToEach((float) $quantityValue, $packSize, $unitChoice);
+            $packsOrdered = $packSize > 0.0 ? ($quantityEach / $packSize) : 0.0;
+
             $lineInputs[] = [
-                'item' => $itemsById[$itemId],
+                'item' => $item,
                 'quantity' => (float) $quantityValue,
+                'quantity_each' => $quantityEach,
+                'quantity_unit' => $unitChoice,
+                'packs_ordered' => $packsOrdered,
+                'pack_size' => $packSize,
+                'purchase_uom' => $purchaseUom,
+                'stock_uom' => $stockUom,
                 'unit_cost' => (float) $unitCostValue,
             ];
         }
@@ -305,7 +338,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $dbError === null && $db instanceof
                     'inventory_item_id' => (int) $item['id'],
                     'supplier_sku' => $item['supplier_sku'] ?? null,
                     'description' => $description,
-                    'quantity_ordered' => $line['quantity'],
+                    'quantity_ordered' => $line['quantity_each'],
+                    'packs_ordered' => $line['packs_ordered'],
+                    'pack_size' => $line['pack_size'],
+                    'purchase_uom' => $line['purchase_uom'],
+                    'stock_uom' => $line['stock_uom'],
                     'unit_cost' => $line['unit_cost'],
                     'expected_date' => $lineExpected,
                 ];
@@ -392,6 +429,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $dbError === null && $db instanceof
         $postedSelected = [];
         $postedQuantities = [];
         $postedUnitCosts = [];
+        $postedUnits = [];
         $postedNotes = '';
         $postedOrderNumber = '';
         $invalidLineIds = [];
@@ -560,6 +598,7 @@ function materialReplenishmentFormatDecimal(float $value, int $precision = 2): s
                   $selected = $isActive ? $postedSelected : [];
                   $quantities = $isActive ? $postedQuantities : [];
                   $unitCosts = $isActive ? $postedUnitCosts : [];
+                  $units = $isActive ? $postedUnits : [];
                   $notesValue = $isActive && $postedNotes !== '' ? $postedNotes : '';
                   $orderNumberValue = $isActive ? $postedOrderNumber : '';
                 ?>
@@ -638,7 +677,32 @@ function materialReplenishmentFormatDecimal(float $value, int $precision = 2): s
                               $itemId = (int) $item['id'];
                               $recommended = (float) $item['recommended_order_qty'];
                               $isSelected = $selected !== [] ? in_array($itemId, $selected, true) : ($recommended > 0.0001);
-                              $orderQuantity = $quantities[$itemId] ?? ($recommended > 0.0001 ? materialReplenishmentFormatDecimal($recommended, 3) : '');
+                              $packSize = isset($item['pack_size']) ? (float) $item['pack_size'] : 0.0;
+                              $defaultUnitChoice = $packSize > 1.0 ? 'pack' : 'each';
+                              $unitChoice = $units[$itemId] ?? $defaultUnitChoice;
+                              $unitChoice = $unitChoice === 'pack' ? 'pack' : 'each';
+                              if ($unitChoice === 'pack' && $packSize <= 0.0) {
+                                  $unitChoice = 'each';
+                              }
+                              $displayValue = $quantities[$itemId] ?? '';
+                              $recommendedDisplay = '';
+                              if ($recommended > 0.0001) {
+                                  $convertedRecommended = inventoryEachToUnit($recommended, $packSize, $unitChoice);
+                                  if ($convertedRecommended > 0) {
+                                      $recommendedDisplay = materialReplenishmentFormatDecimal($convertedRecommended, 3);
+                                  }
+                              }
+                              if ($displayValue === '' && $recommendedDisplay !== '') {
+                                  $displayValue = $recommendedDisplay;
+                              }
+                              $orderQuantity = $displayValue;
+                              $orderQtyEach = 0.0;
+                              if ($orderQuantity !== '') {
+                                  $orderQtyEach = inventoryQuantityToEach((float) str_replace(',', '', $orderQuantity), $packSize, $unitChoice);
+                              } elseif ($recommended > 0.0001) {
+                                  $orderQtyEach = $recommended;
+                              }
+                              $recommendedEachValue = $recommended > 0.0001 ? number_format($recommended, 3, '.', '') : '';
                               $unitCost = $unitCosts[$itemId] ?? '';
                               $rowClasses = [];
                               if ($recommended > 0.0001) {
@@ -659,9 +723,11 @@ function materialReplenishmentFormatDecimal(float $value, int $precision = 2): s
                                   'projected' => number_format((float) $item['projected_available'], 3, '.', ''),
                                   'adu' => $averageDailyUse !== null ? number_format((float) $averageDailyUse, 6, '.', '') : '',
                                   'days-of-supply' => $daysOfSupply !== null ? number_format((float) $daysOfSupply, 6, '.', '') : '',
-                                  'order-qty' => $orderQuantity !== '' ? $orderQuantity : '',
+                                  'order-qty' => $orderQtyEach > 0 ? number_format($orderQtyEach, 3, '.', '') : '',
+                                  'pack-size' => number_format($packSize, 3, '.', ''),
                                   'unit-cost' => $unitCost !== '' ? $unitCost : '',
-                                  'uom' => $item['purchase_uom'] ?? ($item['stock_uom'] ?? 'ea'),
+                                  'uom' => ($item['purchase_uom'] ?? ($packSize > 1 ? 'pack' : ($item['stock_uom'] ?? 'ea'))) . '|' . ($item['stock_uom'] ?? 'ea'),
+                                  'order-unit' => $unitChoice,
                               ];
                               $attributeParts = [];
                               foreach ($dataAttributes as $attrKey => $attrValue) {
@@ -697,19 +763,32 @@ function materialReplenishmentFormatDecimal(float $value, int $precision = 2): s
                               <td data-title="ADU" class="numeric"><?= $item['average_daily_use'] !== null ? e(materialReplenishmentFormatDecimal((float) $item['average_daily_use'], 3)) : '—' ?></td>
                               <td data-title="Days of Supply" class="numeric"><?= $item['days_of_supply'] !== null ? e(materialReplenishmentFormatDecimal((float) $item['days_of_supply'], 1)) : '—' ?></td>
                               <td data-title="Order Qty" class="numeric">
-                                <label class="sr-only" for="qty-<?= e((string) $itemId) ?>">Order quantity for <?= e($item['item']) ?></label>
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  id="qty-<?= e((string) $itemId) ?>"
-                                  name="quantity[<?= e((string) $itemId) ?>]"
-                                  value="<?= e($orderQuantity) ?>"
-                                  class="js-quantity-input"
-                                  data-line-id="<?= e((string) $itemId) ?>"
-                                  data-recommended="<?= e((string) $recommended) ?>"
-                                  data-order-input
-                                />
+                                <div class="order-qty-control" data-quantity-control data-pack-size="<?= e((string) $packSize) ?>">
+                                  <label class="sr-only" for="qty-<?= e((string) $itemId) ?>">Order quantity for <?= e($item['item']) ?></label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    id="qty-<?= e((string) $itemId) ?>"
+                                    name="quantity[<?= e((string) $itemId) ?>]"
+                                    value="<?= e($orderQuantity) ?>"
+                                    class="js-quantity-input"
+                                    data-line-id="<?= e((string) $itemId) ?>"
+                                    data-recommended-each="<?= e($recommendedEachValue) ?>"
+                                    data-order-input
+                                    data-order-unit="<?= e($unitChoice) ?>"
+                                    data-pack-size="<?= e((string) $packSize) ?>"
+                                  />
+                                  <?php if ($packSize > 1): ?>
+                                    <select name="quantity_unit[<?= e((string) $itemId) ?>]" class="order-qty-unit" data-quantity-unit>
+                                      <option value="pack"<?= $unitChoice === 'pack' ? ' selected' : '' ?>>Packs (<?= e(materialReplenishmentFormatDecimal($packSize, 0)) ?> <?= e($item['stock_uom'] ?? 'ea') ?>)</option>
+                                      <option value="each"<?= $unitChoice === 'each' ? ' selected' : '' ?>>Each</option>
+                                    </select>
+                                  <?php else: ?>
+                                    <input type="hidden" name="quantity_unit[<?= e((string) $itemId) ?>]" value="each" data-quantity-unit />
+                                    <span class="order-qty-unit-label"><?= e($item['stock_uom'] ?? 'ea') ?></span>
+                                  <?php endif; ?>
+                                </div>
                               </td>
                               <td data-title="Unit Cost" class="numeric">
                                 <label class="sr-only" for="cost-<?= e((string) $itemId) ?>">Unit cost for <?= e($item['item']) ?></label>
@@ -723,7 +802,14 @@ function materialReplenishmentFormatDecimal(float $value, int $precision = 2): s
                                   data-unit-cost-input
                                 />
                               </td>
-                              <td data-title="UOM"><?= e($item['purchase_uom'] ?? $item['stock_uom'] ?? 'ea') ?></td>
+                              <td data-title="UOM">
+                                <?php if ($packSize > 1): ?>
+                                  <div class="uom-label"><strong><?= e($item['purchase_uom'] ?? 'pack') ?></strong> · <?= e(materialReplenishmentFormatDecimal($packSize, 0)) ?> <?= e($item['stock_uom'] ?? 'ea') ?></div>
+                                  <div class="muted small">Stocked in <?= e($item['stock_uom'] ?? 'ea') ?></div>
+                                <?php else: ?>
+                                  <?= e($item['stock_uom'] ?? 'ea') ?>
+                                <?php endif; ?>
+                              </td>
                             </tr>
                           <?php endforeach; ?>
                         </tbody>
@@ -736,7 +822,7 @@ function materialReplenishmentFormatDecimal(float $value, int $precision = 2): s
                         <span data-selected-count>0</span>
                       </div>
                       <div>
-                        <strong>Total Order Qty</strong>
+                        <strong>Total Order Qty (ea)</strong>
                         <span data-selected-quantity>0</span>
                       </div>
                     </div>

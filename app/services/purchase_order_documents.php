@@ -409,11 +409,12 @@ if (!function_exists('purchaseOrderTubeliteCategory')) {
             $unitCost = (float) $line['unit_cost'];
             $total = $quantity * $unitCost;
             $lineTotal += $total;
+            $quantityLabel = purchaseOrderFormatLineQuantity($line);
 
             $rowsHtml .= '<tr>'
                 . '<td>' . htmlspecialchars($line['sku'] ?? $line['supplier_sku'] ?? '', ENT_QUOTES, 'UTF-8') . '</td>'
                 . '<td>' . htmlspecialchars($line['description'] ?? $line['item'] ?? '', ENT_QUOTES, 'UTF-8') . '</td>'
-                . '<td class="text-end">' . number_format($quantity, 2, '.', ',') . '</td>'
+                . '<td class="text-end">' . htmlspecialchars($quantityLabel, ENT_QUOTES, 'UTF-8') . '</td>'
                 . '<td class="text-end">' . number_format($unitCost, 2, '.', ',') . '</td>'
                 . '<td class="text-end">' . number_format($total, 2, '.', ',') . '</td>'
                 . '</tr>';
@@ -483,7 +484,7 @@ if (!function_exists('purchaseOrderTubeliteCategory')) {
         $lines[] = 'Order Date: ' . $orderDate;
         $lines[] = 'Expected Date: ' . $expectedDate;
         $lines[] = '';
-        $lines[] = sprintf('%-18s %-44s %8s %10s %10s', 'SKU', 'Description', 'Qty', 'Unit', 'Total');
+        $lines[] = sprintf('%-18s %-44s %14s %10s %10s', 'SKU', 'Description', 'Qty', 'Unit', 'Total');
 
         $total = 0.0;
         foreach ($purchaseOrder['lines'] as $line) {
@@ -491,15 +492,16 @@ if (!function_exists('purchaseOrderTubeliteCategory')) {
             $unitCost = (float) $line['unit_cost'];
             $lineTotal = $quantity * $unitCost;
             $total += $lineTotal;
+            $quantityLabel = purchaseOrderFormatLineQuantity($line);
 
             $sku = $line['sku'] ?? $line['supplier_sku'] ?? '';
             $description = $line['description'] ?? $line['item'] ?? '';
 
             $lines[] = sprintf(
-                '%-18s %-44s %8s %10s %10s',
+                '%-18s %-44s %14s %10s %10s',
                 substr($sku, 0, 18),
                 substr($description, 0, 44),
-                number_format($quantity, 2, '.', ''),
+                substr($quantityLabel, 0, 14),
                 number_format($unitCost, 2, '.', ''),
                 number_format($lineTotal, 2, '.', '')
             );

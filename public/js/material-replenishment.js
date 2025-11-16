@@ -13,6 +13,132 @@
     });
   }
 
+  function normalizeUnit(value) {
+    return value === 'pack' ? 'pack' : 'each';
+  }
+
+  function parsePackSize(row) {
+    if (!row) {
+      return 0;
+    }
+
+    const attr = row.getAttribute('data-pack-size') || '0';
+    const parsed = Number.parseFloat(attr);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  }
+
+  function convertToEach(quantity, unit, packSize) {
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      return 0;
+    }
+
+    return unit === 'pack' && packSize > 0 ? quantity * packSize : quantity;
+  }
+
+  function convertFromEach(quantityEach, unit, packSize) {
+    if (!Number.isFinite(quantityEach) || quantityEach <= 0) {
+      return 0;
+    }
+
+    return unit === 'pack' && packSize > 0 ? quantityEach / packSize : quantityEach;
+  }
+
+  function formatInputQuantity(value) {
+    if (!Number.isFinite(value) || value <= 0) {
+      return '';
+    }
+
+    let formatted = value.toFixed(3);
+    formatted = formatted.replace(/0+$/, '').replace(/\.$/, '');
+    return formatted;
+  }
+
+  function getRowUnit(row) {
+    if (!row) {
+      return 'each';
+    }
+
+    return normalizeUnit(row.getAttribute('data-order-unit') || 'each');
+  }
+
+  function setRowUnit(row, unit) {
+    if (!row) {
+      return;
+    }
+
+    const normalized = normalizeUnit(unit);
+    row.setAttribute('data-order-unit', normalized);
+    const input = row.querySelector('.js-quantity-input');
+    if (input) {
+      input.setAttribute('data-order-unit', normalized);
+    }
+  }
+
+  function updateRowQuantity(row) {
+    if (!row) {
+      return 0;
+    }
+
+    const input = row.querySelector('.js-quantity-input');
+    if (!input) {
+      row.removeAttribute('data-order-qty');
+      return 0;
+    }
+
+    const packSize = parsePackSize(row);
+    const unit = getRowUnit(row);
+    const numericValue = Number.parseFloat(input.value || '0');
+
+    if (!Number.isFinite(numericValue) || numericValue <= 0) {
+      row.removeAttribute('data-order-qty');
+      return 0;
+    }
+
+    const quantityEach = convertToEach(numericValue, unit, packSize);
+    if (quantityEach > 0) {
+      row.setAttribute('data-order-qty', quantityEach.toFixed(3));
+      return quantityEach;
+    }
+
+    row.removeAttribute('data-order-qty');
+    return 0;
+  }
+
+  function getRowQuantityEach(row) {
+    if (!row) {
+      return 0;
+    }
+
+    const attr = row.getAttribute('data-order-qty');
+    if (attr) {
+      const parsed = Number.parseFloat(attr);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+
+    return updateRowQuantity(row);
+  }
+
+  function fillRecommended(row, input) {
+    if (!row || !input) {
+      return;
+    }
+
+    const attr = input.getAttribute('data-recommended-each') || '';
+    const recommendedEach = Number.parseFloat(attr);
+    if (!Number.isFinite(recommendedEach) || recommendedEach <= 0) {
+      return;
+    }
+
+    const packSize = parsePackSize(row);
+    const unit = getRowUnit(row);
+    const converted = convertFromEach(recommendedEach, unit, packSize);
+    const formatted = formatInputQuantity(converted) || formatInputQuantity(recommendedEach);
+    input.value = formatted;
+    updateRowQuantity(row);
+  }
+
   function initTabs() {
     const containers = document.querySelectorAll('[data-replenishment-tabs]');
 
@@ -83,6 +209,7 @@
     const checkboxes = Array.from(form.querySelectorAll('.js-line-select'));
     const quantityInputs = Array.from(form.querySelectorAll('.js-quantity-input'));
     const unitCostInputs = Array.from(form.querySelectorAll('[data-unit-cost-input]'));
+    const unitSelectors = Array.from(form.querySelectorAll('select[data-quantity-unit]'));
 
     function getQuantityInput(lineId) {
       return form.querySelector('.js-quantity-input[data-line-id="' + lineId + '"]');
@@ -95,16 +222,14 @@
       checkboxes.forEach((checkbox) => {
         const lineId = checkbox.getAttribute('data-line-id') || checkbox.value;
         const quantityInput = getQuantityInput(lineId);
+        const row = quantityInput ? quantityInput.closest('tr') : null;
         if (checkbox.checked) {
           selectedCount += 1;
 
           if (quantityInput) {
-            const currentValue = Number.parseFloat(quantityInput.value || '0');
-            if (Number.isFinite(currentValue)) {
-              orderTotal += currentValue;
-              quantityInput.removeAttribute('aria-invalid');
-            } else {
-              quantityInput.setAttribute('aria-invalid', 'true');
+            const quantityEach = getRowQuantityEach(row);
+            if (quantityEach > 0) {
+              orderTotal += quantityEach;
             }
           }
         }
@@ -114,19 +239,17 @@
         selectedCountEl.textContent = selectedCount.toString();
       }
       if (orderTotalEl) {
-        orderTotalEl.textContent = formatNumber(orderTotal);
+        orderTotalEl.textContent = formatNumber(orderTotal) + ' ea';
       }
     }
 
     checkboxes.forEach((checkbox) => {
       const lineId = checkbox.getAttribute('data-line-id') || checkbox.value;
       const quantityInput = getQuantityInput(lineId);
+      const row = quantityInput ? quantityInput.closest('tr') : null;
 
-      if (checkbox.checked && quantityInput && quantityInput.value.trim() === '') {
-        const recommended = quantityInput.getAttribute('data-recommended');
-        if (recommended && Number.parseFloat(recommended) > 0) {
-          quantityInput.value = recommended;
-        }
+      if (checkbox.checked && quantityInput && quantityInput.value.trim() === '' && row) {
+        fillRecommended(row, quantityInput);
       }
 
       checkbox.addEventListener('change', () => {
@@ -135,11 +258,8 @@
           return;
         }
 
-        if (checkbox.checked && quantityInput.value.trim() === '') {
-          const recommended = quantityInput.getAttribute('data-recommended');
-          if (recommended && Number.parseFloat(recommended) > 0) {
-            quantityInput.value = recommended;
-          }
+        if (checkbox.checked && quantityInput.value.trim() === '' && row) {
+          fillRecommended(row, quantityInput);
         }
 
         updateSummary();
@@ -147,9 +267,13 @@
     });
 
     quantityInputs.forEach((input) => {
+      const row = input.closest('tr');
+      updateRowQuantity(row);
+
       input.addEventListener('input', () => {
         if (input.value.trim() === '') {
           input.removeAttribute('aria-invalid');
+          updateRowQuantity(row);
           updateSummary();
           return;
         }
@@ -161,9 +285,37 @@
           input.removeAttribute('aria-invalid');
         }
 
-        const row = input.closest('tr');
         if (row) {
-          row.setAttribute('data-order-qty', input.value.trim());
+          updateRowQuantity(row);
+        }
+
+        updateSummary();
+      });
+    });
+
+    unitSelectors.forEach((select) => {
+      select.addEventListener('change', () => {
+        const row = select.closest('tr');
+        if (!row) {
+          updateSummary();
+          return;
+        }
+
+        const packSize = parsePackSize(row);
+        let nextUnit = normalizeUnit(select.value);
+        if (nextUnit === 'pack' && packSize <= 0) {
+          nextUnit = 'each';
+          select.value = 'each';
+        }
+
+        const currentEach = getRowQuantityEach(row);
+        setRowUnit(row, nextUnit);
+
+        const input = row.querySelector('.js-quantity-input');
+        if (input) {
+          const converted = convertFromEach(currentEach, nextUnit, packSize);
+          input.value = formatInputQuantity(converted);
+          updateRowQuantity(row);
         }
 
         updateSummary();

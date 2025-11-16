@@ -84,6 +84,10 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
         $db->exec('CREATE INDEX IF NOT EXISTS idx_purchase_order_lines_outstanding ON purchase_order_lines(purchase_order_id, inventory_item_id)');
 
         $db->exec('ALTER TABLE purchase_order_lines ADD COLUMN IF NOT EXISTS quantity_cancelled NUMERIC(18, 6) NOT NULL DEFAULT 0');
+        $db->exec('ALTER TABLE purchase_order_lines ADD COLUMN IF NOT EXISTS packs_ordered NUMERIC(18, 6) NOT NULL DEFAULT 0');
+        $db->exec('ALTER TABLE purchase_order_lines ADD COLUMN IF NOT EXISTS pack_size NUMERIC(18, 6) NOT NULL DEFAULT 0');
+        $db->exec('ALTER TABLE purchase_order_lines ADD COLUMN IF NOT EXISTS purchase_uom TEXT');
+        $db->exec('ALTER TABLE purchase_order_lines ADD COLUMN IF NOT EXISTS stock_uom TEXT');
 
         $db->exec(
             'CREATE TABLE IF NOT EXISTS purchase_order_receipts (
@@ -230,9 +234,13 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
      *     supplier_sku?:?string,
      *     description:string,
      *     quantity_ordered:float,
+     *     packs_ordered?:?float,
+     *     pack_size?:?float,
      *     unit_cost:float,
      *     expected_date?:?string,
-     *     quantity_cancelled?:?float
+     *     quantity_cancelled?:?float,
+     *     purchase_uom?:?string,
+     *     stock_uom?:?string
      *   }>
      * } $payload
      */
@@ -277,8 +285,33 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
             $orderId = (int) $statement->fetchColumn();
 
             $lineStatement = $db->prepare(
-                'INSERT INTO purchase_order_lines (purchase_order_id, inventory_item_id, supplier_sku, description, quantity_ordered, quantity_cancelled, unit_cost, expected_date)
-                 VALUES (:purchase_order_id, :inventory_item_id, :supplier_sku, :description, :quantity_ordered, :quantity_cancelled, :unit_cost, :expected_date)'
+                'INSERT INTO purchase_order_lines (
+                    purchase_order_id,
+                    inventory_item_id,
+                    supplier_sku,
+                    description,
+                    quantity_ordered,
+                    quantity_cancelled,
+                    packs_ordered,
+                    pack_size,
+                    purchase_uom,
+                    stock_uom,
+                    unit_cost,
+                    expected_date
+                ) VALUES (
+                    :purchase_order_id,
+                    :inventory_item_id,
+                    :supplier_sku,
+                    :description,
+                    :quantity_ordered,
+                    :quantity_cancelled,
+                    :packs_ordered,
+                    :pack_size,
+                    :purchase_uom,
+                    :stock_uom,
+                    :unit_cost,
+                    :expected_date
+                )'
             );
 
             $totalCost = 0.0;
@@ -296,6 +329,10 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
                     ':quantity_cancelled' => isset($line['quantity_cancelled']) ? max(0.0, (float) $line['quantity_cancelled']) : 0.0,
                     ':unit_cost' => $unitCost,
                     ':expected_date' => $line['expected_date'] ?? null,
+                    ':packs_ordered' => isset($line['packs_ordered']) ? (float) $line['packs_ordered'] : 0.0,
+                    ':pack_size' => isset($line['pack_size']) ? (float) $line['pack_size'] : 0.0,
+                    ':purchase_uom' => $line['purchase_uom'] ?? null,
+                    ':stock_uom' => $line['stock_uom'] ?? null,
                 ]);
 
                 if (isset($line['inventory_item_id'])) {
@@ -339,9 +376,13 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
      *     supplier_sku?:?string,
      *     description:string,
      *     quantity_ordered:float,
+     *     packs_ordered?:?float,
+     *     pack_size?:?float,
      *     unit_cost:float,
      *     expected_date?:?string,
-     *     quantity_cancelled?:?float
+     *     quantity_cancelled?:?float,
+     *     purchase_uom?:?string,
+     *     stock_uom?:?string
      *   }>
      * } $payload
      */
@@ -406,6 +447,10 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
                          description = :description,
                          quantity_ordered = :quantity_ordered,
                          quantity_cancelled = :quantity_cancelled,
+                         packs_ordered = :packs_ordered,
+                         pack_size = :pack_size,
+                         purchase_uom = :purchase_uom,
+                         stock_uom = :stock_uom,
                          unit_cost = :unit_cost,
                          expected_date = :expected_date,
                          updated_at = NOW()
@@ -413,8 +458,33 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
                 );
 
                 $lineInsert = $db->prepare(
-                    'INSERT INTO purchase_order_lines (purchase_order_id, inventory_item_id, supplier_sku, description, quantity_ordered, quantity_cancelled, unit_cost, expected_date)
-                     VALUES (:purchase_order_id, :inventory_item_id, :supplier_sku, :description, :quantity_ordered, :quantity_cancelled, :unit_cost, :expected_date)'
+                    'INSERT INTO purchase_order_lines (
+                        purchase_order_id,
+                        inventory_item_id,
+                        supplier_sku,
+                        description,
+                        quantity_ordered,
+                        quantity_cancelled,
+                        packs_ordered,
+                        pack_size,
+                        purchase_uom,
+                        stock_uom,
+                        unit_cost,
+                        expected_date
+                    ) VALUES (
+                        :purchase_order_id,
+                        :inventory_item_id,
+                        :supplier_sku,
+                        :description,
+                        :quantity_ordered,
+                        :quantity_cancelled,
+                        :packs_ordered,
+                        :pack_size,
+                        :purchase_uom,
+                        :stock_uom,
+                        :unit_cost,
+                        :expected_date
+                    )'
                 );
 
                 $seenIds = [];
@@ -442,6 +512,10 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
                             ':description' => $line['description'],
                             ':quantity_ordered' => $quantity,
                             ':quantity_cancelled' => isset($line['quantity_cancelled']) ? max(0.0, (float) $line['quantity_cancelled']) : 0.0,
+                            ':packs_ordered' => isset($line['packs_ordered']) ? (float) $line['packs_ordered'] : 0.0,
+                            ':pack_size' => isset($line['pack_size']) ? (float) $line['pack_size'] : 0.0,
+                            ':purchase_uom' => $line['purchase_uom'] ?? null,
+                            ':stock_uom' => $line['stock_uom'] ?? null,
                             ':unit_cost' => $unitCost,
                             ':expected_date' => $line['expected_date'] ?? null,
                         ]);
@@ -453,6 +527,10 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
                             ':description' => $line['description'],
                             ':quantity_ordered' => $quantity,
                             ':quantity_cancelled' => isset($line['quantity_cancelled']) ? max(0.0, (float) $line['quantity_cancelled']) : 0.0,
+                            ':packs_ordered' => isset($line['packs_ordered']) ? (float) $line['packs_ordered'] : 0.0,
+                            ':pack_size' => isset($line['pack_size']) ? (float) $line['pack_size'] : 0.0,
+                            ':purchase_uom' => $line['purchase_uom'] ?? null,
+                            ':stock_uom' => $line['stock_uom'] ?? null,
                             ':unit_cost' => $unitCost,
                             ':expected_date' => $line['expected_date'] ?? null,
                         ]);
@@ -783,9 +861,13 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
      *     description:?string,
      *     quantity_ordered:float,
      *     quantity_received:float,
+     *     packs_ordered:?float,
+     *     pack_size:?float,
      *     unit_cost:float,
      *     expected_date:?string,
      *     quantity_cancelled:float,
+     *     purchase_uom:?string,
+     *     stock_uom:?string,
      *     sku:?string,
      *     item:?string
      *   }>
@@ -815,7 +897,8 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
 
         $lineStatement = $db->prepare(
             'SELECT pol.id, pol.inventory_item_id, pol.supplier_sku, pol.description, pol.quantity_ordered, pol.quantity_received,
-                    pol.quantity_cancelled, pol.unit_cost, pol.expected_date, i.sku, i.item
+                    pol.quantity_cancelled, pol.packs_ordered, pol.pack_size, pol.purchase_uom, pol.stock_uom,
+                    pol.unit_cost, pol.expected_date, i.sku, i.item
              FROM purchase_order_lines pol
              LEFT JOIN inventory_items i ON i.id = pol.inventory_item_id
              WHERE pol.purchase_order_id = :id
@@ -837,6 +920,10 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
                 'quantity_ordered' => $line['quantity_ordered'] !== null ? (float) $line['quantity_ordered'] : 0.0,
                 'quantity_received' => $line['quantity_received'] !== null ? (float) $line['quantity_received'] : 0.0,
                 'quantity_cancelled' => $line['quantity_cancelled'] !== null ? (float) $line['quantity_cancelled'] : 0.0,
+                'packs_ordered' => $line['packs_ordered'] !== null ? (float) $line['packs_ordered'] : null,
+                'pack_size' => $line['pack_size'] !== null ? (float) $line['pack_size'] : null,
+                'purchase_uom' => $line['purchase_uom'] !== null ? (string) $line['purchase_uom'] : null,
+                'stock_uom' => $line['stock_uom'] !== null ? (string) $line['stock_uom'] : null,
                 'unit_cost' => $line['unit_cost'] !== null ? (float) $line['unit_cost'] : 0.0,
                 'expected_date' => $line['expected_date'] !== null ? (string) $line['expected_date'] : null,
                 'sku' => $line['sku'] !== null ? (string) $line['sku'] : null,
@@ -925,6 +1012,92 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
                     'status' => (string) $row['status'],
                     'order_date' => $row['order_date'] !== null ? (string) $row['order_date'] : null,
                     'expected_date' => $row['expected_date'] !== null ? (string) $row['expected_date'] : null,
+                    'outstanding_quantity' => $row['outstanding_quantity'] !== null ? (float) $row['outstanding_quantity'] : 0.0,
+                    'received_quantity' => $row['total_received'] !== null ? (float) $row['total_received'] : 0.0,
+                    'cancelled_quantity' => $row['total_cancelled'] !== null ? (float) $row['total_cancelled'] : 0.0,
+                    'line_count' => $row['line_count'] !== null ? (int) $row['line_count'] : 0,
+                ];
+            },
+            $rows
+        );
+    }
+
+    /**
+     * @return list<array{
+     *   id:int,
+     *   order_number:?string,
+     *   supplier_name:?string,
+     *   status:string,
+     *   order_date:?string,
+     *   expected_date:?string,
+     *   total_cost:float,
+     *   outstanding_quantity:float,
+     *   received_quantity:float,
+     *   cancelled_quantity:float,
+     *   line_count:int
+     * }>
+     */
+    function purchaseOrderListRecent(\PDO $db, string $filter = 'open', int $limit = 50): array
+    {
+        purchaseOrderEnsureSchema($db);
+
+        $limit = max(1, $limit);
+        $filterKey = strtolower(trim($filter));
+        $where = '';
+        $params = [];
+
+        if ($filterKey === 'open') {
+            $statuses = purchaseOrderOpenStatuses();
+            $quoted = implode(', ', array_map(static fn (string $status): string => $db->quote($status), $statuses));
+            $where = 'WHERE po.status IN (' . $quoted . ')';
+        } elseif ($filterKey !== '' && $filterKey !== 'all' && in_array($filterKey, purchaseOrderStatusList(), true)) {
+            $where = 'WHERE po.status = :status';
+            $params[':status'] = $filterKey;
+        }
+
+        $sql =
+            "SELECT\n"
+            . "    po.id,\n"
+            . "    po.order_number,\n"
+            . "    po.status,\n"
+            . "    po.order_date,\n"
+            . "    po.expected_date,\n"
+            . "    po.total_cost,\n"
+            . "    s.name AS supplier_name,\n"
+            . "    COALESCE(SUM(GREATEST(pol.quantity_ordered - pol.quantity_received - COALESCE(pol.quantity_cancelled, 0), 0)), 0) AS outstanding_quantity,\n"
+            . "    COALESCE(SUM(pol.quantity_received), 0) AS total_received,\n"
+            . "    COALESCE(SUM(pol.quantity_cancelled), 0) AS total_cancelled,\n"
+            . "    COUNT(pol.id) AS line_count\n"
+            . "FROM purchase_orders po\n"
+            . "LEFT JOIN suppliers s ON s.id = po.supplier_id\n"
+            . "LEFT JOIN purchase_order_lines pol ON pol.purchase_order_id = po.id\n"
+            . $where . "\n"
+            . "GROUP BY po.id, po.order_number, po.status, po.order_date, po.expected_date, po.total_cost, s.name\n"
+            . "ORDER BY po.created_at DESC, po.id DESC\n"
+            . "LIMIT :limit";
+
+        $statement = $db->prepare($sql);
+        $statement->bindValue(':limit', $limit, \PDO::PARAM_INT);
+
+        foreach ($params as $key => $value) {
+            $statement->bindValue($key, $value);
+        }
+
+        $statement->execute();
+
+        /** @var array<int,array<string,mixed>> $rows */
+        $rows = $statement->fetchAll();
+
+        return array_map(
+            static function (array $row): array {
+                return [
+                    'id' => (int) $row['id'],
+                    'order_number' => $row['order_number'] !== null ? (string) $row['order_number'] : null,
+                    'supplier_name' => $row['supplier_name'] !== null ? (string) $row['supplier_name'] : null,
+                    'status' => (string) $row['status'],
+                    'order_date' => $row['order_date'] !== null ? (string) $row['order_date'] : null,
+                    'expected_date' => $row['expected_date'] !== null ? (string) $row['expected_date'] : null,
+                    'total_cost' => $row['total_cost'] !== null ? (float) $row['total_cost'] : 0.0,
                     'outstanding_quantity' => $row['outstanding_quantity'] !== null ? (float) $row['outstanding_quantity'] : 0.0,
                     'received_quantity' => $row['total_received'] !== null ? (float) $row['total_received'] : 0.0,
                     'cancelled_quantity' => $row['total_cancelled'] !== null ? (float) $row['total_cancelled'] : 0.0,
@@ -1039,6 +1212,7 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
         $lineStatement = $db->prepare(
             'SELECT porl.receipt_id, porl.purchase_order_line_id, porl.quantity_received, porl.quantity_cancelled,
                     pol.description, pol.supplier_sku, pol.inventory_item_id,
+                    pol.packs_ordered, pol.pack_size, pol.purchase_uom, pol.stock_uom,
                     i.sku, i.item
              FROM purchase_order_receipt_lines porl
              JOIN purchase_order_lines pol ON pol.id = porl.purchase_order_line_id
@@ -1060,6 +1234,10 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
                 'description' => $line['description'] !== null ? (string) $line['description'] : null,
                 'quantity_received' => $line['quantity_received'] !== null ? (float) $line['quantity_received'] : 0.0,
                 'quantity_cancelled' => $line['quantity_cancelled'] !== null ? (float) $line['quantity_cancelled'] : 0.0,
+                'packs_ordered' => $line['packs_ordered'] !== null ? (float) $line['packs_ordered'] : null,
+                'pack_size' => $line['pack_size'] !== null ? (float) $line['pack_size'] : null,
+                'purchase_uom' => $line['purchase_uom'] !== null ? (string) $line['purchase_uom'] : null,
+                'stock_uom' => $line['stock_uom'] !== null ? (string) $line['stock_uom'] : null,
                 'sku' => $line['sku'] !== null ? (string) $line['sku'] : null,
                 'item' => $line['item'] !== null ? (string) $line['item'] : null,
             ];
@@ -1080,5 +1258,47 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
             },
             $receipts
         );
+    }
+
+    function purchaseOrderFormatLineQuantity(array $line): string
+    {
+        $quantityEach = isset($line['quantity_ordered']) ? (float) $line['quantity_ordered'] : 0.0;
+        $packSize = isset($line['pack_size']) ? max(0.0, (float) $line['pack_size']) : 0.0;
+        $packs = isset($line['packs_ordered']) ? max(0.0, (float) $line['packs_ordered']) : 0.0;
+        $purchaseUom = isset($line['purchase_uom']) && $line['purchase_uom'] !== null ? trim((string) $line['purchase_uom']) : '';
+        $stockUom = isset($line['stock_uom']) && $line['stock_uom'] !== null ? trim((string) $line['stock_uom']) : '';
+
+        $eachValue = rtrim(rtrim(number_format($quantityEach, 3, '.', ','), '0'), '.');
+        if ($eachValue === '') {
+            $eachValue = '0';
+        }
+        $eachLabel = $eachValue . ' ' . ($stockUom !== '' ? $stockUom : 'ea');
+
+        if ($packSize > 0.0 && $packs > 0.0) {
+            $packValue = rtrim(rtrim(number_format($packs, 3, '.', ','), '0'), '.');
+            if ($packValue === '') {
+                $packValue = '0';
+            }
+
+            $packLabel = $packValue . ' ' . ($purchaseUom !== '' ? $purchaseUom : 'pack');
+
+            return $packLabel . ' (' . $eachLabel . ')';
+        }
+
+        return $eachLabel;
+    }
+
+    function purchaseOrderFormatQuantityForLine(array $line, float $quantityEach): string
+    {
+        $packSize = isset($line['pack_size']) ? max(0.0, (float) $line['pack_size']) : 0.0;
+        $packs = $packSize > 0.0 ? $quantityEach / $packSize : 0.0;
+
+        return purchaseOrderFormatLineQuantity([
+            'quantity_ordered' => $quantityEach,
+            'packs_ordered' => $packs,
+            'pack_size' => $packSize,
+            'purchase_uom' => $line['purchase_uom'] ?? null,
+            'stock_uom' => $line['stock_uom'] ?? null,
+        ]);
     }
 }
