@@ -204,6 +204,32 @@ if (!function_exists('loadInventory')) {
         return round($shortfall, 3);
     }
 
+    function inventoryQuantityToEach(float $quantity, float $packSize, string $unit): float
+    {
+        $quantity = (float) $quantity;
+        $packSize = (float) max($packSize, 0.0);
+        $unit = strtolower(trim($unit));
+
+        if ($unit === 'pack' && $packSize > 0.0) {
+            return $quantity * $packSize;
+        }
+
+        return $quantity;
+    }
+
+    function inventoryEachToUnit(float $eachQuantity, float $packSize, string $unit): float
+    {
+        $eachQuantity = (float) $eachQuantity;
+        $packSize = (float) max($packSize, 0.0);
+        $unit = strtolower(trim($unit));
+
+        if ($unit === 'pack' && $packSize > 0.0) {
+            return $eachQuantity / $packSize;
+        }
+
+        return $eachQuantity;
+    }
+
     /**
      * Number of trailing days used when calculating average daily usage.
      */
