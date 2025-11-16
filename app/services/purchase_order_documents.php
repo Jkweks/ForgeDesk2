@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use Dompdf\Dompdf;
+
 require_once __DIR__ . '/../helpers/xlsx.php';
 require_once __DIR__ . '/../data/purchase_orders.php';
 require_once __DIR__ . '/../data/inventory.php';
@@ -456,128 +458,16 @@ if (!function_exists('purchaseOrderTubeliteCategory')) {
         return $html;
     }
 
-    /**
-     * @return list<string>
-     */
-    function purchaseOrderBuildPdfLines(array $purchaseOrder): array
-    {
-        $orderNumber = $purchaseOrder['order_number'] ?? sprintf('PO-%d', $purchaseOrder['id']);
-        $orderDate = $purchaseOrder['order_date'] ?? date('Y-m-d');
-        $expectedDate = $purchaseOrder['expected_date'] ?? 'TBD';
-        $supplierName = $purchaseOrder['supplier']['name'] ?? 'Unknown Supplier';
-        $supplierContact = $purchaseOrder['supplier']['contact_name'] ?? '';
-        $supplierEmail = $purchaseOrder['supplier']['contact_email'] ?? '';
-        $supplierPhone = $purchaseOrder['supplier']['contact_phone'] ?? '';
-
-        $lines = [];
-        $lines[] = 'Purchase Order ' . $orderNumber;
-        $lines[] = 'Supplier: ' . $supplierName;
-        if ($supplierContact !== '') {
-            $lines[] = 'Contact: ' . $supplierContact;
-        }
-        if ($supplierEmail !== '') {
-            $lines[] = 'Email: ' . $supplierEmail;
-        }
-        if ($supplierPhone !== '') {
-            $lines[] = 'Phone: ' . $supplierPhone;
-        }
-        $lines[] = 'Order Date: ' . $orderDate;
-        $lines[] = 'Expected Date: ' . $expectedDate;
-        $lines[] = '';
-        $lines[] = sprintf('%-18s %-44s %14s %10s %10s', 'SKU', 'Description', 'Qty', 'Unit', 'Total');
-
-        $total = 0.0;
-        foreach ($purchaseOrder['lines'] as $line) {
-            $quantity = (float) $line['quantity_ordered'];
-            $unitCost = (float) $line['unit_cost'];
-            $lineTotal = $quantity * $unitCost;
-            $total += $lineTotal;
-            $quantityLabel = purchaseOrderFormatLineQuantity($line);
-
-            $sku = $line['sku'] ?? $line['supplier_sku'] ?? '';
-            $description = $line['description'] ?? $line['item'] ?? '';
-
-            $lines[] = sprintf(
-                '%-18s %-44s %14s %10s %10s',
-                substr($sku, 0, 18),
-                substr($description, 0, 44),
-                substr($quantityLabel, 0, 14),
-                number_format($unitCost, 2, '.', ''),
-                number_format($lineTotal, 2, '.', '')
-            );
-        }
-
-        $lines[] = '';
-        $lines[] = 'Total: ' . number_format($total, 2, '.', '');
-
-        if (!empty($purchaseOrder['notes'])) {
-            $lines[] = '';
-            $lines[] = 'Notes: ' . preg_replace('/\s+/', ' ', (string) $purchaseOrder['notes']);
-        }
-
-        return $lines;
-    }
-
-    /**
-     * @param list<string> $lines
-     */
-    function purchaseOrderGenerateSimplePdf(array $lines): string
-    {
-        $content = "BT\n/F1 12 Tf\n";
-        $y = 780.0;
-
-        foreach ($lines as $line) {
-            $escaped = str_replace(['\\', '(', ')'], ['\\\\', '\\(', '\\)'], $line);
-            $content .= sprintf("1 0 0 1 72 %.2f Tm (%s) Tj\n", $y, $escaped);
-            $y -= 14.0;
-        }
-
-        $content .= "ET\n";
-        $length = strlen($content);
-
-        $objects = [
-            "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n",
-            "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n",
-            "3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj\n",
-            "4 0 obj << /Length $length >> stream\n$content\nendstream endobj\n",
-            "5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n",
-        ];
-
-        $pdf = "%PDF-1.4\n";
-        $offsets = [];
-        $position = strlen($pdf);
-
-        foreach ($objects as $object) {
-            $offsets[] = $position;
-            $pdf .= $object;
-            $position += strlen($object);
-        }
-
-        $xrefPosition = $position;
-        $pdf .= 'xref\n0 ' . (count($objects) + 1) . "\n";
-        $pdf .= "0000000000 65535 f \n";
-
-        foreach ($offsets as $offset) {
-            $pdf .= sprintf('%010d 00000 n ', $offset) . "\n";
-        }
-
-        $pdf .= 'trailer << /Size ' . (count($objects) + 1) . ' /Root 1 0 R >>\n';
-        $pdf .= 'startxref\n' . $xrefPosition . "\n%%EOF";
-
-        return $pdf;
-    }
-
     function generatePurchaseOrderPdfContent(\PDO $db, int $purchaseOrderId): string
     {
-        $purchaseOrder = loadPurchaseOrder($db, $purchaseOrderId);
+        $html = generatePurchaseOrderHtml($db, $purchaseOrderId);
 
-        if ($purchaseOrder === null) {
-            throw new \RuntimeException('Purchase order not found.');
-        }
+        $dompdf = new Dompdf();
+        $dompdf->loadHtml($html);
+        $dompdf->setPaper('letter', 'portrait');
+        $dompdf->render();
 
-        $lines = purchaseOrderBuildPdfLines($purchaseOrder);
-
-        return purchaseOrderGenerateSimplePdf($lines);
+        return $dompdf->output();
     }
 
     function writePurchaseOrderPdf(\PDO $db, int $purchaseOrderId, string $outputPath): void
