@@ -161,10 +161,11 @@ if (!function_exists('purchaseOrderTubeliteCategory')) {
 
     /**
      * Populate a Tubelite EZ Estimate worksheet without disturbing the rest of the template.
+     * Only the quantity, part number, and finish columns are touched so existing formulas remain intact.
      *
-     * @param list<array{quantity:float,part_number:string,finish:string,color?:string,description:string,unit_cost:float}> $rows
+     * @param list<array{quantity:float,part_number:string,finish:?string}> $rows
      */
-    function purchaseOrderPopulateEzEstimateSheet(\ZipArchive $archive, string $sheetName, array $rows, int $startRow = 11): void
+    function purchaseOrderPopulateEzEstimateSheet(\ZipArchive $archive, string $sheetName, array $rows, int $startRow = 11, int $maxRows = 35): void
     {
         $sheetPath = xlsxResolveSheetPath($archive, $sheetName);
         $original = $archive->getFromName($sheetPath);
@@ -202,34 +203,33 @@ if (!function_exists('purchaseOrderTubeliteCategory')) {
         }
 
         $rowCount = count($rows);
-        $processCount = max($rowCount + 1, 1);
 
-        for ($i = 0; $i < $processCount; $i++) {
+        if ($rowCount > $maxRows) {
+            throw new \InvalidArgumentException(sprintf(
+                'Worksheet "%s" cannot accept more than %d rows of data.',
+                $sheetName,
+                $maxRows
+            ));
+        }
+
+        for ($i = 0; $i < $maxRows; $i++) {
             $rowNumber = $startRow + $i;
             $rowElement = purchaseOrderGetOrCreateRow($document, $sheetData, $rowCache, $rowNumber, $namespace);
-            $data = $rows[$i] ?? [
-                'quantity' => 0.0,
-                'part_number' => '',
-                'finish' => '',
-                'color' => '',
-                'description' => '',
-                'unit_cost' => 0.0,
-            ];
+            if (isset($rows[$i])) {
+                $data = $rows[$i];
+                $quantity = isset($data['quantity']) ? (float) $data['quantity'] : 0.0;
+                $partNumber = trim((string) ($data['part_number'] ?? ''));
+                $finish = $data['finish'] ?? '';
+                $finish = $finish !== null ? strtoupper(trim((string) $finish)) : '';
 
-            $quantity = isset($data['quantity']) ? (float) $data['quantity'] : 0.0;
-            $partNumber = isset($data['part_number']) ? (string) $data['part_number'] : '';
-            $finish = isset($data['finish']) ? strtoupper((string) $data['finish']) : '';
-            $color = isset($data['color']) ? (string) $data['color'] : '';
-            $description = isset($data['description']) ? (string) $data['description'] : '';
-            $unitCost = isset($data['unit_cost']) ? (float) $data['unit_cost'] : 0.0;
-
-            purchaseOrderSetNumericCell($document, $rowElement, 'A', $rowNumber, $quantity, $namespace, 3);
-            purchaseOrderSetTextCell($document, $rowElement, 'B', $rowNumber, $partNumber, $namespace);
-            purchaseOrderSetTextCell($document, $rowElement, 'C', $rowNumber, $finish, $namespace);
-            purchaseOrderSetTextCell($document, $rowElement, 'D', $rowNumber, $color, $namespace);
-            purchaseOrderSetTextCell($document, $rowElement, 'E', $rowNumber, $description, $namespace);
-            purchaseOrderSetNumericCell($document, $rowElement, 'F', $rowNumber, $unitCost, $namespace, 2);
-            purchaseOrderSetNumericCell($document, $rowElement, 'G', $rowNumber, $unitCost, $namespace, 2);
+                purchaseOrderSetNumericCell($document, $rowElement, 'A', $rowNumber, $quantity, $namespace, 3);
+                purchaseOrderSetTextCell($document, $rowElement, 'B', $rowNumber, $partNumber, $namespace);
+                purchaseOrderSetTextCell($document, $rowElement, 'C', $rowNumber, $finish, $namespace);
+            } else {
+                purchaseOrderSetNumericCell($document, $rowElement, 'A', $rowNumber, null, $namespace, 3);
+                purchaseOrderSetTextCell($document, $rowElement, 'B', $rowNumber, '', $namespace);
+                purchaseOrderSetTextCell($document, $rowElement, 'C', $rowNumber, '', $namespace);
+            }
         }
 
         $archive->addFromString($sheetPath, $document->saveXML());
@@ -322,17 +322,12 @@ if (!function_exists('purchaseOrderTubeliteCategory')) {
             $parsed = inventoryParseSku($line['sku'] ?? $sku);
             $partNumber = $parsed['part_number'] !== '' ? $parsed['part_number'] : ($line['supplier_sku'] ?? $line['sku'] ?? '');
             $finish = $parsed['finish'] ?? '';
-            $description = $line['description'] ?? $line['item'] ?? $partNumber;
             $quantity = (float) $line['quantity_ordered'];
-            $unitCost = (float) $line['unit_cost'];
 
             $sheetRows[$sheetName][] = [
                 'quantity' => $quantity,
                 'part_number' => $partNumber,
                 'finish' => $finish,
-                'color' => '',
-                'description' => $description,
-                'unit_cost' => $unitCost,
             ];
         }
 
@@ -341,9 +336,41 @@ if (!function_exists('purchaseOrderTubeliteCategory')) {
             throw new \RuntimeException('Unable to open Tubelite workbook for writing.');
         }
 
+        $maxRowsPerSheet = 35;
+        $sheetGroups = [
+            'Accessories' => ['Accessories', 'Accessories (2)', 'Accessories (3)'],
+            'Stock Lengths' => ['Stock Lengths', 'Stock Lengths (2)', 'Stock Lengths (3)'],
+        ];
+
         try {
-            purchaseOrderPopulateEzEstimateSheet($archive, 'Accessories', $sheetRows['Accessories']);
-            purchaseOrderPopulateEzEstimateSheet($archive, 'Stock Lengths', $sheetRows['Stock Lengths']);
+            foreach ($sheetGroups as $groupKey => $sheetNames) {
+                $rows = $sheetRows[$groupKey];
+                $rowCount = count($rows);
+                $offset = 0;
+
+                foreach ($sheetNames as $index => $sheetName) {
+                    if ($offset >= $rowCount) {
+                        if ($rowCount === 0 && $index === 0) {
+                            break;
+                        }
+
+                        purchaseOrderPopulateEzEstimateSheet($archive, $sheetName, [], 11, $maxRowsPerSheet);
+                        continue;
+                    }
+
+                    $slice = array_slice($rows, $offset, $maxRowsPerSheet);
+                    purchaseOrderPopulateEzEstimateSheet($archive, $sheetName, $slice, 11, $maxRowsPerSheet);
+                    $offset += count($slice);
+                }
+
+                if ($offset < $rowCount) {
+                    throw new \RuntimeException(sprintf(
+                        'Tubelite EZ Estimate template does not contain enough "%s" worksheets to fit %d rows.',
+                        strtolower($groupKey),
+                        $rowCount
+                    ));
+                }
+            }
             purchaseOrderResetCalcChain($archive);
         } finally {
             $archive->close();
