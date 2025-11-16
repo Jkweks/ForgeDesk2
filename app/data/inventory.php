@@ -1349,7 +1349,10 @@ if (!function_exists('loadInventory')) {
      *   average_daily_use:?float,
      *   active_reservations:int,
      *   discontinued:bool,
-     *   id:int
+     *   id:int,
+     *   pack_size:float,
+     *   purchase_uom:?string,
+     *   stock_uom:?string
      * }|null
      */
     function findInventoryItem(\PDO $db, int $id): ?array
@@ -1372,7 +1375,9 @@ if (!function_exists('loadInventory')) {
             'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, '
             . $committedSelect . ' AS committed_qty, '
             . '(i.stock - ' . $committedSelect . ') AS available_qty, i.status, i.supplier, i.supplier_contact, '
-            . 'i.reorder_point, i.lead_time_days, i.average_daily_use, ' . $activeSelect . ' AS active_reservations '
+            . 'i.reorder_point, i.lead_time_days, i.average_daily_use, '
+            . 'i.pack_size, i.purchase_uom, i.stock_uom, '
+            . $activeSelect . ' AS active_reservations '
             . 'FROM inventory_items i '
             . $joinCommitments
             . $joinClause
@@ -1395,6 +1400,8 @@ if (!function_exists('loadInventory')) {
 
         $averageUsage = inventoryCalculateAverageDailyUseMap($db, [$id]);
 
+        $packSize = inventoryNormalizeNumericValue($row['pack_size'] ?? 0.0);
+
         return [
             'id' => $id,
             'item' => (string) $row['item'],
@@ -1413,6 +1420,9 @@ if (!function_exists('loadInventory')) {
             'average_daily_use' => $averageUsage[$id] ?? null,
             'active_reservations' => (int) $row['active_reservations'],
             'discontinued' => inventoryIsDiscontinuedStatus($storedStatus),
+            'pack_size' => $packSize,
+            'purchase_uom' => $row['purchase_uom'] !== null ? (string) $row['purchase_uom'] : null,
+            'stock_uom' => $row['stock_uom'] !== null ? (string) $row['stock_uom'] : null,
         ];
     }
 
@@ -1438,7 +1448,10 @@ if (!function_exists('loadInventory')) {
      *   average_daily_use:?float,
      *   active_reservations:int,
      *   discontinued:bool,
-     *   id:int
+     *   id:int,
+     *   pack_size:float,
+     *   purchase_uom:?string,
+     *   stock_uom:?string
      * }|null
      */
     function findInventoryItemBySku(\PDO $db, string $sku): ?array
@@ -1461,7 +1474,9 @@ if (!function_exists('loadInventory')) {
             'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, '
             . $committedSelect . ' AS committed_qty, '
             . '(i.stock - ' . $committedSelect . ') AS available_qty, i.status, i.supplier, i.supplier_contact, '
-            . 'i.reorder_point, i.lead_time_days, i.average_daily_use, ' . $activeSelect . ' AS active_reservations '
+            . 'i.reorder_point, i.lead_time_days, i.average_daily_use, '
+            . 'i.pack_size, i.purchase_uom, i.stock_uom, '
+            . $activeSelect . ' AS active_reservations '
             . 'FROM inventory_items i '
             . $joinCommitments
             . $joinClause
@@ -1484,6 +1499,8 @@ if (!function_exists('loadInventory')) {
 
         $averageUsage = inventoryCalculateAverageDailyUseMap($db, [$id]);
 
+        $packSize = inventoryNormalizeNumericValue($row['pack_size'] ?? 0.0);
+
         return [
             'id' => $id,
             'item' => (string) $row['item'],
@@ -1502,6 +1519,9 @@ if (!function_exists('loadInventory')) {
             'average_daily_use' => $averageUsage[$id] ?? null,
             'active_reservations' => (int) $row['active_reservations'],
             'discontinued' => inventoryIsDiscontinuedStatus($storedStatus),
+            'pack_size' => $packSize,
+            'purchase_uom' => $row['purchase_uom'] !== null ? (string) $row['purchase_uom'] : null,
+            'stock_uom' => $row['stock_uom'] !== null ? (string) $row['stock_uom'] : null,
         ];
     }
 
@@ -1519,18 +1539,29 @@ if (!function_exists('loadInventory')) {
      *   supplier:string,
      *   supplier_contact:?string,
      *   reorder_point:int,
-     *   lead_time_days:int
+     *   lead_time_days:int,
+     *   pack_size:float,
+     *   purchase_uom:?string,
+     *   stock_uom:?string
      * } $payload
      */
     function createInventoryItem(\PDO $db, array $payload): int
     {
         ensureInventorySchema($db);
 
+        $packSize = isset($payload['pack_size']) ? (float) $payload['pack_size'] : 0.0;
+        $purchaseUom = isset($payload['purchase_uom']) && $payload['purchase_uom'] !== null && $payload['purchase_uom'] !== ''
+            ? (string) $payload['purchase_uom']
+            : null;
+        $stockUom = isset($payload['stock_uom']) && $payload['stock_uom'] !== null && $payload['stock_uom'] !== ''
+            ? (string) $payload['stock_uom']
+            : null;
+
         $statement = $db->prepare(
             'INSERT INTO inventory_items (item, sku, part_number, finish, location, stock, status, supplier, '
-            . 'supplier_contact, reorder_point, lead_time_days, average_daily_use) '
+            . 'supplier_contact, reorder_point, lead_time_days, average_daily_use, pack_size, purchase_uom, stock_uom) '
             . 'VALUES (:item, :sku, :part_number, :finish, :location, :stock, :status, :supplier, :supplier_contact, '
-            . ':reorder_point, :lead_time_days, :average_daily_use) RETURNING id'
+            . ':reorder_point, :lead_time_days, :average_daily_use, :pack_size, :purchase_uom, :stock_uom) RETURNING id'
         );
 
         $statement->execute([
@@ -1546,6 +1577,9 @@ if (!function_exists('loadInventory')) {
             ':reorder_point' => $payload['reorder_point'],
             ':lead_time_days' => $payload['lead_time_days'],
             ':average_daily_use' => null,
+            ':pack_size' => $packSize,
+            ':purchase_uom' => $purchaseUom,
+            ':stock_uom' => $stockUom,
         ]);
 
         return (int) $statement->fetchColumn();
@@ -1565,18 +1599,30 @@ if (!function_exists('loadInventory')) {
      *   supplier:string,
      *   supplier_contact:?string,
      *   reorder_point:int,
-     *   lead_time_days:int
+     *   lead_time_days:int,
+     *   pack_size:float,
+     *   purchase_uom:?string,
+     *   stock_uom:?string
      * } $payload
      */
     function updateInventoryItem(\PDO $db, int $id, array $payload): void
     {
         ensureInventorySchema($db);
 
+        $packSize = isset($payload['pack_size']) ? (float) $payload['pack_size'] : 0.0;
+        $purchaseUom = isset($payload['purchase_uom']) && $payload['purchase_uom'] !== null && $payload['purchase_uom'] !== ''
+            ? (string) $payload['purchase_uom']
+            : null;
+        $stockUom = isset($payload['stock_uom']) && $payload['stock_uom'] !== null && $payload['stock_uom'] !== ''
+            ? (string) $payload['stock_uom']
+            : null;
+
         $statement = $db->prepare(
             'UPDATE inventory_items SET item = :item, sku = :sku, part_number = :part_number, finish = :finish, '
             . 'location = :location, stock = :stock, status = :status, supplier = :supplier, '
             . 'supplier_contact = :supplier_contact, reorder_point = :reorder_point, lead_time_days = :lead_time_days, '
-            . 'average_daily_use = :average_daily_use WHERE id = :id'
+            . 'average_daily_use = :average_daily_use, pack_size = :pack_size, purchase_uom = :purchase_uom, '
+            . 'stock_uom = :stock_uom WHERE id = :id'
         );
 
         $statement->execute([
@@ -1593,6 +1639,9 @@ if (!function_exists('loadInventory')) {
             ':reorder_point' => $payload['reorder_point'],
             ':lead_time_days' => $payload['lead_time_days'],
             ':average_daily_use' => null,
+            ':pack_size' => $packSize,
+            ':purchase_uom' => $purchaseUom,
+            ':stock_uom' => $stockUom,
         ]);
     }
 }

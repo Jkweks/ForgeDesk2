@@ -37,6 +37,9 @@ $formData = [
     'supplier_contact' => '',
     'reorder_point' => '0',
     'lead_time_days' => '0',
+    'pack_size' => '0',
+    'purchase_uom' => '',
+    'stock_uom' => '',
     'category' => '',
     'subcategories' => [],
     'discontinued' => false,
@@ -83,6 +86,9 @@ if ($dbError === null) {
         $stockRaw = trim((string) ($_POST['stock'] ?? '0'));
         $reorderRaw = trim((string) ($_POST['reorder_point'] ?? '0'));
         $leadTimeRaw = trim((string) ($_POST['lead_time_days'] ?? '0'));
+        $packSizeRaw = trim((string) ($_POST['pack_size'] ?? ''));
+        $purchaseUomRaw = strtolower(trim((string) ($_POST['purchase_uom'] ?? '')));
+        $stockUomRaw = trim((string) ($_POST['stock_uom'] ?? ''));
         $formData = [
             'item' => $payload['item'],
             'part_number' => $payload['part_number'],
@@ -94,6 +100,9 @@ if ($dbError === null) {
             'supplier_contact' => $payload['supplier_contact'],
             'reorder_point' => $reorderRaw,
             'lead_time_days' => $leadTimeRaw,
+            'pack_size' => $packSizeRaw !== '' ? $packSizeRaw : '0',
+            'purchase_uom' => $purchaseUomRaw,
+            'stock_uom' => $stockUomRaw,
             'category' => trim((string) ($_POST['category'] ?? '')),
             'subcategories' => [],
             'discontinued' => $isDiscontinued,
@@ -156,6 +165,41 @@ if ($dbError === null) {
         $payload['reorder_point'] = $reorderPoint === false ? 0 : $reorderPoint;
         $payload['lead_time_days'] = $leadTimeDays === false ? 0 : $leadTimeDays;
         $payload['supplier_contact'] = $payload['supplier_contact'] !== '' ? $payload['supplier_contact'] : null;
+
+        $packSize = 0.0;
+        if ($packSizeRaw === '') {
+            $formData['pack_size'] = '0';
+        } elseif (!is_numeric($packSizeRaw)) {
+            $errors['pack_size'] = 'Pack size must be a number.';
+        } else {
+            $packSize = (float) $packSizeRaw;
+            if ($packSize < 0) {
+                $errors['pack_size'] = 'Pack size cannot be negative.';
+            } else {
+                $formData['pack_size'] = number_format($packSize, 3, '.', '');
+            }
+        }
+
+        $purchaseUom = null;
+        if ($purchaseUomRaw !== '') {
+            if (!in_array($purchaseUomRaw, ['pack', 'each'], true)) {
+                $errors['purchase_uom'] = 'Select a valid purchase unit.';
+            } else {
+                $purchaseUom = $purchaseUomRaw;
+                $formData['purchase_uom'] = $purchaseUomRaw;
+            }
+        } else {
+            $formData['purchase_uom'] = '';
+        }
+
+        $stockUomNormalized = $stockUomRaw !== ''
+            ? trim((string) (function_exists('mb_substr') ? mb_substr($stockUomRaw, 0, 16) : substr($stockUomRaw, 0, 16)))
+            : '';
+        $formData['stock_uom'] = $stockUomNormalized;
+
+        $payload['pack_size'] = $packSize;
+        $payload['purchase_uom'] = $purchaseUom;
+        $payload['stock_uom'] = $stockUomNormalized !== '' ? $stockUomNormalized : null;
 
         $finishRaw = $payload['finish'];
         $finish = $finishRaw !== '' ? inventoryNormalizeFinish($finishRaw) : null;
@@ -222,6 +266,9 @@ if ($dbError === null) {
 
             if ($existing !== null) {
                 $currentAverageDailyUse = $existing['average_daily_use'] ?? null;
+                $existingPackSize = isset($existing['pack_size']) ? (float) $existing['pack_size'] : 0.0;
+                $existingPurchaseUom = $existing['purchase_uom'] ?? '';
+                $existingStockUom = $existing['stock_uom'] ?? '';
                 $formData = [
                     'item' => $existing['item'],
                     'sku' => $existing['sku'],
@@ -233,6 +280,9 @@ if ($dbError === null) {
                     'supplier_contact' => $existing['supplier_contact'] ?? '',
                     'reorder_point' => (string) $existing['reorder_point'],
                     'lead_time_days' => (string) $existing['lead_time_days'],
+                    'pack_size' => number_format($existingPackSize, 3, '.', ''),
+                    'purchase_uom' => $existingPurchaseUom !== '' ? strtolower((string) $existingPurchaseUom) : '',
+                    'stock_uom' => $existingStockUom ?? '',
                     'category' => '',
                     'subcategories' => [],
                     'discontinued' => $existing['discontinued'],
@@ -493,13 +543,60 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
                 <p class="field-error"><?= e($errors['reorder_point']) ?></p>
               <?php endif; ?>
             </div>
+          </div>
 
-          <div class="field">
-            <label for="lead_time_days">Lead Time (days)<span aria-hidden="true">*</span></label>
-            <input type="number" id="lead_time_days" name="lead_time_days" min="0" value="<?= e($formData['lead_time_days']) ?>" required />
-            <?php if (!empty($errors['lead_time_days'])): ?>
-              <p class="field-error"><?= e($errors['lead_time_days']) ?></p>
-            <?php endif; ?>
+          <div class="field-grid">
+            <div class="field">
+              <label for="lead_time_days">Lead Time (days)<span aria-hidden="true">*</span></label>
+              <input type="number" id="lead_time_days" name="lead_time_days" min="0" value="<?= e($formData['lead_time_days']) ?>" required />
+              <?php if (!empty($errors['lead_time_days'])): ?>
+                <p class="field-error"><?= e($errors['lead_time_days']) ?></p>
+              <?php endif; ?>
+            </div>
+
+            <div class="field">
+              <label for="pack_size">Pack Size</label>
+              <input
+                type="number"
+                id="pack_size"
+                name="pack_size"
+                min="0"
+                step="0.01"
+                value="<?= e($formData['pack_size']) ?>"
+              />
+              <p class="field-help">Leave at 0 to order in eaches. Enter the number of eaches per pack when vendors require packs.</p>
+              <?php if (!empty($errors['pack_size'])): ?>
+                <p class="field-error"><?= e($errors['pack_size']) ?></p>
+              <?php endif; ?>
+            </div>
+          </div>
+
+          <div class="field-grid">
+            <div class="field">
+              <label for="purchase_uom">Purchase Unit</label>
+              <select id="purchase_uom" name="purchase_uom">
+                <option value="">Match packs/eaches automatically</option>
+                <option value="pack"<?= $formData['purchase_uom'] === 'pack' ? ' selected' : '' ?>>Packs</option>
+                <option value="each"<?= $formData['purchase_uom'] === 'each' ? ' selected' : '' ?>>Each</option>
+              </select>
+              <p class="field-help">Controls the default unit shown on Material Replenishment.</p>
+              <?php if (!empty($errors['purchase_uom'])): ?>
+                <p class="field-error"><?= e($errors['purchase_uom']) ?></p>
+              <?php endif; ?>
+            </div>
+
+            <div class="field">
+              <label for="stock_uom">Stock Unit</label>
+              <input
+                type="text"
+                id="stock_uom"
+                name="stock_uom"
+                value="<?= e($formData['stock_uom']) ?>"
+                maxlength="16"
+                placeholder="ea"
+              />
+              <p class="field-help">Displayed in replenishment tables and purchase orders (ex: ea, ft, kit).</p>
+            </div>
           </div>
 
           <div class="field">
@@ -509,7 +606,6 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
               <span class="muted">per day</span>
             </div>
             <p class="field-help">Calculated automatically from the last <?= e((string) inventoryAverageDailyUseWindowDays()) ?> days of usage adjustments.</p>
-          </div>
           </div>
 
           <div class="field">
