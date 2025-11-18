@@ -142,6 +142,105 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
     }
 
     /**
+     * @param list<array{inventory_item_id:?int}> $lines
+     * @return array<int,array{pack_size:float,purchase_uom:?string,stock_uom:?string,supplier_sku:?string,item:?string}>
+     */
+    function purchaseOrderLoadInventoryDefaults(\PDO $db, array $lines): array
+    {
+        if (!function_exists('ensureInventorySchema')) {
+            require_once __DIR__ . '/inventory.php';
+        }
+
+        ensureInventorySchema($db);
+        purchaseOrderEnsureSchema($db);
+
+        $ids = [];
+
+        foreach ($lines as $line) {
+            if (isset($line['inventory_item_id'])) {
+                $ids[] = (int) $line['inventory_item_id'];
+            }
+        }
+
+        $ids = array_values(array_unique(array_filter($ids, static fn (int $id): bool => $id > 0)));
+        if ($ids === []) {
+            return [];
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($ids), '?'));
+        $statement = $db->prepare(
+            'SELECT id, pack_size, purchase_uom, stock_uom, supplier_sku, item'
+            . ' FROM inventory_items'
+            . ' WHERE id IN (' . $placeholders . ')'
+        );
+
+        $statement->execute($ids);
+
+        /** @var array<int,array{id:int,pack_size:?string,purchase_uom:?string,stock_uom:?string,supplier_sku:?string,item:?string}> $rows */
+        $rows = $statement->fetchAll();
+        $map = [];
+
+        foreach ($rows as $row) {
+            $id = (int) $row['id'];
+            $map[$id] = [
+                'pack_size' => $row['pack_size'] !== null ? (float) $row['pack_size'] : 0.0,
+                'purchase_uom' => $row['purchase_uom'] !== null ? (string) $row['purchase_uom'] : null,
+                'stock_uom' => $row['stock_uom'] !== null ? (string) $row['stock_uom'] : null,
+                'supplier_sku' => $row['supplier_sku'] !== null ? (string) $row['supplier_sku'] : null,
+                'item' => $row['item'] !== null ? (string) $row['item'] : null,
+            ];
+        }
+
+        return $map;
+    }
+
+    /**
+     * @param array{inventory_item_id:?int,supplier_sku?:?string,description?:?string,quantity_ordered?:float,packs_ordered?:?float,pack_size?:?float,purchase_uom?:?string,stock_uom?:?string,unit_cost?:float,expected_date?:?string,quantity_cancelled?:?float} $line
+     * @param array<int,array{pack_size:float,purchase_uom:?string,stock_uom:?string,supplier_sku:?string,item:?string}> $inventoryDefaults
+     * @return array{inventory_item_id:?int,supplier_sku:?string,description:string,quantity_ordered:float,packs_ordered:float,pack_size:float,purchase_uom:?string,stock_uom:?string,unit_cost:float,expected_date:?string,quantity_cancelled:float}
+     */
+    function purchaseOrderNormalizeLine(array $line, array $inventoryDefaults): array
+    {
+        $inventoryItemId = $line['inventory_item_id'] ?? null;
+        $inventoryItemId = $inventoryItemId !== null ? (int) $inventoryItemId : null;
+        $defaults = $inventoryItemId !== null && isset($inventoryDefaults[$inventoryItemId]) ? $inventoryDefaults[$inventoryItemId] : ['pack_size' => 0.0, 'purchase_uom' => null, 'stock_uom' => null, 'supplier_sku' => null, 'item' => null];
+
+        $packSize = isset($line['pack_size']) ? max(0.0, (float) $line['pack_size']) : $defaults['pack_size'];
+        $packsOrdered = isset($line['packs_ordered']) ? max(0.0, (float) $line['packs_ordered']) : 0.0;
+        $quantityEach = isset($line['quantity_ordered']) ? max(0.0, (float) $line['quantity_ordered']) : 0.0;
+
+        if ($packSize > 0.0 && $packsOrdered > 0.0) {
+            $quantityEach = $packSize * $packsOrdered;
+        } elseif ($packSize > 0.0 && $quantityEach > 0.0 && $packsOrdered === 0.0) {
+            $packsOrdered = $quantityEach / $packSize;
+        }
+
+        $purchaseUom = $line['purchase_uom'] ?? $defaults['purchase_uom'];
+        $stockUom = $line['stock_uom'] ?? $defaults['stock_uom'];
+        $supplierSku = $line['supplier_sku'] ?? $defaults['supplier_sku'];
+        $quantityCancelled = isset($line['quantity_cancelled']) ? max(0.0, (float) $line['quantity_cancelled']) : 0.0;
+
+        $description = isset($line['description']) ? (string) $line['description'] : '';
+        if ($description === '' && $defaults['item'] !== null) {
+            $description = $defaults['item'];
+        }
+
+        return [
+            'inventory_item_id' => $inventoryItemId,
+            'supplier_sku' => $supplierSku,
+            'description' => $description,
+            'quantity_ordered' => $quantityEach,
+            'packs_ordered' => $packsOrdered,
+            'pack_size' => $packSize,
+            'purchase_uom' => $purchaseUom,
+            'stock_uom' => $stockUom,
+            'unit_cost' => isset($line['unit_cost']) ? (float) $line['unit_cost'] : 0.0,
+            'expected_date' => $line['expected_date'] ?? null,
+            'quantity_cancelled' => $quantityCancelled,
+        ];
+    }
+
+    /**
      * @param list<int> $itemIds
      * @return array<int,float>
      */
@@ -263,6 +362,7 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
         }
 
         $affectedItems = [];
+        $inventoryDefaults = purchaseOrderLoadInventoryDefaults($db, $payload['lines']);
 
         try {
             $db->beginTransaction();
@@ -317,26 +417,27 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
             $totalCost = 0.0;
 
             foreach ($payload['lines'] as $line) {
-                $quantity = (float) $line['quantity_ordered'];
-                $unitCost = (float) $line['unit_cost'];
+                $normalized = purchaseOrderNormalizeLine($line, $inventoryDefaults);
+                $quantity = $normalized['quantity_ordered'];
+                $unitCost = $normalized['unit_cost'];
 
                 $lineStatement->execute([
                     ':purchase_order_id' => $orderId,
-                    ':inventory_item_id' => $line['inventory_item_id'] ?? null,
-                    ':supplier_sku' => $line['supplier_sku'] ?? null,
-                    ':description' => $line['description'],
+                    ':inventory_item_id' => $normalized['inventory_item_id'],
+                    ':supplier_sku' => $normalized['supplier_sku'],
+                    ':description' => $normalized['description'],
                     ':quantity_ordered' => $quantity,
-                    ':quantity_cancelled' => isset($line['quantity_cancelled']) ? max(0.0, (float) $line['quantity_cancelled']) : 0.0,
+                    ':quantity_cancelled' => $normalized['quantity_cancelled'],
                     ':unit_cost' => $unitCost,
-                    ':expected_date' => $line['expected_date'] ?? null,
-                    ':packs_ordered' => isset($line['packs_ordered']) ? (float) $line['packs_ordered'] : 0.0,
-                    ':pack_size' => isset($line['pack_size']) ? (float) $line['pack_size'] : 0.0,
-                    ':purchase_uom' => $line['purchase_uom'] ?? null,
-                    ':stock_uom' => $line['stock_uom'] ?? null,
+                    ':expected_date' => $normalized['expected_date'],
+                    ':packs_ordered' => $normalized['packs_ordered'],
+                    ':pack_size' => $normalized['pack_size'],
+                    ':purchase_uom' => $normalized['purchase_uom'],
+                    ':stock_uom' => $normalized['stock_uom'],
                 ]);
 
-                if (isset($line['inventory_item_id'])) {
-                    $affectedItems[(int) $line['inventory_item_id']] = true;
+                if ($normalized['inventory_item_id'] !== null) {
+                    $affectedItems[(int) $normalized['inventory_item_id']] = true;
                 }
 
                 $totalCost += $quantity * $unitCost;
@@ -418,6 +519,7 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
         }
 
         $affectedItems = [];
+        $inventoryDefaults = isset($payload['lines']) ? purchaseOrderLoadInventoryDefaults($db, $payload['lines']) : [];
 
         try {
             $db->beginTransaction();
@@ -491,9 +593,10 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
                 $totalCost = 0.0;
 
                 foreach ($lines as $line) {
-                    $quantity = (float) $line['quantity_ordered'];
-                    $unitCost = (float) $line['unit_cost'];
-                    $inventoryItemId = $line['inventory_item_id'] ?? null;
+                    $normalized = purchaseOrderNormalizeLine($line, $inventoryDefaults);
+                    $quantity = $normalized['quantity_ordered'];
+                    $unitCost = $normalized['unit_cost'];
+                    $inventoryItemId = $normalized['inventory_item_id'];
 
                     if (isset($line['id']) && $line['id'] !== null && isset($existingIds[(int) $line['id']])) {
                         $lineId = (int) $line['id'];
@@ -508,36 +611,36 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
                             ':id' => $lineId,
                             ':purchase_order_id' => $purchaseOrderId,
                             ':inventory_item_id' => $inventoryItemId,
-                            ':supplier_sku' => $line['supplier_sku'] ?? null,
-                            ':description' => $line['description'],
+                            ':supplier_sku' => $normalized['supplier_sku'],
+                            ':description' => $normalized['description'],
                             ':quantity_ordered' => $quantity,
-                            ':quantity_cancelled' => isset($line['quantity_cancelled']) ? max(0.0, (float) $line['quantity_cancelled']) : 0.0,
-                            ':packs_ordered' => isset($line['packs_ordered']) ? (float) $line['packs_ordered'] : 0.0,
-                            ':pack_size' => isset($line['pack_size']) ? (float) $line['pack_size'] : 0.0,
-                            ':purchase_uom' => $line['purchase_uom'] ?? null,
-                            ':stock_uom' => $line['stock_uom'] ?? null,
+                            ':quantity_cancelled' => $normalized['quantity_cancelled'],
+                            ':packs_ordered' => $normalized['packs_ordered'],
+                            ':pack_size' => $normalized['pack_size'],
+                            ':purchase_uom' => $normalized['purchase_uom'],
+                            ':stock_uom' => $normalized['stock_uom'],
                             ':unit_cost' => $unitCost,
-                            ':expected_date' => $line['expected_date'] ?? null,
+                            ':expected_date' => $normalized['expected_date'],
                         ]);
                     } else {
                         $lineInsert->execute([
                             ':purchase_order_id' => $purchaseOrderId,
-                            ':inventory_item_id' => $inventoryItemId,
-                            ':supplier_sku' => $line['supplier_sku'] ?? null,
-                            ':description' => $line['description'],
+                            ':inventory_item_id' => $normalized['inventory_item_id'],
+                            ':supplier_sku' => $normalized['supplier_sku'],
+                            ':description' => $normalized['description'],
                             ':quantity_ordered' => $quantity,
-                            ':quantity_cancelled' => isset($line['quantity_cancelled']) ? max(0.0, (float) $line['quantity_cancelled']) : 0.0,
-                            ':packs_ordered' => isset($line['packs_ordered']) ? (float) $line['packs_ordered'] : 0.0,
-                            ':pack_size' => isset($line['pack_size']) ? (float) $line['pack_size'] : 0.0,
-                            ':purchase_uom' => $line['purchase_uom'] ?? null,
-                            ':stock_uom' => $line['stock_uom'] ?? null,
+                            ':quantity_cancelled' => $normalized['quantity_cancelled'],
+                            ':packs_ordered' => $normalized['packs_ordered'],
+                            ':pack_size' => $normalized['pack_size'],
+                            ':purchase_uom' => $normalized['purchase_uom'],
+                            ':stock_uom' => $normalized['stock_uom'],
                             ':unit_cost' => $unitCost,
-                            ':expected_date' => $line['expected_date'] ?? null,
+                            ':expected_date' => $normalized['expected_date'],
                         ]);
                     }
 
-                    if ($inventoryItemId !== null) {
-                        $affectedItems[(int) $inventoryItemId] = true;
+                    if ($normalized['inventory_item_id'] !== null) {
+                        $affectedItems[(int) $normalized['inventory_item_id']] = true;
                     }
 
                     $totalCost += $quantity * $unitCost;
