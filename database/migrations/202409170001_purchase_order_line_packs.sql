@@ -1,0 +1,9 @@
+BEGIN;
+
+ALTER TABLE purchase_order_lines
+    ADD COLUMN IF NOT EXISTS packs_ordered NUMERIC(18, 6) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS pack_size NUMERIC(18, 6) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS purchase_uom TEXT,
+    ADD COLUMN IF NOT EXISTS stock_uom TEXT;
+
+COMMIT;

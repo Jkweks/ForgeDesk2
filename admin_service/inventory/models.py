@@ -217,3 +217,171 @@ class InventoryTransactionLine(models.Model):
 
     def __str__(self) -> str:  # pragma: no cover - trivial
         return f"{self.transaction.reference} → {self.inventory_item.sku}"
+
+
+class Supplier(models.Model):
+    """Supplier metadata available in the admin."""
+
+    id = models.AutoField(primary_key=True)
+    name = models.CharField(max_length=255)
+    contact_name = models.CharField(max_length=255, blank=True, null=True)
+    contact_email = models.EmailField(max_length=255, blank=True, null=True)
+    contact_phone = models.CharField(max_length=255, blank=True, null=True)
+    default_lead_time_days = models.IntegerField(blank=True, null=True)
+    notes = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField()
+    updated_at = models.DateTimeField()
+
+    class Meta:
+        managed = False
+        db_table = "suppliers"
+        ordering = ["name"]
+        verbose_name = "Supplier"
+        verbose_name_plural = "Suppliers"
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return self.name
+
+
+class PurchaseOrder(models.Model):
+    """Purchase order header record."""
+
+    id = models.AutoField(primary_key=True)
+    order_number = models.CharField(max_length=255, blank=True, null=True)
+    supplier = models.ForeignKey(
+        Supplier,
+        on_delete=models.SET_NULL,
+        db_column="supplier_id",
+        related_name="purchase_orders",
+        blank=True,
+        null=True,
+    )
+    status = models.CharField(max_length=50)
+    order_date = models.DateField(blank=True, null=True)
+    expected_date = models.DateField(blank=True, null=True)
+    total_cost = models.DecimalField(max_digits=18, decimal_places=6, default=0)
+    notes = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField()
+    updated_at = models.DateTimeField()
+
+    class Meta:
+        managed = False
+        db_table = "purchase_orders"
+        ordering = ["-order_date", "-id"]
+        verbose_name = "Purchase order"
+        verbose_name_plural = "Purchase orders"
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        if self.order_number:
+            return f"PO {self.order_number}"
+        return f"PO #{self.id}"
+
+
+class PurchaseOrderLine(models.Model):
+    """Line item belonging to a purchase order."""
+
+    id = models.AutoField(primary_key=True)
+    purchase_order = models.ForeignKey(
+        PurchaseOrder,
+        on_delete=models.CASCADE,
+        db_column="purchase_order_id",
+        related_name="lines",
+    )
+    inventory_item = models.ForeignKey(
+        InventoryItem,
+        on_delete=models.SET_NULL,
+        db_column="inventory_item_id",
+        related_name="purchase_order_lines",
+        blank=True,
+        null=True,
+    )
+    supplier_sku = models.CharField(max_length=255, blank=True, null=True)
+    description = models.TextField(blank=True, null=True)
+    quantity_ordered = models.DecimalField(max_digits=18, decimal_places=6)
+    quantity_received = models.DecimalField(max_digits=18, decimal_places=6)
+    quantity_cancelled = models.DecimalField(max_digits=18, decimal_places=6)
+    unit_cost = models.DecimalField(max_digits=18, decimal_places=6)
+    expected_date = models.DateField(blank=True, null=True)
+    created_at = models.DateTimeField()
+    updated_at = models.DateTimeField()
+
+    class Meta:
+        managed = False
+        db_table = "purchase_order_lines"
+        ordering = ["purchase_order", "id"]
+        verbose_name = "Purchase order line"
+        verbose_name_plural = "Purchase order lines"
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return f"{self.purchase_order} line {self.id}"
+
+
+class PurchaseOrderReceipt(models.Model):
+    """Receipt event for a purchase order."""
+
+    id = models.AutoField(primary_key=True)
+    purchase_order = models.ForeignKey(
+        PurchaseOrder,
+        on_delete=models.CASCADE,
+        db_column="purchase_order_id",
+        related_name="receipts",
+    )
+    inventory_transaction = models.ForeignKey(
+        InventoryTransaction,
+        on_delete=models.SET_NULL,
+        db_column="inventory_transaction_id",
+        related_name="purchase_order_receipts",
+        blank=True,
+        null=True,
+    )
+    reference = models.CharField(max_length=255)
+    notes = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField()
+
+    class Meta:
+        managed = False
+        db_table = "purchase_order_receipts"
+        ordering = ["-created_at"]
+        verbose_name = "Purchase order receipt"
+        verbose_name_plural = "Purchase order receipts"
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return self.reference
+
+    @property
+    def total_received(self) -> float:
+        return sum(line.quantity_received for line in self.lines.all())
+
+    @property
+    def total_cancelled(self) -> float:
+        return sum(line.quantity_cancelled for line in self.lines.all())
+
+
+class PurchaseOrderReceiptLine(models.Model):
+    """Line within a purchase order receipt."""
+
+    id = models.AutoField(primary_key=True)
+    receipt = models.ForeignKey(
+        PurchaseOrderReceipt,
+        on_delete=models.CASCADE,
+        db_column="receipt_id",
+        related_name="lines",
+    )
+    purchase_order_line = models.ForeignKey(
+        PurchaseOrderLine,
+        on_delete=models.CASCADE,
+        db_column="purchase_order_line_id",
+        related_name="receipt_lines",
+    )
+    quantity_received = models.DecimalField(max_digits=18, decimal_places=6)
+    quantity_cancelled = models.DecimalField(max_digits=18, decimal_places=6)
+
+    class Meta:
+        managed = False
+        db_table = "purchase_order_receipt_lines"
+        ordering = ["-id"]
+        verbose_name = "Purchase order receipt line"
+        verbose_name_plural = "Purchase order receipt lines"
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return f"Receipt {self.receipt_id} line {self.purchase_order_line_id}"
