@@ -604,7 +604,7 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
         purchaseOrderEnsureSchema($db);
 
         $lineStatement = $db->prepare(
-            'SELECT pol.id, pol.inventory_item_id, pol.description, pol.quantity_ordered, pol.quantity_received, i.sku, i.item
+            'SELECT pol.id, pol.inventory_item_id, pol.description, pol.quantity_ordered, pol.quantity_received, pol.quantity_cancelled, i.sku, i.item
              FROM purchase_order_lines pol
              LEFT JOIN inventory_items i ON i.id = pol.inventory_item_id
              WHERE pol.purchase_order_id = :purchase_order_id AND pol.id = ANY(:ids)'
