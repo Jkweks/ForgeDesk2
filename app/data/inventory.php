@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/purchase_orders.php';
+require_once __DIR__ . '/storage_locations.php';
 
 if (!function_exists('loadInventory')) {
     function inventoryIsDiscontinuedStatus(string $status): bool
@@ -1643,5 +1644,179 @@ if (!function_exists('loadInventory')) {
             ':purchase_uom' => $purchaseUom,
             ':stock_uom' => $stockUom,
         ]);
+    }
+
+    /**
+     * @return array<int, list<array{storage_location_id:int,name:string,quantity:int}>>
+     */
+    function inventoryLoadLocationsForItems(\PDO $db, array $itemIds): array
+    {
+        storageLocationsEnsureSchema($db);
+
+        $ids = array_values(array_unique(array_filter(
+            array_map(static fn ($value) => (int) $value, $itemIds),
+            static fn (int $value): bool => $value > 0
+        )));
+
+        if ($ids === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $statement = $db->prepare(
+            'SELECT iil.inventory_item_id, iil.storage_location_id, iil.quantity, sl.name
+             FROM inventory_item_locations iil
+             INNER JOIN storage_locations sl ON sl.id = iil.storage_location_id
+             WHERE iil.inventory_item_id IN (' . $placeholders . ')
+             ORDER BY sl.name ASC'
+        );
+        $statement->execute($ids);
+
+        $rows = $statement->fetchAll();
+        $map = [];
+
+        foreach ($rows as $row) {
+            $itemId = (int) $row['inventory_item_id'];
+            $map[$itemId] ??= [];
+            $map[$itemId][] = [
+                'storage_location_id' => (int) $row['storage_location_id'],
+                'name' => (string) $row['name'],
+                'quantity' => (int) $row['quantity'],
+            ];
+        }
+
+        return $map;
+    }
+
+    /**
+     * @return list<array{storage_location_id:int,name:string,quantity:int}>
+     */
+    function inventoryLoadItemLocations(\PDO $db, int $itemId): array
+    {
+        $map = inventoryLoadLocationsForItems($db, [$itemId]);
+
+        return $map[$itemId] ?? [];
+    }
+
+    /**
+     * @param list<array{name?:string,quantity?:int,storage_location_id?:int}> $assignments
+     */
+    function inventorySyncLocationAssignments(\PDO $db, int $itemId, array $assignments): void
+    {
+        storageLocationsEnsureSchema($db);
+
+        $normalized = [];
+
+        foreach ($assignments as $assignment) {
+            if (!isset($assignment['storage_location_id'])) {
+                continue;
+            }
+
+            $locationId = (int) $assignment['storage_location_id'];
+            if ($locationId <= 0) {
+                continue;
+            }
+
+            $quantity = isset($assignment['quantity'])
+                ? max(0, (int) $assignment['quantity'])
+                : 0;
+
+            if (!isset($normalized[$locationId])) {
+                $normalized[$locationId] = [
+                    'storage_location_id' => $locationId,
+                    'quantity' => $quantity,
+                    'name' => isset($assignment['name']) ? (string) $assignment['name'] : null,
+                ];
+            } else {
+                $normalized[$locationId]['quantity'] += $quantity;
+            }
+
+            if ($normalized[$locationId]['name'] === null && isset($assignment['name'])) {
+                $normalized[$locationId]['name'] = (string) $assignment['name'];
+            }
+        }
+
+        if ($normalized !== []) {
+            $missingNames = array_keys(array_filter(
+                $normalized,
+                static fn (array $row): bool => !isset($row['name']) || trim((string) $row['name']) === ''
+            ));
+
+            if ($missingNames !== []) {
+                $nameMap = storageLocationsMapByIds($db, $missingNames);
+                foreach ($missingNames as $locationId) {
+                    if (isset($nameMap[$locationId])) {
+                        $normalized[$locationId]['name'] = $nameMap[$locationId]['name'];
+                    }
+                }
+            }
+        }
+
+        $summary = inventoryFormatLocationSummary(array_values($normalized));
+
+        $db->beginTransaction();
+        try {
+            $deleteStatement = $db->prepare('DELETE FROM inventory_item_locations WHERE inventory_item_id = :item_id');
+            $deleteStatement->execute([':item_id' => $itemId]);
+
+            if ($normalized !== []) {
+                $insertStatement = $db->prepare(
+                    'INSERT INTO inventory_item_locations (inventory_item_id, storage_location_id, quantity)
+                     VALUES (:item_id, :location_id, :quantity)'
+                );
+
+                foreach ($normalized as $assignment) {
+                    $insertStatement->execute([
+                        ':item_id' => $itemId,
+                        ':location_id' => $assignment['storage_location_id'],
+                        ':quantity' => $assignment['quantity'],
+                    ]);
+                }
+            }
+
+            $updateStatement = $db->prepare('UPDATE inventory_items SET location = :location WHERE id = :id');
+            $updateStatement->execute([
+                ':location' => $summary,
+                ':id' => $itemId,
+            ]);
+
+            $db->commit();
+        } catch (\Throwable $exception) {
+            $db->rollBack();
+            throw $exception;
+        }
+    }
+
+    /**
+     * @param list<array{name?:string,quantity?:int}> $assignments
+     */
+    function inventoryFormatLocationSummary(array $assignments): string
+    {
+        if ($assignments === []) {
+            return 'Unassigned';
+        }
+
+        $filtered = array_values(array_filter(
+            $assignments,
+            static fn (array $assignment): bool => isset($assignment['name']) && trim((string) $assignment['name']) !== ''
+        ));
+
+        if ($filtered === []) {
+            return 'Unassigned';
+        }
+
+        usort(
+            $filtered,
+            static fn (array $a, array $b): int => strcasecmp((string) $a['name'], (string) $b['name'])
+        );
+
+        $parts = [];
+        foreach ($filtered as $assignment) {
+            $name = (string) $assignment['name'];
+            $quantity = isset($assignment['quantity']) ? (int) $assignment['quantity'] : 0;
+            $parts[] = $quantity > 0 ? sprintf('%s (%d)', $name, $quantity) : $name;
+        }
+
+        return $parts === [] ? 'Unassigned' : implode(', ', $parts);
     }
 }

@@ -9,6 +9,7 @@ require_once __DIR__ . '/../app/helpers/icons.php';
 require_once __DIR__ . '/../app/helpers/database.php';
 require_once __DIR__ . '/../app/helpers/view.php';
 require_once __DIR__ . '/../app/data/cycle_counts.php';
+require_once __DIR__ . '/../app/data/storage_locations.php';
 
 foreach ($nav as &$groupItems) {
     foreach ($groupItems as &$item) {
@@ -27,6 +28,8 @@ $sessions = [];
 $activeSession = null;
 $currentStep = 1;
 $lineView = null;
+$storageLocations = [];
+$selectedLocationIds = [];
 
 try {
     $db = db($databaseConfig);
@@ -35,17 +38,38 @@ try {
 }
 
 if ($dbError === null) {
+    try {
+        $storageLocations = storageLocationsList($db);
+    } catch (\Throwable $exception) {
+        $startErrors['general'] = 'Unable to load storage locations: ' . $exception->getMessage();
+        $storageLocations = [];
+    }
+
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $action = $_POST['action'] ?? '';
 
         if ($action === 'start') {
             $name = trim((string) ($_POST['name'] ?? ''));
-            $location = trim((string) ($_POST['location'] ?? ''));
+            $selectedLocationIds = isset($_POST['location_ids']) && is_array($_POST['location_ids'])
+                ? array_values(array_unique(array_filter(
+                    array_map(static fn ($value) => (int) $value, $_POST['location_ids']),
+                    static fn (int $value): bool => $value > 0
+                )))
+                : [];
+
+            if ($selectedLocationIds !== []) {
+                $validIds = array_column($storageLocations, 'id');
+                $validMap = array_flip($validIds);
+                $selectedLocationIds = array_values(array_filter(
+                    $selectedLocationIds,
+                    static fn (int $value): bool => $value > 0 && isset($validMap[$value])
+                ));
+            }
 
             try {
                 $sessionId = createCycleCountSession($db, [
                     'name' => $name,
-                    'location' => $location !== '' ? $location : null,
+                    'location_ids' => $selectedLocationIds,
                 ]);
 
                 if ($sessionId > 0) {
@@ -244,7 +268,7 @@ $bodyClassAttribute = ' class="' . implode(' ', $bodyClasses) . '"';
         <div class="session-grid">
           <section class="session-start" aria-labelledby="start-count-title">
             <h2 id="start-count-title">Start a cycle count</h2>
-            <p class="small">Filter by location or leave blank to include the full warehouse.</p>
+            <p class="small">Filter by one or more storage locations or leave blank to include the full warehouse.</p>
 
             <?php if (!empty($startErrors['general'])): ?>
               <div class="alert error" role="alert">
@@ -259,8 +283,40 @@ $bodyClassAttribute = ' class="' . implode(' ', $bodyClasses) . '"';
                 <input type="text" id="session-name" name="name" placeholder="Cycle count for Aisle 4" />
               </div>
               <div class="field">
-                <label for="session-location">Location filter <span class="optional">Optional</span></label>
-                <input type="text" id="session-location" name="location" placeholder="Aisle 4" />
+                <label for="session-location-picker">Storage locations <span class="optional">Optional</span></label>
+                <div class="location-filter" data-location-filter>
+                  <button
+                    type="button"
+                    class="location-filter__toggle"
+                    id="session-location-picker"
+                    data-location-filter-toggle
+                    aria-expanded="false"
+                  >
+                    <?= $selectedLocationIds === [] ? 'All locations' : count($selectedLocationIds) . ' selected' ?>
+                  </button>
+                  <div class="location-filter__menu" data-location-filter-menu hidden>
+                    <?php if ($storageLocations === []): ?>
+                      <p class="small">No storage locations configured yet. Add them from the admin dashboard to filter counts.</p>
+                    <?php else: ?>
+                      <div class="location-filter__options">
+                        <?php foreach ($storageLocations as $location): ?>
+                          <?php $isChecked = in_array($location['id'], $selectedLocationIds, true); ?>
+                          <label class="checkbox-option">
+                            <input
+                              type="checkbox"
+                              name="location_ids[]"
+                              value="<?= e((string) $location['id']) ?>"
+                              <?= $isChecked ? 'checked' : '' ?>
+                            />
+                            <span><?= e($location['name']) ?></span>
+                          </label>
+                        <?php endforeach; ?>
+                      </div>
+                    <?php endif; ?>
+                    <button type="button" class="button ghost" data-location-filter-close>Done</button>
+                  </div>
+                </div>
+                <p class="field-help">Use the dropdown to include specific aisles, racks, or zones in this session.</p>
               </div>
               <button type="submit" class="button primary">Start counting</button>
             </form>
@@ -407,6 +463,63 @@ $bodyClassAttribute = ' class="' . implode(' ', $bodyClasses) . '"';
       <div class="modal" id="count-modal" hidden></div>
     <?php endif; ?>
   </div>
+  <script>
+  (function () {
+    const container = document.querySelector('[data-location-filter]');
+    if (!container) {
+      return;
+    }
+
+    const toggle = container.querySelector('[data-location-filter-toggle]');
+    const menu = container.querySelector('[data-location-filter-menu]');
+    const closeButton = container.querySelector('[data-location-filter-close]');
+    const checkboxes = menu ? Array.from(menu.querySelectorAll('input[type="checkbox"]')) : [];
+
+    if (!(toggle instanceof HTMLButtonElement) || !(menu instanceof HTMLElement)) {
+      return;
+    }
+
+    function updateLabel() {
+      const active = checkboxes.filter((input) => input.checked);
+      toggle.textContent = active.length === 0 ? 'All locations' : active.length + ' selected';
+    }
+
+    function setMenu(open) {
+      if (open) {
+        menu.removeAttribute('hidden');
+        toggle.setAttribute('aria-expanded', 'true');
+      } else {
+        menu.setAttribute('hidden', 'hidden');
+        toggle.setAttribute('aria-expanded', 'false');
+      }
+    }
+
+    toggle.addEventListener('click', function (event) {
+      event.preventDefault();
+      const isOpen = toggle.getAttribute('aria-expanded') === 'true';
+      setMenu(!isOpen);
+    });
+
+    if (closeButton instanceof HTMLElement) {
+      closeButton.addEventListener('click', function (event) {
+        event.preventDefault();
+        setMenu(false);
+      });
+    }
+
+    document.addEventListener('click', function (event) {
+      if (!container.contains(event.target)) {
+        setMenu(false);
+      }
+    });
+
+    checkboxes.forEach((input) => {
+      input.addEventListener('change', updateLabel);
+    });
+
+    updateLabel();
+  })();
+  </script>
   <script src="js/dashboard.js"></script>
 </body>
 </html>

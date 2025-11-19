@@ -8,6 +8,7 @@ require_once __DIR__ . '/../app/helpers/icons.php';
 require_once __DIR__ . '/../app/helpers/database.php';
 require_once __DIR__ . '/../app/helpers/view.php';
 require_once __DIR__ . '/../app/data/inventory.php';
+require_once __DIR__ . '/../app/data/storage_locations.php';
 require_once __DIR__ . '/../app/views/components/inventory_table.php';
 
 $databaseConfig = $app['database'];
@@ -31,7 +32,6 @@ $formData = [
     'part_number' => '',
     'finish' => '',
     'sku' => '',
-    'location' => '',
     'stock' => '0',
     'supplier' => '',
     'supplier_contact' => '',
@@ -43,7 +43,11 @@ $formData = [
     'category' => '',
     'subcategories' => [],
     'discontinued' => false,
+    'locations' => [],
 ];
+$storageLocations = [];
+$storageLocationMap = [];
+$locationAssignmentsList = [];
 
 foreach ($nav as &$groupItems) {
     foreach ($groupItems as &$item) {
@@ -69,6 +73,17 @@ foreach ($nav as &$groupItems) {
 unset($groupItems, $item);
 
 if ($dbError === null) {
+    try {
+        $storageLocations = storageLocationsList($db, true);
+        foreach ($storageLocations as $location) {
+            $storageLocationMap[$location['id']] = $location;
+        }
+    } catch (\Throwable $exception) {
+        $errors[] = 'Unable to load storage locations: ' . $exception->getMessage();
+        $storageLocations = [];
+        $storageLocationMap = [];
+    }
+
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $action = $_POST['action'] ?? 'create';
 
@@ -78,7 +93,6 @@ if ($dbError === null) {
             'item' => trim((string) ($_POST['item'] ?? '')),
             'part_number' => trim((string) ($_POST['part_number'] ?? '')),
             'finish' => trim((string) ($_POST['finish'] ?? '')),
-            'location' => trim((string) ($_POST['location'] ?? '')),
             'supplier' => trim((string) ($_POST['supplier'] ?? '')),
             'supplier_contact' => trim((string) ($_POST['supplier_contact'] ?? '')),
         ];
@@ -119,6 +133,67 @@ if ($dbError === null) {
             : [];
         $formData['subcategories'] = array_values(array_unique($submittedSubcategories));
 
+        $submittedLocations = isset($_POST['locations']) && is_array($_POST['locations']) ? $_POST['locations'] : [];
+        $formLocationRows = [];
+        $locationAssignmentsList = [];
+
+        foreach ($submittedLocations as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $locationIdRaw = trim((string) ($row['location_id'] ?? ''));
+            $quantityRaw = trim((string) ($row['quantity'] ?? ''));
+            $locationId = $locationIdRaw !== '' && ctype_digit($locationIdRaw) ? (int) $locationIdRaw : null;
+            $locationRecord = $locationId !== null && isset($storageLocationMap[$locationId]) ? $storageLocationMap[$locationId] : null;
+
+            $formLocationRows[] = [
+                'location_id' => $locationId !== null ? $locationId : '',
+                'label' => $locationRecord['name'] ?? '',
+                'quantity' => $quantityRaw,
+            ];
+
+            if ($locationRecord === null) {
+                continue;
+            }
+
+            if ($quantityRaw === '') {
+                $quantity = 0;
+            } else {
+                $quantity = filter_var($quantityRaw, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
+                if ($quantity === false) {
+                    $errors['locations'] = 'Quantities must be non-negative integers.';
+                    continue;
+                }
+            }
+
+            if (!isset($locationAssignmentsList[$locationRecord['id']])) {
+                $locationAssignmentsList[$locationRecord['id']] = [
+                    'storage_location_id' => $locationRecord['id'],
+                    'name' => $locationRecord['name'],
+                    'quantity' => $quantity,
+                ];
+            } else {
+                $locationAssignmentsList[$locationRecord['id']]['quantity'] += $quantity;
+            }
+        }
+
+        if ($formLocationRows === []) {
+            $formLocationRows[] = ['location_id' => '', 'label' => '', 'quantity' => ''];
+        }
+        $formData['locations'] = $formLocationRows;
+
+        if (empty($errors['locations'])) {
+            if ($storageLocations === []) {
+                $errors['locations'] = 'Add storage locations before creating inventory.';
+            } elseif ($locationAssignmentsList === []) {
+                $errors['locations'] = 'Select at least one storage location.';
+            }
+        }
+
+        $locationAssignmentsList = array_values($locationAssignmentsList);
+        $payload['location'] = inventoryFormatLocationSummary($locationAssignmentsList);
+
         if ($formData['category'] !== '' && !isset($categoryOptions[$formData['category']])) {
             $errors['category'] = 'Select a valid category.';
             $formData['category'] = '';
@@ -136,10 +211,6 @@ if ($dbError === null) {
 
         if ($payload['part_number'] === '') {
             $errors['part_number'] = 'Part number is required.';
-        }
-
-        if ($payload['location'] === '') {
-            $errors['location'] = 'Storage location is required.';
         }
 
         if ($payload['supplier'] === '') {
@@ -244,9 +315,11 @@ if ($dbError === null) {
             try {
                 if ($action === 'update' && $editingId !== null) {
                     updateInventoryItem($db, $editingId, $payload);
+                    inventorySyncLocationAssignments($db, $editingId, $locationAssignmentsList);
                     header('Location: inventory.php?success=updated');
                 } else {
-                    createInventoryItem($db, $payload);
+                    $newItemId = createInventoryItem($db, $payload);
+                    inventorySyncLocationAssignments($db, $newItemId, $locationAssignmentsList);
                     header('Location: inventory.php?success=created');
                 }
 
@@ -274,7 +347,6 @@ if ($dbError === null) {
                     'sku' => $existing['sku'],
                     'part_number' => $existing['part_number'],
                     'finish' => $existing['finish'] ?? '',
-                    'location' => $existing['location'],
                     'stock' => (string) $existing['stock'],
                     'supplier' => $existing['supplier'],
                     'supplier_contact' => $existing['supplier_contact'] ?? '',
@@ -291,6 +363,18 @@ if ($dbError === null) {
                     $formData['part_number'],
                     $existing['finish'] ?? null
                 );
+
+                $existingLocations = inventoryLoadItemLocations($db, $editingId);
+                if ($existingLocations !== []) {
+                    $formData['locations'] = array_map(
+                        static fn (array $location): array => [
+                            'location_id' => $location['storage_location_id'],
+                            'label' => $location['name'],
+                            'quantity' => (string) $location['quantity'],
+                        ],
+                        $existingLocations
+                    );
+                }
             } else {
                 $successMessage = null;
                 $errors['general'] = 'The requested inventory item could not be found.';
@@ -301,6 +385,10 @@ if ($dbError === null) {
 
     $inventory = loadInventory($db);
     $inventorySummary = inventoryReservationSummary($db);
+}
+
+if ($formData['locations'] === []) {
+    $formData['locations'][] = ['location_id' => '', 'label' => '', 'quantity' => ''];
 }
 
 if (isset($_GET['success'])) {
@@ -506,13 +594,63 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
             <?php endif; ?>
           </div>
 
-          <div class="field">
-            <label for="location">Location<span aria-hidden="true">*</span></label>
-            <input type="text" id="location" name="location" value="<?= e($formData['location']) ?>" required />
-            <?php if (!empty($errors['location'])): ?>
-              <p class="field-error"><?= e($errors['location']) ?></p>
+          <section class="location-manager">
+            <div class="location-manager__header">
+              <span>Storage locations<span aria-hidden="true">*</span></span>
+              <p class="small">Assign one or more storage locations along with the quantity typically staged there.</p>
+            </div>
+            <div class="location-rows" data-location-rows>
+              <?php
+              $renderLocations = $formData['locations'] !== []
+                  ? $formData['locations']
+                  : [['location_id' => '', 'label' => '', 'quantity' => '']];
+              ?>
+              <?php foreach ($renderLocations as $index => $row): ?>
+                <div class="location-row" data-location-row>
+                  <div class="field">
+                    <label for="location-select-<?= e((string) $index) ?>">Location</label>
+                    <select
+                      id="location-select-<?= e((string) $index) ?>"
+                      data-location-input="location_id"
+                      name="locations[<?= e((string) $index) ?>][location_id]"
+                      required
+                    >
+                      <option value="">Select location</option>
+                      <?php foreach ($storageLocations as $option): ?>
+                        <?php $selected = (string) ($row['location_id'] ?? '') === (string) $option['id']; ?>
+                        <option
+                          value="<?= e((string) $option['id']) ?>"
+                          <?= $selected ? 'selected' : '' ?>
+                        >
+                          <?= e($option['name']) ?><?= $option['is_active'] ? '' : ' (inactive)' ?>
+                        </option>
+                      <?php endforeach; ?>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="location-qty-<?= e((string) $index) ?>">Qty in slot</label>
+                    <input
+                      type="number"
+                      id="location-qty-<?= e((string) $index) ?>"
+                      data-location-input="quantity"
+                      name="locations[<?= e((string) $index) ?>][quantity]"
+                      min="0"
+                      step="1"
+                      value="<?= e((string) ($row['quantity'] ?? '')) ?>"
+                    />
+                  </div>
+                  <button type="button" class="button ghost icon-only" data-remove-location aria-label="Remove location">&times;</button>
+                </div>
+              <?php endforeach; ?>
+            </div>
+            <div class="location-actions">
+              <button type="button" class="button secondary" data-add-location>Add another location</button>
+              <p class="field-help">Manage the available locations from the <a href="/admin/storage-locations.php">Storage Locations dashboard</a>.</p>
+            </div>
+            <?php if (!empty($errors['locations'])): ?>
+              <p class="field-error"><?= e($errors['locations']) ?></p>
             <?php endif; ?>
-          </div>
+          </section>
 
           <div class="field">
             <label for="supplier">Supplier<span aria-hidden="true">*</span></label>
@@ -665,6 +803,26 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
           <button type="submit" class="button primary"><?= $editingId === null ? 'Create Item' : 'Update Item' ?></button>
         </footer>
       </form>
+      <template id="location-row-template">
+        <div class="location-row" data-location-row>
+          <div class="field">
+            <label>Location</label>
+            <select data-location-input="location_id" required>
+              <option value="">Select location</option>
+              <?php foreach ($storageLocations as $option): ?>
+                <option value="<?= e((string) $option['id']) ?>">
+                  <?= e($option['name']) ?><?= $option['is_active'] ? '' : ' (inactive)' ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <div class="field">
+            <label>Qty in slot</label>
+            <input type="number" min="0" step="1" data-location-input="quantity" />
+          </div>
+          <button type="button" class="button ghost icon-only" data-remove-location aria-label="Remove location">&times;</button>
+        </div>
+      </template>
     </div>
   </div>
 
@@ -812,6 +970,105 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
 
     categorySelect.addEventListener('change', syncGroups);
     syncGroups();
+  })();
+
+  (function () {
+    const modal = document.getElementById('inventory-modal');
+    if (!modal) {
+      return;
+    }
+
+    const rowsContainer = modal.querySelector('[data-location-rows]');
+    const template = document.getElementById('location-row-template');
+    const addButton = modal.querySelector('[data-add-location]');
+
+    if (!(rowsContainer instanceof HTMLElement) || !(template instanceof HTMLTemplateElement)) {
+      return;
+    }
+
+    function getRows() {
+      return Array.from(rowsContainer.querySelectorAll('[data-location-row]'));
+    }
+
+    function syncNames() {
+      getRows().forEach((row, index) => {
+        const inputs = Array.from(row.querySelectorAll('[data-location-input]'));
+        inputs.forEach((input) => {
+          const key = input.getAttribute('data-location-input');
+          if (!key) {
+            return;
+          }
+
+          input.setAttribute('name', 'locations[' + index + '][' + key + ']');
+
+          if (input instanceof HTMLInputElement || input instanceof HTMLSelectElement) {
+            const baseId = 'location-' + key + '-' + index;
+            input.id = baseId;
+            const label = input.closest('.field')?.querySelector('label');
+            if (label instanceof HTMLLabelElement) {
+              label.setAttribute('for', baseId);
+            }
+          }
+        });
+      });
+    }
+
+    function attachRow(row) {
+      const removeButton = row.querySelector('[data-remove-location]');
+      if (removeButton instanceof HTMLButtonElement) {
+        removeButton.addEventListener('click', function (event) {
+          event.preventDefault();
+          const rows = getRows();
+          if (rows.length <= 1) {
+            const select = row.querySelector('[data-location-input="location_id"]');
+            const qty = row.querySelector('[data-location-input="quantity"]');
+            if (select instanceof HTMLSelectElement) {
+              select.value = '';
+            }
+            if (qty instanceof HTMLInputElement) {
+              qty.value = '';
+            }
+            return;
+          }
+
+          row.remove();
+          syncNames();
+        });
+      }
+    }
+
+    function addRow(defaults = {}) {
+      const fragment = template.content.cloneNode(true);
+      rowsContainer.appendChild(fragment);
+      const rows = getRows();
+      const newRow = rows[rows.length - 1];
+      if (!newRow) {
+        return;
+      }
+
+      const locationSelect = newRow.querySelector('[data-location-input="location_id"]');
+      if (locationSelect instanceof HTMLSelectElement && defaults.location_id) {
+        locationSelect.value = String(defaults.location_id);
+      }
+
+      const qtyInput = newRow.querySelector('[data-location-input="quantity"]');
+      if (qtyInput instanceof HTMLInputElement && Object.prototype.hasOwnProperty.call(defaults, 'quantity')) {
+        qtyInput.value = defaults.quantity;
+      }
+
+      attachRow(newRow);
+      syncNames();
+    }
+
+    getRows().forEach(attachRow);
+    syncNames();
+
+    if (addButton instanceof HTMLButtonElement) {
+      addButton.addEventListener('click', function (event) {
+        event.preventDefault();
+        addRow();
+      });
+    }
   })();
 
   </script>

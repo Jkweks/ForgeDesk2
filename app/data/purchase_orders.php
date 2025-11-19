@@ -519,6 +519,7 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
         }
 
         $affectedItems = [];
+        $statusChanged = array_key_exists('status', $payload);
         $inventoryDefaults = isset($payload['lines']) ? purchaseOrderLoadInventoryDefaults($db, $payload['lines']) : [];
 
         try {
@@ -679,8 +680,22 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
             throw $exception;
         }
 
-        if ($affectedItems !== []) {
-            purchaseOrderUpdateOnOrderCache($db, array_keys($affectedItems));
+        $onOrderItems = array_keys($affectedItems);
+
+        if ($statusChanged) {
+            $lineItemStatement = $db->prepare(
+                'SELECT DISTINCT inventory_item_id FROM purchase_order_lines'
+                . ' WHERE purchase_order_id = :id AND inventory_item_id IS NOT NULL'
+            );
+            $lineItemStatement->execute([':id' => $purchaseOrderId]);
+
+            /** @var list<int> $lineItems */
+            $lineItems = array_map('intval', $lineItemStatement->fetchAll(\PDO::FETCH_COLUMN));
+            $onOrderItems = array_values(array_unique(array_merge($onOrderItems, $lineItems)));
+        }
+
+        if ($onOrderItems !== []) {
+            purchaseOrderUpdateOnOrderCache($db, $onOrderItems);
         }
     }
 

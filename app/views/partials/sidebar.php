@@ -9,6 +9,26 @@ foreach ($nav as &$groupItems) {
         }
     }
 }
+unset($groupItems, $item);
+
+$seenDatabaseHealth = false;
+foreach ($nav as &$groupItems) {
+    $filtered = [];
+    foreach ($groupItems as $item) {
+        if (($item['label'] ?? '') === 'Database Health') {
+            if ($seenDatabaseHealth) {
+                continue;
+            }
+            $seenDatabaseHealth = true;
+        }
+
+        $filtered[] = $item;
+    }
+
+    $groupItems = $filtered;
+}
+unset($groupItems);
+
 
 
 
