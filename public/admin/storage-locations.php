@@ -22,6 +22,7 @@ $dbError = null;
 $errors = [];
 $successMessage = null;
 $locations = [];
+$locationPreview = '';
 
 try {
     $db = db($databaseConfig);
@@ -34,20 +35,35 @@ if ($dbError === null) {
         $action = $_POST['action'] ?? '';
 
         if ($action === 'create') {
-            $name = trim((string) ($_POST['name'] ?? ''));
+            $aisle = trim((string) ($_POST['aisle'] ?? ''));
+            $rack = trim((string) ($_POST['rack'] ?? ''));
+            $shelf = trim((string) ($_POST['shelf'] ?? ''));
+            $bin = trim((string) ($_POST['bin'] ?? ''));
             $description = trim((string) ($_POST['description'] ?? ''));
 
-            if ($name === '') {
-                $errors['name'] = 'Location name is required.';
+            if ($aisle === '') {
+                $errors['aisle'] = 'Aisle is required.';
             }
+
+            $locationPreview = storageLocationFormatName([
+                'aisle' => $aisle,
+                'rack' => $rack,
+                'shelf' => $shelf,
+                'bin' => $bin,
+            ], 'Unspecified location');
 
             if ($errors === []) {
                 try {
                     storageLocationsCreate($db, [
-                        'name' => $name,
+                        'name' => $locationPreview,
                         'description' => $description !== '' ? $description : null,
+                        'aisle' => $aisle !== '' ? $aisle : null,
+                        'rack' => $rack !== '' ? $rack : null,
+                        'shelf' => $shelf !== '' ? $shelf : null,
+                        'bin' => $bin !== '' ? $bin : null,
                     ]);
                     $successMessage = 'Storage location added successfully.';
+                    $locationPreview = '';
                 } catch (\Throwable $exception) {
                     $errors['general'] = 'Unable to create location: ' . $exception->getMessage();
                 }
@@ -127,11 +143,11 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
           <div class="alert success" role="status"><?= e($successMessage) ?></div>
         <?php endif; ?>
 
-        <div class="location-admin-grid">
+          <div class="location-admin-grid">
           <div class="location-list">
             <div class="location-table">
               <div class="location-table__header">
-                <div>Name</div>
+                <div>Location</div>
                 <div>Description</div>
                 <div class="numeric">Items</div>
                 <div>Status</div>
@@ -143,7 +159,13 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
                 <?php foreach ($locations as $location): ?>
                   <div class="location-table__row">
                     <div>
-                      <strong><?= e($location['name']) ?></strong>
+                      <strong><?= e($location['display_name']) ?></strong>
+                      <p class="small muted">
+                        <?= e($location['aisle'] !== null ? 'Aisle ' . $location['aisle'] : 'No aisle') ?>
+                        <?php if ($location['rack'] !== null): ?> · <?= e('Rack ' . $location['rack']) ?><?php endif; ?>
+                        <?php if ($location['shelf'] !== null): ?> · <?= e('Shelf ' . $location['shelf']) ?><?php endif; ?>
+                        <?php if ($location['bin'] !== null): ?> · <?= e('Bin ' . $location['bin']) ?><?php endif; ?>
+                      </p>
                     </div>
                     <div>
                       <?= $location['description'] !== null ? e($location['description']) : '<span class="muted">No description</span>' ?>
@@ -174,16 +196,31 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
             <h2>Add storage location</h2>
             <form method="post" class="form" novalidate>
               <input type="hidden" name="action" value="create" />
-              <div class="field">
-                <label for="location-name">Name</label>
-                <input type="text" id="location-name" name="name" required />
-                <?php if (!empty($errors['name'])): ?>
-                  <p class="field-error"><?= e($errors['name']) ?></p>
-                <?php endif; ?>
+              <div class="location-component-grid">
+                <div class="field">
+                  <label for="location-aisle">Aisle</label>
+                  <input type="text" id="location-aisle" name="aisle" value="<?= e((string) ($_POST['aisle'] ?? '')) ?>" required />
+                  <?php if (!empty($errors['aisle'])): ?>
+                    <p class="field-error"><?= e($errors['aisle']) ?></p>
+                  <?php endif; ?>
+                </div>
+                <div class="field">
+                  <label for="location-rack">Rack <span class="optional">Optional</span></label>
+                  <input type="text" id="location-rack" name="rack" value="<?= e((string) ($_POST['rack'] ?? '')) ?>" />
+                </div>
+                <div class="field">
+                  <label for="location-shelf">Shelf <span class="optional">Optional</span></label>
+                  <input type="text" id="location-shelf" name="shelf" value="<?= e((string) ($_POST['shelf'] ?? '')) ?>" />
+                </div>
+                <div class="field">
+                  <label for="location-bin">Bin <span class="optional">Optional</span></label>
+                  <input type="text" id="location-bin" name="bin" value="<?= e((string) ($_POST['bin'] ?? '')) ?>" />
+                </div>
               </div>
+              <p class="small muted">Names are generated automatically, e.g., Aisle A · Rack 1 · Shelf 3 · Bin 4 → <strong><?= e($locationPreview !== '' ? $locationPreview : 'A.1.3.4') ?></strong></p>
               <div class="field">
                 <label for="location-description">Description <span class="optional">Optional</span></label>
-                <textarea id="location-description" name="description" rows="3" placeholder="Aisle or bay notes"></textarea>
+                <textarea id="location-description" name="description" rows="3" placeholder="Aisle or bay notes"><?= e((string) ($_POST['description'] ?? '')) ?></textarea>
               </div>
               <button type="submit" class="button primary">Add location</button>
             </form>

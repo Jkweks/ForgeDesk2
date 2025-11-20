@@ -29,6 +29,7 @@ $activeSession = null;
 $currentStep = 1;
 $lineView = null;
 $storageLocations = [];
+$locationHierarchy = [];
 $selectedLocationIds = [];
 
 try {
@@ -40,9 +41,11 @@ try {
 if ($dbError === null) {
     try {
         $storageLocations = storageLocationsList($db);
+        $locationHierarchy = storageLocationsHierarchy($db);
     } catch (\Throwable $exception) {
         $startErrors['general'] = 'Unable to load storage locations: ' . $exception->getMessage();
         $storageLocations = [];
+        $locationHierarchy = [];
     }
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -295,28 +298,58 @@ $bodyClassAttribute = ' class="' . implode(' ', $bodyClasses) . '"';
                     <?= $selectedLocationIds === [] ? 'All locations' : count($selectedLocationIds) . ' selected' ?>
                   </button>
                   <div class="location-filter__menu" data-location-filter-menu hidden>
-                    <?php if ($storageLocations === []): ?>
+                    <?php if ($locationHierarchy === []): ?>
                       <p class="small">No storage locations configured yet. Add them from the admin dashboard to filter counts.</p>
                     <?php else: ?>
-                      <div class="location-filter__options">
-                        <?php foreach ($storageLocations as $location): ?>
-                          <?php $isChecked = in_array($location['id'], $selectedLocationIds, true); ?>
-                          <label class="checkbox-option">
-                            <input
-                              type="checkbox"
-                              name="location_ids[]"
-                              value="<?= e((string) $location['id']) ?>"
-                              <?= $isChecked ? 'checked' : '' ?>
-                            />
-                            <span><?= e($location['name']) ?></span>
-                          </label>
+                      <div class="location-hierarchy" data-location-hierarchy>
+                        <?php foreach ($locationHierarchy as $aisle): ?>
+                          <?php $aisleIds = implode(',', $aisle['location_ids']); ?>
+                          <div class="location-branch" data-level="aisle">
+                            <label class="checkbox-option">
+                              <input type="checkbox" data-location-group data-child-ids="<?= e($aisleIds) ?>" />
+                              <span><?= e($aisle['label']) ?></span>
+                            </label>
+                            <?php foreach ($aisle['racks'] as $rack): ?>
+                              <?php $rackIds = implode(',', $rack['location_ids']); ?>
+                              <div class="location-branch" data-level="rack">
+                                <label class="checkbox-option">
+                                  <input type="checkbox" data-location-group data-child-ids="<?= e($rackIds) ?>" />
+                                  <span><?= e($rack['label']) ?></span>
+                                </label>
+                                <?php foreach ($rack['shelves'] as $shelf): ?>
+                                  <?php $shelfIds = implode(',', $shelf['location_ids']); ?>
+                                  <div class="location-branch" data-level="shelf">
+                                    <label class="checkbox-option">
+                                      <input type="checkbox" data-location-group data-child-ids="<?= e($shelfIds) ?>" />
+                                      <span><?= e($shelf['label']) ?></span>
+                                    </label>
+                                    <div class="location-branch" data-level="bin">
+                                      <?php foreach ($shelf['bins'] as $bin): ?>
+                                        <?php $isChecked = in_array($bin['id'], $selectedLocationIds, true); ?>
+                                        <label class="checkbox-option">
+                                          <input
+                                            type="checkbox"
+                                            name="location_ids[]"
+                                            value="<?= e((string) $bin['id']) ?>"
+                                            data-location-node="bin"
+                                            <?= $isChecked ? 'checked' : '' ?>
+                                          />
+                                          <span><?= e($bin['display_name']) ?></span>
+                                        </label>
+                                      <?php endforeach; ?>
+                                    </div>
+                                  </div>
+                                <?php endforeach; ?>
+                              </div>
+                            <?php endforeach; ?>
+                          </div>
                         <?php endforeach; ?>
                       </div>
                     <?php endif; ?>
                     <button type="button" class="button ghost" data-location-filter-close>Done</button>
                   </div>
                 </div>
-                <p class="field-help">Use the dropdown to include specific aisles, racks, or zones in this session.</p>
+                <p class="field-help">Use the dropdown to include an aisle, a rack within an aisle, or individual bins.</p>
               </div>
               <button type="submit" class="button primary">Start counting</button>
             </form>
@@ -473,14 +506,44 @@ $bodyClassAttribute = ' class="' . implode(' ', $bodyClasses) . '"';
     const toggle = container.querySelector('[data-location-filter-toggle]');
     const menu = container.querySelector('[data-location-filter-menu]');
     const closeButton = container.querySelector('[data-location-filter-close]');
-    const checkboxes = menu ? Array.from(menu.querySelectorAll('input[type="checkbox"]')) : [];
+    const binCheckboxes = menu ? Array.from(menu.querySelectorAll('input[type="checkbox"][data-location-node="bin"]')) : [];
+    const groupCheckboxes = menu ? Array.from(menu.querySelectorAll('input[type="checkbox"][data-location-group]')) : [];
 
     if (!(toggle instanceof HTMLButtonElement) || !(menu instanceof HTMLElement)) {
       return;
     }
 
+    function getChildIds(input) {
+      const raw = input.dataset.childIds;
+      if (!raw) {
+        return [];
+      }
+
+      return raw
+        .split(',')
+        .map((value) => value.trim())
+        .filter((value) => value !== '');
+    }
+
+    function updateGroupStates() {
+      groupCheckboxes.forEach((group) => {
+        const childIds = getChildIds(group);
+        if (childIds.length === 0) {
+          group.checked = false;
+          group.indeterminate = false;
+          return;
+        }
+
+        const matchingBins = binCheckboxes.filter((bin) => childIds.includes(bin.value));
+        const checkedCount = matchingBins.filter((bin) => bin.checked).length;
+
+        group.checked = checkedCount === matchingBins.length && matchingBins.length > 0;
+        group.indeterminate = checkedCount > 0 && checkedCount < matchingBins.length;
+      });
+    }
+
     function updateLabel() {
-      const active = checkboxes.filter((input) => input.checked);
+      const active = binCheckboxes.filter((input) => input.checked);
       toggle.textContent = active.length === 0 ? 'All locations' : active.length + ' selected';
     }
 
@@ -513,10 +576,35 @@ $bodyClassAttribute = ' class="' . implode(' ', $bodyClasses) . '"';
       }
     });
 
-    checkboxes.forEach((input) => {
-      input.addEventListener('change', updateLabel);
+    groupCheckboxes.forEach((input) => {
+      input.addEventListener('change', function (event) {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement)) {
+          return;
+        }
+
+        const childIds = getChildIds(target);
+        const shouldCheck = target.checked;
+
+        binCheckboxes.forEach((bin) => {
+          if (childIds.includes(bin.value)) {
+            bin.checked = shouldCheck;
+          }
+        });
+
+        updateGroupStates();
+        updateLabel();
+      });
     });
 
+    binCheckboxes.forEach((input) => {
+      input.addEventListener('change', function () {
+        updateGroupStates();
+        updateLabel();
+      });
+    });
+
+    updateGroupStates();
     updateLabel();
   })();
   </script>
