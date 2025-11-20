@@ -357,17 +357,27 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                   </div>
                 </div>
                 <div class="table-responsive">
-                  <table class="data-table">
+                  <table class="data-table table" data-sortable-table>
                     <thead>
                       <tr>
-                        <th scope="col">SKU</th>
-                        <th scope="col">Description</th>
-                        <th scope="col">Ordered</th>
-                        <th scope="col">Received</th>
-                        <th scope="col">Cancelled</th>
-                        <th scope="col">Outstanding</th>
-                        <th scope="col">Unit Cost</th>
-                        <th scope="col">Line Total</th>
+                        <th scope="col" class="sortable" data-sort-key="sku" aria-sort="none">SKU</th>
+                        <th scope="col" class="sortable" data-sort-key="description" aria-sort="none">Description</th>
+                        <th scope="col" class="sortable" data-sort-key="ordered" data-sort-type="number" aria-sort="none">Ordered</th>
+                        <th scope="col" class="sortable" data-sort-key="received" data-sort-type="number" aria-sort="none">Received</th>
+                        <th scope="col" class="sortable" data-sort-key="cancelled" data-sort-type="number" aria-sort="none">Cancelled</th>
+                        <th scope="col" class="sortable" data-sort-key="outstanding" data-sort-type="number" aria-sort="none">Outstanding</th>
+                        <th scope="col" class="sortable" data-sort-key="unitCost" data-sort-type="number" aria-sort="none">Unit Cost</th>
+                        <th scope="col" class="sortable" data-sort-key="lineTotal" data-sort-type="number" aria-sort="none">Line Total</th>
+                      </tr>
+                      <tr class="filter-row">
+                        <th><input type="search" class="column-filter" data-key="sku" placeholder="Search SKU" aria-label="Filter by SKU"></th>
+                        <th><input type="search" class="column-filter" data-key="description" placeholder="Search description" aria-label="Filter by description"></th>
+                        <th><input type="search" class="column-filter" data-key="ordered" placeholder="Search ordered" aria-label="Filter by ordered" inputmode="decimal"></th>
+                        <th><input type="search" class="column-filter" data-key="received" placeholder="Search received" aria-label="Filter by received" inputmode="decimal"></th>
+                        <th><input type="search" class="column-filter" data-key="cancelled" placeholder="Search cancelled" aria-label="Filter by cancelled" inputmode="decimal"></th>
+                        <th><input type="search" class="column-filter" data-key="outstanding" placeholder="Search outstanding" aria-label="Filter by outstanding" inputmode="decimal"></th>
+                        <th><input type="search" class="column-filter" data-key="unitCost" placeholder="Search cost" aria-label="Filter by unit cost" inputmode="decimal"></th>
+                        <th><input type="search" class="column-filter" data-key="lineTotal" placeholder="Search total" aria-label="Filter by line total" inputmode="decimal"></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -380,7 +390,17 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                           $unitCost = (float) $line['unit_cost'];
                           $lineTotal = (float) $line['quantity_ordered'] * $unitCost;
                         ?>
-                        <tr>
+                        <tr
+                          data-row
+                          data-sku="<?= e($line['sku'] ?? $line['supplier_sku'] ?? '—') ?>"
+                          data-description="<?= e($line['description'] ?? ($line['item'] ?? '')) ?>"
+                          data-ordered="<?= e((string) $line['quantity_ordered']) ?>"
+                          data-received="<?= e((string) $line['quantity_received']) ?>"
+                          data-cancelled="<?= e((string) $line['quantity_cancelled']) ?>"
+                          data-outstanding="<?= e((string) $line['outstanding_quantity']) ?>"
+                          data-unit-cost="<?= e((string) $unitCost) ?>"
+                          data-line-total="<?= e((string) $lineTotal) ?>"
+                        >
                           <th scope="row"><?= e($line['sku'] ?? $line['supplier_sku'] ?? '—') ?></th>
                           <td><?= e($line['description'] ?? ($line['item'] ?? '')) ?></td>
                           <td><?= e($orderedLabel) ?></td>
@@ -401,6 +421,7 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
       </section>
     </main>
   </div>
+  <script src="js/sortable-table.js" defer></script>
   <script src="js/dashboard.js"></script>
 </body>
 </html>

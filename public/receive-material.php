@@ -351,17 +351,32 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                   </div>
 
                   <div class="table-responsive">
-                    <table class="data-table" data-receiving-lines>
+                    <table class="data-table table" data-receiving-lines data-sortable-table>
                       <thead>
                         <tr>
-                          <th scope="col">SKU</th>
-                          <th scope="col">Description</th>
-                          <th scope="col">Ordered</th>
-                          <th scope="col">Received</th>
-                          <th scope="col">Cancelled</th>
-                          <th scope="col">Outstanding</th>
+                          <th scope="col" class="select-col">
+                            <label class="sr-only" for="select-all-lines">Select all lines</label>
+                            <input type="checkbox" id="select-all-lines" data-table-select-all checked />
+                          </th>
+                          <th scope="col" class="sortable" data-sort-key="sku" aria-sort="none">SKU</th>
+                          <th scope="col" class="sortable" data-sort-key="description" aria-sort="none">Description</th>
+                          <th scope="col" class="sortable" data-sort-key="ordered" data-sort-type="number" aria-sort="none">Ordered</th>
+                          <th scope="col" class="sortable" data-sort-key="received" data-sort-type="number" aria-sort="none">Received</th>
+                          <th scope="col" class="sortable" data-sort-key="cancelled" data-sort-type="number" aria-sort="none">Cancelled</th>
+                          <th scope="col" class="sortable" data-sort-key="outstanding" data-sort-type="number" aria-sort="none">Outstanding</th>
                           <th scope="col">Receive now</th>
                           <th scope="col">Cancel</th>
+                        </tr>
+                        <tr class="filter-row">
+                          <th aria-hidden="true"></th>
+                          <th><input type="search" class="column-filter" data-key="sku" placeholder="Search SKU" aria-label="Filter by SKU"></th>
+                          <th><input type="search" class="column-filter" data-key="description" placeholder="Search description" aria-label="Filter by description"></th>
+                          <th><input type="search" class="column-filter" data-key="ordered" placeholder="Search ordered" aria-label="Filter by ordered" inputmode="decimal"></th>
+                          <th><input type="search" class="column-filter" data-key="received" placeholder="Search received" aria-label="Filter by received" inputmode="decimal"></th>
+                          <th><input type="search" class="column-filter" data-key="cancelled" placeholder="Search cancelled" aria-label="Filter by cancelled" inputmode="decimal"></th>
+                          <th><input type="search" class="column-filter" data-key="outstanding" placeholder="Search outstanding" aria-label="Filter by outstanding" inputmode="decimal"></th>
+                          <th aria-hidden="true"></th>
+                          <th aria-hidden="true"></th>
                         </tr>
                       </thead>
                       <tbody>
@@ -382,7 +397,22 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                             $cancelledLabel = purchaseOrderFormatQuantityForLine($line, (float) $line['quantity_cancelled']);
                             $outstandingLabel = purchaseOrderFormatQuantityForLine($line, (float) $outstanding);
                         ?>
-                          <tr data-line-id="<?= $lineId ?>" data-outstanding-value="<?= e($outstandingAttribute) ?>">
+                          <tr
+                            data-line-id="<?= $lineId ?>"
+                            data-row
+                            data-outstanding-value="<?= e($outstandingAttribute) ?>"
+                            data-has-outstanding="<?= $outstanding > 0.00001 ? '1' : '0' ?>"
+                            data-sku="<?= e($line['sku'] ?? $line['supplier_sku'] ?? '—') ?>"
+                            data-description="<?= e($line['description'] ?? ($line['item'] ?? '')) ?>"
+                            data-ordered="<?= e((string) $line['quantity_ordered']) ?>"
+                            data-received="<?= e((string) $line['quantity_received']) ?>"
+                            data-cancelled="<?= e((string) $line['quantity_cancelled']) ?>"
+                            data-outstanding="<?= e((string) $outstanding) ?>"
+                          >
+                            <td class="select-col">
+                              <label class="sr-only" for="select-line-<?= $lineId ?>">Select line <?= $lineId ?></label>
+                              <input type="checkbox" id="select-line-<?= $lineId ?>" class="line-checkbox" data-row-checkbox data-line-checkbox="<?= $lineId ?>" checked />
+                            </td>
                             <th scope="row">
                               <?php if ($line['sku'] !== null): ?>
                                 <span class="sku"><?= e($line['sku']) ?></span>
@@ -410,6 +440,7 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                                 id="receive-<?= $lineId ?>"
                                 value="<?= e($values['receive']) ?>"
                                 data-receive
+                                data-base-disabled="<?= $outstanding <= 0.00001 ? '1' : '0' ?>"
                                 <?= $outstanding <= 0.00001 ? 'disabled' : '' ?>
                               />
                               <?php if (isset($lineError['receive'])): ?>
@@ -427,6 +458,7 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                                 id="cancel-<?= $lineId ?>"
                                 value="<?= e($values['cancel']) ?>"
                                 data-cancel
+                                data-base-disabled="<?= $outstanding <= 0.00001 ? '1' : '0' ?>"
                                 <?= $outstanding <= 0.00001 ? 'disabled' : '' ?>
                               />
                               <?php if (isset($lineError['cancel'])): ?>
@@ -507,6 +539,7 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
     </main>
   </div>
 
+  <script src="js/sortable-table.js" defer></script>
   <script src="js/receive-material.js" defer></script>
 </body>
 </html>

@@ -4,6 +4,26 @@
     return Number.isFinite(number) ? number : 0;
   }
 
+  function setRowEnabled(row, enabled) {
+    const hasOutstanding = row.getAttribute('data-has-outstanding') === '1';
+    const inputs = Array.from(row.querySelectorAll('[data-receive], [data-cancel]'));
+
+    inputs.forEach((input) => {
+      const baseDisabled = input.getAttribute('data-base-disabled') === '1';
+      const shouldDisable = !enabled || baseDisabled || !hasOutstanding;
+      input.disabled = shouldDisable;
+
+      if (shouldDisable) {
+        input.classList.remove('is-invalid');
+        input.setCustomValidity('');
+      }
+    });
+
+    if (!enabled) {
+      row.classList.remove('over-allocated');
+    }
+  }
+
   function initSearch(root) {
     const searchInput = document.querySelector('[data-receiving-search]');
     if (!searchInput) {
@@ -36,11 +56,21 @@
 
   function initForm(form) {
     const rows = Array.from(form.querySelectorAll('[data-line-id]'));
+    const table = form.querySelector('[data-receiving-lines]');
+    const selectAll = table ? table.querySelector('[data-table-select-all]') : null;
 
     function updateRow(row, changedInput) {
       const outstanding = parseQuantity(row.getAttribute('data-outstanding-value') || '0');
       const receiveInput = row.querySelector('[data-receive]');
       const cancelInput = row.querySelector('[data-cancel]');
+      const checkbox = row.querySelector('[data-row-checkbox]');
+      const isActive = !(checkbox instanceof HTMLInputElement) || checkbox.checked;
+
+      if (!isActive) {
+        setRowEnabled(row, false);
+        return;
+      }
+
       const receive = receiveInput ? parseQuantity(receiveInput.value) : 0;
       const cancel = cancelInput ? parseQuantity(cancelInput.value) : 0;
       const total = receive + cancel;
@@ -71,10 +101,41 @@
       }
     }
 
+    function syncSelectAllState() {
+      if (!(selectAll instanceof HTMLInputElement)) {
+        return;
+      }
+
+      const checkboxes = rows
+        .map((row) => row.querySelector('[data-row-checkbox]'))
+        .filter((box) => box instanceof HTMLInputElement);
+
+      if (checkboxes.length === 0) {
+        selectAll.checked = false;
+        selectAll.indeterminate = false;
+        return;
+      }
+
+      const checkedCount = checkboxes.filter((box) => box.checked).length;
+      selectAll.checked = checkedCount === checkboxes.length;
+      selectAll.indeterminate = checkedCount > 0 && checkedCount < checkboxes.length;
+    }
+
     rows.forEach((row) => {
       const receiveInput = row.querySelector('[data-receive]');
       const cancelInput = row.querySelector('[data-cancel]');
+      const checkbox = row.querySelector('[data-row-checkbox]');
       const outstanding = parseQuantity(row.getAttribute('data-outstanding-value') || '0');
+
+      setRowEnabled(row, !(checkbox instanceof HTMLInputElement) || checkbox.checked);
+
+      if (checkbox instanceof HTMLInputElement) {
+        checkbox.addEventListener('change', () => {
+          setRowEnabled(row, checkbox.checked);
+          syncSelectAllState();
+          updateRow(row, null);
+        });
+      }
 
       if (receiveInput) {
         receiveInput.addEventListener('focus', () => {
@@ -93,11 +154,36 @@
       updateRow(row, null);
     });
 
+    if (selectAll instanceof HTMLInputElement) {
+      selectAll.addEventListener('change', () => {
+        rows.forEach((row) => {
+          const checkbox = row.querySelector('[data-row-checkbox]');
+          if (checkbox instanceof HTMLInputElement) {
+            checkbox.checked = selectAll.checked;
+          }
+
+          setRowEnabled(row, selectAll.checked);
+          updateRow(row, null);
+        });
+
+        syncSelectAllState();
+      });
+    }
+
+    syncSelectAllState();
+
     form.addEventListener('submit', (event) => {
       let hasChanges = false;
       rows.forEach((row) => {
         const receiveInput = row.querySelector('[data-receive]');
         const cancelInput = row.querySelector('[data-cancel]');
+        const checkbox = row.querySelector('[data-row-checkbox]');
+
+        if (checkbox instanceof HTMLInputElement && !checkbox.checked) {
+          updateRow(row, null);
+          return;
+        }
+
         const receive = receiveInput ? parseQuantity(receiveInput.value) : 0;
         const cancel = cancelInput ? parseQuantity(cancelInput.value) : 0;
 
