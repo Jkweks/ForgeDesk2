@@ -334,7 +334,10 @@ $bodyClassAttribute = ' class="' . implode(' ', $bodyClasses) . '"';
                                             data-location-node="bin"
                                             <?= $isChecked ? 'checked' : '' ?>
                                           />
-                                          <span><?= e($bin['display_name']) ?></span>
+                                          <span class="location-leaf__label"><?= e($bin['label']) ?></span>
+                                          <?php if (!empty($bin['path_label']) && $bin['path_label'] !== $bin['label']): ?>
+                                            <span class="location-leaf__path"><?= e($bin['path_label']) ?></span>
+                                          <?php endif; ?>
                                         </label>
                                       <?php endforeach; ?>
                                     </div>

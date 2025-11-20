@@ -100,6 +100,17 @@ if (!function_exists('storageLocationsEnsureSchema')) {
             $shelfKey = strtolower($location['shelf'] ?? '');
             $binLabel = $location['bin'] ?? null;
 
+            $leafLabel = null;
+            if ($binLabel !== null && $binLabel !== '') {
+                $leafLabel = 'Bin ' . $binLabel;
+            } elseif ($location['shelf'] !== null && $location['shelf'] !== '') {
+                $leafLabel = 'Shelf ' . $location['shelf'];
+            } elseif ($location['rack'] !== null && $location['rack'] !== '') {
+                $leafLabel = 'Rack ' . $location['rack'];
+            } elseif ($location['aisle'] !== null && $location['aisle'] !== '') {
+                $leafLabel = 'Aisle ' . $location['aisle'];
+            }
+
             if (!isset($tree[$aisleKey])) {
                 $aisleLabel = $location['aisle'] !== null && $location['aisle'] !== ''
                     ? 'Aisle ' . $location['aisle']
@@ -130,11 +141,11 @@ if (!function_exists('storageLocationsEnsureSchema')) {
                     : 'Unassigned shelf';
                 $tree[$aisleKey]['racks'][$rackKey]['shelves'][$shelfKey] = [
                     'shelf' => $location['shelf'],
-                    'label' => $shelfLabel,
-                    'location_ids' => [],
-                    'bins' => [],
-                ];
-            }
+                'label' => $shelfLabel,
+                'location_ids' => [],
+                'bins' => [],
+            ];
+        }
 
             $tree[$aisleKey]['location_ids'][] = $location['id'];
             $tree[$aisleKey]['racks'][$rackKey]['location_ids'][] = $location['id'];
@@ -142,7 +153,13 @@ if (!function_exists('storageLocationsEnsureSchema')) {
 
             $tree[$aisleKey]['racks'][$rackKey]['shelves'][$shelfKey]['bins'][] = [
                 'id' => $location['id'],
-                'label' => $binLabel !== null && $binLabel !== '' ? 'Bin ' . $binLabel : $location['display_name'],
+                'label' => $leafLabel !== null ? $leafLabel : $location['display_name'],
+                'path_label' => storageLocationFormatName([
+                    'aisle' => $location['aisle'],
+                    'rack' => $location['rack'],
+                    'shelf' => $location['shelf'],
+                    'bin' => $location['bin'],
+                ], $location['display_name']),
                 'bin' => $location['bin'],
                 'display_name' => $location['display_name'],
             ];
