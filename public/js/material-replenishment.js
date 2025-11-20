@@ -207,12 +207,39 @@
     const selectedCountEl = summaryContainer ? summaryContainer.querySelector('[data-selected-count]') : null;
     const orderTotalEl = summaryContainer ? summaryContainer.querySelector('[data-selected-quantity]') : null;
     const checkboxes = Array.from(form.querySelectorAll('.js-line-select'));
+    const table = form.querySelector('[data-replenishment-table]');
+    const selectAll = table ? table.querySelector('[data-select-all]') : null;
     const quantityInputs = Array.from(form.querySelectorAll('.js-quantity-input'));
     const unitCostInputs = Array.from(form.querySelectorAll('[data-unit-cost-input]'));
     const unitSelectors = Array.from(form.querySelectorAll('select[data-quantity-unit]'));
 
     function getQuantityInput(lineId) {
       return form.querySelector('.js-quantity-input[data-line-id="' + lineId + '"]');
+    }
+
+    function isRowVisible(row) {
+      return !!row && !row.hasAttribute('hidden');
+    }
+
+    function syncSelectAllState() {
+      if (!(selectAll instanceof HTMLInputElement)) {
+        return;
+      }
+
+      const visibleCheckboxes = checkboxes.filter((checkbox) => {
+        const row = checkbox.closest('tr');
+        return isRowVisible(row);
+      });
+
+      if (visibleCheckboxes.length === 0) {
+        selectAll.checked = false;
+        selectAll.indeterminate = false;
+        return;
+      }
+
+      const checkedCount = visibleCheckboxes.filter((checkbox) => checkbox.checked).length;
+      selectAll.checked = checkedCount === visibleCheckboxes.length;
+      selectAll.indeterminate = checkedCount > 0 && checkedCount < visibleCheckboxes.length;
     }
 
     function updateSummary() {
@@ -263,6 +290,7 @@
         }
 
         updateSummary();
+        syncSelectAllState();
       });
     });
 
@@ -331,6 +359,33 @@
       });
     });
 
+    if (selectAll instanceof HTMLInputElement) {
+      selectAll.addEventListener('change', () => {
+        checkboxes.forEach((checkbox) => {
+          const row = checkbox.closest('tr');
+          if (!isRowVisible(row)) {
+            return;
+          }
+
+          checkbox.checked = selectAll.checked;
+
+          if (selectAll.checked && row) {
+            const quantityInput = row.querySelector('.js-quantity-input');
+            if (quantityInput && quantityInput.value.trim() === '') {
+              fillRecommended(row, quantityInput);
+            }
+          }
+        });
+
+        updateSummary();
+        syncSelectAllState();
+      });
+    }
+
+    if (table instanceof HTMLElement) {
+      table.addEventListener('replenishment:filter-change', syncSelectAllState);
+    }
+
     form.addEventListener('submit', (event) => {
       const selected = checkboxes.filter((checkbox) => checkbox.checked);
       if (selected.length === 0) {
@@ -362,6 +417,7 @@
     });
 
     updateSummary();
+    syncSelectAllState();
   }
 
   function initTable(form) {
@@ -384,6 +440,7 @@
 
     const headers = Array.from(table.querySelectorAll('thead th.sortable'));
     headers.forEach((header) => header.setAttribute('tabindex', '0'));
+    const columnFilters = Array.from(table.querySelectorAll('.column-filter'));
 
     let sortKey = '';
     let sortDirection = 'asc';
@@ -443,23 +500,37 @@
       const query = filterInput ? filterInput.value.trim().toLowerCase() : '';
 
       rows.forEach((row) => {
-        if (!query) {
-          row.removeAttribute('hidden');
-          return;
-        }
-
         const item = (row.getAttribute('data-item') || '').toLowerCase();
         const sku = (row.getAttribute('data-sku') || '').toLowerCase();
         const uom = (row.getAttribute('data-uom') || '').toLowerCase();
         const description = row.textContent ? row.textContent.toLowerCase() : '';
         const combined = `${item} ${sku} ${uom} ${description}`;
 
-        if (combined.includes(query)) {
+        const matchesSearch = !query || combined.includes(query);
+
+        const matchesColumns = columnFilters.every((input) => {
+          if (!(input instanceof HTMLInputElement)) {
+            return true;
+          }
+
+          const key = input.dataset.key || '';
+          const value = input.value.trim().toLowerCase();
+          if (!key || value === '') {
+            return true;
+          }
+
+          const target = (row.getAttribute('data-' + key) || '').toLowerCase();
+          return target.includes(value);
+        });
+
+        if (matchesSearch && matchesColumns) {
           row.removeAttribute('hidden');
         } else {
           row.setAttribute('hidden', '');
         }
       });
+
+      table.dispatchEvent(new CustomEvent('replenishment:filter-change'));
     }
 
     function setSort(key) {
@@ -495,6 +566,12 @@
     if (filterInput instanceof HTMLInputElement) {
       filterInput.addEventListener('input', applyFilter);
     }
+
+    columnFilters.forEach((input) => {
+      if (input instanceof HTMLInputElement) {
+        input.addEventListener('input', applyFilter);
+      }
+    });
 
     sortRows();
     renderRows();
