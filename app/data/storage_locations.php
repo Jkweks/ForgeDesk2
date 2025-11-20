@@ -50,6 +50,35 @@ if (!function_exists('storageLocationsEnsureSchema')) {
         ];
     }
 
+    function storageLocationDescribe(array $location, string $delimiter = ' · '): string
+    {
+        $parts = [];
+
+        if (isset($location['aisle']) && trim((string) $location['aisle']) !== '') {
+            $parts[] = 'Aisle ' . trim((string) $location['aisle']);
+        }
+
+        if (isset($location['rack']) && trim((string) $location['rack']) !== '') {
+            $parts[] = 'Rack ' . trim((string) $location['rack']);
+        }
+
+        if (isset($location['shelf']) && trim((string) $location['shelf']) !== '') {
+            $parts[] = 'Shelf ' . trim((string) $location['shelf']);
+        }
+
+        if (isset($location['bin']) && trim((string) $location['bin']) !== '') {
+            $parts[] = 'Bin ' . trim((string) $location['bin']);
+        }
+
+        if ($parts === []) {
+            return isset($location['display_name']) && trim((string) $location['display_name']) !== ''
+                ? trim((string) $location['display_name'])
+                : (isset($location['name']) ? trim((string) $location['name']) : '');
+        }
+
+        return implode($delimiter, $parts);
+    }
+
     function storageLocationsBackfillComponents(PDO $db): void
     {
         $statement = $db->query(
@@ -154,12 +183,14 @@ if (!function_exists('storageLocationsEnsureSchema')) {
             $tree[$aisleKey]['racks'][$rackKey]['shelves'][$shelfKey]['bins'][] = [
                 'id' => $location['id'],
                 'label' => $leafLabel !== null ? $leafLabel : $location['display_name'],
-                'path_label' => storageLocationFormatName([
+                'path_label' => storageLocationDescribe([
                     'aisle' => $location['aisle'],
                     'rack' => $location['rack'],
                     'shelf' => $location['shelf'],
                     'bin' => $location['bin'],
-                ], $location['display_name']),
+                    'display_name' => $location['display_name'],
+                    'name' => $location['name'],
+                ]),
                 'bin' => $location['bin'],
                 'display_name' => $location['display_name'],
             ];

@@ -81,7 +81,7 @@ if (!function_exists('ensureCycleCountSchema')) {
 
         $locationMap = $locationIds !== [] ? storageLocationsMapByIds($db, $locationIds) : [];
         $locationNames = array_values(array_map(
-            static fn (array $location): string => $location['name'],
+            static fn (array $location): string => storageLocationDescribe($location),
             $locationMap
         ));
 
