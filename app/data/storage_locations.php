@@ -168,10 +168,9 @@ if (!function_exists('storageLocationsEnsureSchema')) {
         storageLocationsEnsureSchema($db);
 
         $statement = $db->prepare('UPDATE storage_locations SET is_active = :is_active WHERE id = :id');
-        $statement->execute([
-            ':id' => $id,
-            ':is_active' => $isActive,
-        ]);
+        $statement->bindValue(':id', $id, PDO::PARAM_INT);
+        $statement->bindValue(':is_active', $isActive, PDO::PARAM_BOOL);
+        $statement->execute();
     }
 
     /**
