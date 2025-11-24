@@ -317,12 +317,20 @@ $bodyClassAttribute = ' class="' . implode(' ', $bodyClasses) . '"';
                                   <span><?= e($rack['label']) ?></span>
                                 </label>
                                 <?php foreach ($rack['shelves'] as $shelf): ?>
-                                  <?php $shelfIds = implode(',', $shelf['location_ids']); ?>
+                                  <?php
+                                  $shelfIds = implode(',', $shelf['location_ids']);
+                                  $hasRealBins = array_filter($shelf['bins'], static function ($bin): bool {
+                                      return isset($bin['bin']) && $bin['bin'] !== null && trim((string) $bin['bin']) !== '';
+                                  });
+                                  $showShelfGroup = $hasRealBins !== [] || count($shelf['bins']) > 1;
+                                  ?>
                                   <div class="location-branch" data-level="shelf">
-                                    <label class="checkbox-option">
-                                      <input type="checkbox" data-location-group data-child-ids="<?= e($shelfIds) ?>" />
-                                      <span><?= e($shelf['label']) ?></span>
-                                    </label>
+                                    <?php if ($showShelfGroup): ?>
+                                      <label class="checkbox-option">
+                                        <input type="checkbox" data-location-group data-child-ids="<?= e($shelfIds) ?>" />
+                                        <span><?= e($shelf['label']) ?></span>
+                                      </label>
+                                    <?php endif; ?>
                                     <div class="location-branch" data-level="bin">
                                       <?php foreach ($shelf['bins'] as $bin): ?>
                                         <?php $isChecked = in_array($bin['id'], $selectedLocationIds, true); ?>

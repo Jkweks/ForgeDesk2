@@ -1308,6 +1308,9 @@ a.link:focus{
   padding:12px;
   box-shadow:var(--shadow);
   z-index:30;
+  min-width:320px;
+  width:max(320px, 28vw);
+  max-width:min(520px, 92vw);
 }
 .location-filter__menu[hidden]{display:none}
 .location-filter__options{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}

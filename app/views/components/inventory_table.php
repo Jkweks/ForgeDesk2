@@ -97,11 +97,18 @@ if (!function_exists('renderInventoryTable')) {
 
                         foreach ($rack['shelves'] as $shelf) {
                             $shelfIds = implode(',', $shelf['location_ids']);
+                            $hasRealBins = array_filter($shelf['bins'], static function ($bin): bool {
+                                return isset($bin['bin']) && $bin['bin'] !== null && trim((string) $bin['bin']) !== '';
+                            });
+                            $showShelfGroup = $hasRealBins !== [] || count($shelf['bins']) > 1;
+
                             echo '<div class="location-branch" data-level="shelf">';
-                            echo '<label class="checkbox-option">';
-                            echo '<input type="checkbox" data-location-group data-child-ids="' . e($shelfIds) . '">';
-                            echo '<span>' . e($shelf['label']) . '</span>';
-                            echo '</label>';
+                            if ($showShelfGroup) {
+                                echo '<label class="checkbox-option">';
+                                echo '<input type="checkbox" data-location-group data-child-ids="' . e($shelfIds) . '">';
+                                echo '<span>' . e($shelf['label']) . '</span>';
+                                echo '</label>';
+                            }
                             echo '<div class="location-branch" data-level="bin">';
                             foreach ($shelf['bins'] as $bin) {
                                 echo '<label class="checkbox-option">';
