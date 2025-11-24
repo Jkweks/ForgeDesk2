@@ -32,6 +32,7 @@
       });
 
       const filters = Array.from(container.querySelectorAll('.column-filter'));
+      const locationFilters = Array.from(container.querySelectorAll('[data-location-filter]'));
       const pagination = container.querySelector('[data-pagination]');
       const prevButton = pagination instanceof HTMLElement ? pagination.querySelector('[data-pagination-prev]') : null;
       const nextButton = pagination instanceof HTMLElement ? pagination.querySelector('[data-pagination-next]') : null;
@@ -132,6 +133,188 @@
         });
       }
 
+      function syncLocationFilterFromInput(filterContainer) {
+        if (!(filterContainer instanceof HTMLElement)) {
+          return;
+        }
+
+        const input = filterContainer.querySelector('.column-filter[data-filter-type="tokens"]');
+        const binCheckboxes = input
+          ? Array.from(filterContainer.querySelectorAll('input[type="checkbox"][data-location-node="bin"]'))
+          : [];
+        const groupCheckboxes = input
+          ? Array.from(filterContainer.querySelectorAll('input[type="checkbox"][data-location-group]'))
+          : [];
+
+        if (!(input instanceof HTMLInputElement)) {
+          return;
+        }
+
+        const tokens = input.value
+          .split(',')
+          .map((token) => token.trim())
+          .filter((token) => token !== '');
+
+        binCheckboxes.forEach((bin) => {
+          bin.checked = tokens.includes(bin.value);
+        });
+
+        function getChildIds(node) {
+          const raw = node.dataset.childIds;
+          if (!raw) {
+            return [];
+          }
+
+          return raw
+            .split(',')
+            .map((value) => value.trim())
+            .filter((value) => value !== '');
+        }
+
+        function updateGroupStates() {
+          groupCheckboxes.forEach((group) => {
+            const childIds = getChildIds(group);
+            const matchingBins = binCheckboxes.filter((bin) => childIds.includes(bin.value));
+            const checkedCount = matchingBins.filter((bin) => bin.checked).length;
+
+            group.checked = checkedCount === matchingBins.length && matchingBins.length > 0;
+            group.indeterminate = checkedCount > 0 && checkedCount < matchingBins.length;
+          });
+        }
+
+        function updateLabel() {
+          const toggle = filterContainer.querySelector('[data-location-filter-toggle]');
+          if (!(toggle instanceof HTMLButtonElement)) {
+            return;
+          }
+
+          const active = binCheckboxes.filter((bin) => bin.checked).length;
+          toggle.textContent = active === 0 ? 'All locations' : `${active} selected`;
+        }
+
+        updateGroupStates();
+        updateLabel();
+      }
+
+      function initLocationFilter(filterContainer) {
+        if (!(filterContainer instanceof HTMLElement)) {
+          return;
+        }
+
+        const toggle = filterContainer.querySelector('[data-location-filter-toggle]');
+        const menu = filterContainer.querySelector('[data-location-filter-menu]');
+        const closeButton = filterContainer.querySelector('[data-location-filter-close]');
+        const input = filterContainer.querySelector('.column-filter[data-filter-type="tokens"]');
+        const binCheckboxes = input
+          ? Array.from(filterContainer.querySelectorAll('input[type="checkbox"][data-location-node="bin"]'))
+          : [];
+        const groupCheckboxes = input
+          ? Array.from(filterContainer.querySelectorAll('input[type="checkbox"][data-location-group]'))
+          : [];
+
+        if (!(toggle instanceof HTMLButtonElement) || !(menu instanceof HTMLElement) || !(input instanceof HTMLInputElement)) {
+          return;
+        }
+
+        function getChildIds(node) {
+          const raw = node.dataset.childIds;
+          if (!raw) {
+            return [];
+          }
+
+          return raw
+            .split(',')
+            .map((value) => value.trim())
+            .filter((value) => value !== '');
+        }
+
+        function updateGroupStates() {
+          groupCheckboxes.forEach((group) => {
+            const childIds = getChildIds(group);
+            const matchingBins = binCheckboxes.filter((bin) => childIds.includes(bin.value));
+            const checkedCount = matchingBins.filter((bin) => bin.checked).length;
+
+            group.checked = checkedCount === matchingBins.length && matchingBins.length > 0;
+            group.indeterminate = checkedCount > 0 && checkedCount < matchingBins.length;
+          });
+        }
+
+        function updateLabel() {
+          const active = binCheckboxes.filter((bin) => bin.checked).length;
+          toggle.textContent = active === 0 ? 'All locations' : `${active} selected`;
+        }
+
+        function syncInputFromSelection() {
+          const selected = binCheckboxes
+            .filter((bin) => bin.checked)
+            .map((bin) => bin.value)
+            .filter((value) => value !== '');
+
+          input.value = selected.join(',');
+          updateGroupStates();
+          updateLabel();
+          applyFilters({ preservePage: true });
+          persistState();
+        }
+
+        function setMenu(open) {
+          if (open) {
+            menu.removeAttribute('hidden');
+            toggle.setAttribute('aria-expanded', 'true');
+          } else {
+            menu.setAttribute('hidden', 'hidden');
+            toggle.setAttribute('aria-expanded', 'false');
+          }
+        }
+
+        toggle.addEventListener('click', (event) => {
+          event.preventDefault();
+          const isOpen = toggle.getAttribute('aria-expanded') === 'true';
+          setMenu(!isOpen);
+        });
+
+        if (closeButton instanceof HTMLElement) {
+          closeButton.addEventListener('click', (event) => {
+            event.preventDefault();
+            setMenu(false);
+          });
+        }
+
+        document.addEventListener('click', (event) => {
+          if (!filterContainer.contains(event.target)) {
+            setMenu(false);
+          }
+        });
+
+        groupCheckboxes.forEach((group) => {
+          group.addEventListener('change', (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLInputElement)) {
+              return;
+            }
+
+            const childIds = getChildIds(target);
+            const shouldCheck = target.checked;
+
+            binCheckboxes.forEach((bin) => {
+              if (childIds.includes(bin.value)) {
+                bin.checked = shouldCheck;
+              }
+            });
+
+            syncInputFromSelection();
+          });
+        });
+
+        binCheckboxes.forEach((bin) => {
+          bin.addEventListener('change', () => {
+            syncInputFromSelection();
+          });
+        });
+
+        syncLocationFilterFromInput(filterContainer);
+      }
+
       const savedState = loadState();
       if (savedState) {
         if (typeof savedState.sortKey === 'string') {
@@ -148,6 +331,11 @@
 
         restoreFilters(savedState.filters);
       }
+
+      locationFilters.forEach((filter) => {
+        syncLocationFilterFromInput(filter);
+        initLocationFilter(filter);
+      });
 
       function getDatasetValue(element, key) {
         if (!key) {
@@ -262,7 +450,7 @@
         filteredRows = allRows.filter(({ element }) => {
           return filters.every((input) => {
             const rawValue = input instanceof HTMLInputElement ? input.value : '';
-            const value = rawValue.trim().toLowerCase();
+            const value = rawValue.trim();
             if (value === '') {
               return true;
             }
@@ -284,9 +472,37 @@
               return true;
             }
 
+            const filterType = input.dataset.filterType || 'text';
+            if (filterType === 'tokens') {
+              const tokens = value
+                .split(',')
+                .map((token) => token.trim().toLowerCase())
+                .filter((token) => token !== '');
+
+              if (tokens.length === 0) {
+                return true;
+              }
+
+              return keys.some((key) => {
+                const datasetValue = getDatasetValue(element, key);
+                const rowTokens = datasetValue
+                  .split(',')
+                  .map((token) => token.trim().toLowerCase())
+                  .filter((token) => token !== '');
+
+                if (rowTokens.length === 0) {
+                  return false;
+                }
+
+                return tokens.some((token) => rowTokens.includes(token));
+              });
+            }
+
+            const normalizedValue = value.toLowerCase();
+
             return keys.some((key) => {
               const datasetValue = getDatasetValue(element, key);
-              return datasetValue.toLowerCase().includes(value);
+              return datasetValue.toLowerCase().includes(normalizedValue);
             });
           });
         });

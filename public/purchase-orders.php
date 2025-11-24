@@ -8,6 +8,7 @@ require_once __DIR__ . '/../app/helpers/icons.php';
 require_once __DIR__ . '/../app/helpers/database.php';
 require_once __DIR__ . '/../app/helpers/view.php';
 require_once __DIR__ . '/../app/data/purchase_orders.php';
+require_once __DIR__ . '/../app/data/suppliers.php';
 require_once __DIR__ . '/../app/services/purchase_order_documents.php';
 
 foreach ($nav as &$groupItems) {
@@ -20,9 +21,15 @@ unset($groupItems, $item);
 $databaseConfig = $app['database'];
 $generalErrors = [];
 $successMessage = null;
+$suppliers = [];
 $filter = isset($_GET['filter']) ? trim((string) $_GET['filter']) : 'open';
 if ($filter === '') {
     $filter = 'open';
+}
+$supplierFilter = null;
+$supplierFilterRaw = isset($_GET['supplier_id']) ? trim((string) $_GET['supplier_id']) : '';
+if ($supplierFilterRaw !== '' && ctype_digit($supplierFilterRaw)) {
+    $supplierFilter = (int) $supplierFilterRaw;
 }
 $selectedPurchaseOrderId = null;
 $selectedPurchaseOrder = null;
@@ -58,6 +65,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($db)) {
         $filter = $postedFilter;
     }
 
+    $postedSupplier = isset($_POST['supplier_id']) ? trim((string) $_POST['supplier_id']) : '';
+    if ($postedSupplier !== '' && ctype_digit($postedSupplier)) {
+        $supplierFilter = (int) $postedSupplier;
+    }
+
     $postedId = isset($_POST['purchase_order_id']) && ctype_digit((string) $_POST['purchase_order_id'])
         ? (int) $_POST['purchase_order_id']
         : null;
@@ -69,6 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($db)) {
     $redirectQuery = http_build_query([
         'po_id' => $selectedPurchaseOrderId,
         'filter' => $filter,
+        'supplier_id' => $supplierFilter,
     ]);
 
     if ($action === 'update_status' && $postedId !== null) {
@@ -152,7 +165,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($db)) {
 $orders = [];
 if (isset($db)) {
     try {
-        $orders = purchaseOrderListRecent($db, $filter, 100);
+        $suppliers = suppliersList($db);
+    } catch (\Throwable $exception) {
+        $generalErrors[] = 'Unable to load suppliers: ' . $exception->getMessage();
+        $suppliers = [];
+    }
+
+    try {
+        $orders = purchaseOrderListRecent($db, $filter, 100, $supplierFilter);
     } catch (\Throwable $exception) {
         $generalErrors[] = 'Unable to load purchase orders: ' . $exception->getMessage();
         $orders = [];
@@ -248,6 +268,16 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                   <option value="<?= e($option) ?>"<?= $filter === $option ? ' selected' : '' ?>><?= e($label) ?></option>
                 <?php endforeach; ?>
               </select>
+
+              <label for="supplier-filter" class="sr-only">Filter by supplier</label>
+              <select id="supplier-filter" name="supplier_id" onchange="this.form.submit()">
+                <option value="">All suppliers</option>
+                <?php foreach ($suppliers as $supplier): ?>
+                  <option value="<?= e((string) $supplier['id']) ?>"<?= $supplierFilter !== null && $supplierFilter === (int) $supplier['id'] ? ' selected' : '' ?>>
+                    <?= e($supplier['name']) ?>
+                  </option>
+                <?php endforeach; ?>
+              </select>
             </form>
             <h3>Recent orders</h3>
             <div class="receiving-order-list">
@@ -264,6 +294,7 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                     $linkQuery = http_build_query([
                         'po_id' => $orderId,
                         'filter' => $filter,
+                        'supplier_id' => $supplierFilter,
                     ]);
                   ?>
                   <a
@@ -296,6 +327,7 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                 $orderLinkQuery = http_build_query([
                     'po_id' => $selectedPurchaseOrder['id'],
                     'filter' => $filter,
+                    'supplier_id' => $supplierFilter,
                 ]);
               ?>
               <article class="card" aria-labelledby="po-detail-title">
@@ -331,6 +363,7 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                   <form method="post" class="inline-form">
                     <input type="hidden" name="purchase_order_id" value="<?= e((string) $selectedPurchaseOrder['id']) ?>" />
                     <input type="hidden" name="filter" value="<?= e($filter) ?>" />
+                    <input type="hidden" name="supplier_id" value="<?= e((string) ($supplierFilter ?? '')) ?>" />
                     <label for="status-select">Status</label>
                     <select id="status-select" name="status">
                       <?php foreach ($orderStatuses as $status): ?>
@@ -345,12 +378,14 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                     <form method="post" class="inline" style="display:inline-block">
                       <input type="hidden" name="purchase_order_id" value="<?= e((string) $selectedPurchaseOrder['id']) ?>" />
                       <input type="hidden" name="filter" value="<?= e($filter) ?>" />
+                      <input type="hidden" name="supplier_id" value="<?= e((string) ($supplierFilter ?? '')) ?>" />
                       <button class="button primary" type="submit" name="action" value="download_pdf">Download PO PDF</button>
                     </form>
                     <?php if ($isTubelite): ?>
                       <form method="post" class="inline" style="display:inline-block">
                         <input type="hidden" name="purchase_order_id" value="<?= e((string) $selectedPurchaseOrder['id']) ?>" />
                         <input type="hidden" name="filter" value="<?= e($filter) ?>" />
+                        <input type="hidden" name="supplier_id" value="<?= e((string) ($supplierFilter ?? '')) ?>" />
                         <button class="button secondary" type="submit" name="action" value="download_tubelite">Download Tubelite EZ Estimate</button>
                       </form>
                     <?php endif; ?>

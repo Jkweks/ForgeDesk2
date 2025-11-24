@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/purchase_orders.php';
 require_once __DIR__ . '/storage_locations.php';
+require_once __DIR__ . '/suppliers.php';
 
 if (!function_exists('loadInventory')) {
     function inventoryIsDiscontinuedStatus(string $status): bool
@@ -688,6 +689,8 @@ if (!function_exists('loadInventory')) {
             $required = [
                 'supplier' => "ALTER TABLE inventory_items ADD COLUMN supplier TEXT NOT NULL DEFAULT 'Unknown Supplier'",
                 'supplier_contact' => 'ALTER TABLE inventory_items ADD COLUMN supplier_contact TEXT NULL',
+                'supplier_id' => 'ALTER TABLE inventory_items ADD COLUMN supplier_id BIGINT NULL',
+                'supplier_sku' => 'ALTER TABLE inventory_items ADD COLUMN supplier_sku TEXT NULL',
                 'reorder_point' => 'ALTER TABLE inventory_items ADD COLUMN reorder_point INTEGER NOT NULL DEFAULT 0',
                 'lead_time_days' => 'ALTER TABLE inventory_items ADD COLUMN lead_time_days INTEGER NOT NULL DEFAULT 0',
                 'part_number' => "ALTER TABLE inventory_items ADD COLUMN part_number TEXT NOT NULL DEFAULT ''",
@@ -705,6 +708,32 @@ if (!function_exists('loadInventory')) {
             $hasVariantSecondary = in_array('variant_secondary', $existing, true);
 
             inventoryBackfillFinishColumn($db, $hasVariantPrimary, $hasVariantSecondary);
+
+            if (!in_array('supplier_id', $existing, true)) {
+                $db->exec('CREATE INDEX IF NOT EXISTS idx_inventory_items_supplier_id ON inventory_items(supplier_id)');
+            }
+
+            $db->exec(
+                "DO $$\n"
+                . "BEGIN\n"
+                . "    IF NOT EXISTS (\n"
+                . "        SELECT 1\n"
+                . "        FROM information_schema.table_constraints tc\n"
+                . "        WHERE tc.constraint_type = 'FOREIGN KEY'\n"
+                . "          AND tc.table_schema = current_schema()\n"
+                . "          AND tc.table_name = 'inventory_items'\n"
+                . "          AND tc.constraint_name = 'inventory_items_supplier_id_fkey'\n"
+                . "    ) THEN\n"
+                . "        ALTER TABLE inventory_items\n"
+                . "            ADD CONSTRAINT inventory_items_supplier_id_fkey\n"
+                . "            FOREIGN KEY (supplier_id)\n"
+                . "            REFERENCES suppliers(id)\n"
+                . "            ON UPDATE CASCADE\n"
+                . "            ON DELETE SET NULL;\n"
+                . "    END IF;\n"
+                . "END;\n"
+                . "$$;"
+            );
 
             $ensuredItems = true;
         }
@@ -1176,6 +1205,130 @@ if (!function_exists('loadInventory')) {
     }
 
     /**
+     * @return list<array{
+     *   kind:string,
+     *   occurred_at:string,
+     *   reference:string,
+     *   quantity_change:float,
+     *   note:?string,
+     *   details:array<string,mixed>
+     * }>
+     */
+    function inventoryLoadItemActivity(\PDO $db, int $itemId, int $limit = 50): array
+    {
+        ensureInventorySchema($db);
+        inventoryEnsureTransactionsSchema($db);
+        ensureCycleCountSchema($db);
+        purchaseOrderEnsureSchema($db);
+
+        $itemId = max(1, $itemId);
+        $events = [];
+
+        // Inventory transactions
+        $txStatement = $db->prepare(
+            'SELECT t.reference, t.notes, t.created_at, l.quantity_change, l.note, l.stock_before, l.stock_after'
+            . ' FROM inventory_transaction_lines l'
+            . ' INNER JOIN inventory_transactions t ON t.id = l.transaction_id'
+            . ' WHERE l.inventory_item_id = :item_id'
+            . ' ORDER BY t.created_at DESC, l.id DESC'
+        );
+        $txStatement->execute([':item_id' => $itemId]);
+
+        while ($row = $txStatement->fetch()) {
+            $events[] = [
+                'kind' => 'inventory',
+                'occurred_at' => (string) $row['created_at'],
+                'reference' => (string) $row['reference'],
+                'quantity_change' => (float) $row['quantity_change'],
+                'note' => $row['note'] !== null ? (string) $row['note'] : ($row['notes'] !== null ? (string) $row['notes'] : null),
+                'details' => [
+                    'stock_before' => (int) $row['stock_before'],
+                    'stock_after' => (int) $row['stock_after'],
+                ],
+            ];
+        }
+
+        // Cycle counts
+        $ccStatement = $db->prepare(
+            'SELECT s.name AS session_name, s.status AS session_status, s.started_at, s.completed_at, l.counted_at, '
+            . 'l.expected_qty, l.counted_qty, l.variance'
+            . ' FROM cycle_count_lines l'
+            . ' INNER JOIN cycle_count_sessions s ON s.id = l.session_id'
+            . ' WHERE l.inventory_item_id = :item_id AND l.counted_qty IS NOT NULL'
+            . ' ORDER BY COALESCE(l.counted_at, s.completed_at, s.started_at) DESC, l.id DESC'
+        );
+        $ccStatement->execute([':item_id' => $itemId]);
+
+        while ($row = $ccStatement->fetch()) {
+            $expected = (int) $row['expected_qty'];
+            $counted = $row['counted_qty'] !== null ? (int) $row['counted_qty'] : $expected;
+            $variance = $row['variance'] !== null ? (int) $row['variance'] : ($counted - $expected);
+            $timestamp = $row['counted_at'] ?? ($row['completed_at'] ?? $row['started_at']);
+
+            $events[] = [
+                'kind' => 'cycle_count',
+                'occurred_at' => (string) $timestamp,
+                'reference' => (string) $row['session_name'],
+                'quantity_change' => (float) $variance,
+                'note' => null,
+                'details' => [
+                    'expected_qty' => $expected,
+                    'counted_qty' => $counted,
+                    'variance' => $variance,
+                    'session_status' => (string) $row['session_status'],
+                ],
+            ];
+        }
+
+        // Purchase order receipts
+        $receiptStatement = $db->prepare(
+            'SELECT po.order_number, r.reference, r.created_at, pol.quantity_received, pol.quantity_cancelled'
+            . ' FROM purchase_order_receipt_lines pol'
+            . ' INNER JOIN purchase_order_receipts r ON r.id = pol.receipt_id'
+            . ' INNER JOIN purchase_order_lines l ON l.id = pol.purchase_order_line_id'
+            . ' INNER JOIN purchase_orders po ON po.id = r.purchase_order_id'
+            . ' WHERE l.inventory_item_id = :item_id'
+            . ' ORDER BY r.created_at DESC, pol.id DESC'
+        );
+        $receiptStatement->execute([':item_id' => $itemId]);
+
+        while ($row = $receiptStatement->fetch()) {
+            $received = $row['quantity_received'] !== null ? (float) $row['quantity_received'] : 0.0;
+            $cancelled = $row['quantity_cancelled'] !== null ? (float) $row['quantity_cancelled'] : 0.0;
+            $net = $received - $cancelled;
+
+            $events[] = [
+                'kind' => 'receipt',
+                'occurred_at' => (string) $row['created_at'],
+                'reference' => $row['order_number'] !== null ? (string) $row['order_number'] : (string) $row['reference'],
+                'quantity_change' => $net,
+                'note' => null,
+                'details' => [
+                    'received_qty' => $received,
+                    'cancelled_qty' => $cancelled,
+                    'receipt_reference' => (string) $row['reference'],
+                ],
+            ];
+        }
+
+        usort(
+            $events,
+            static function (array $a, array $b): int {
+                $aTime = strtotime((string) $a['occurred_at']);
+                $bTime = strtotime((string) $b['occurred_at']);
+
+                if ($aTime === $bTime) {
+                    return 0;
+                }
+
+                return $aTime > $bTime ? -1 : 1;
+            }
+        );
+
+        return array_slice($events, 0, max(1, $limit));
+    }
+
+    /**
      * Fetch inventory rows ordered by item name.
      *
      * Available quantities may be negative when commitments exceed on-hand stock.
@@ -1222,11 +1375,15 @@ if (!function_exists('loadInventory')) {
                 'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, '
                 . $committedSelect . ' AS committed_qty, '
                 . $availableExpr . ' AS available_qty, i.status, i.supplier, i.supplier_contact, '
+                . 'i.supplier_id, i.supplier_sku, '
                 . 'i.reorder_point, i.lead_time_days, i.average_daily_use, '
-                . $activeSelect . ' AS active_reservations '
+                . $activeSelect . ' AS active_reservations, '
+                . 's.name AS supplier_name, s.contact_email AS supplier_contact_email, s.contact_phone AS supplier_contact_phone, '
+                . 's.default_lead_time_days AS supplier_lead_time '
                 . 'FROM inventory_items i '
                 . $joinCommitments
                 . $joinReservations
+                . 'LEFT JOIN suppliers s ON s.id = i.supplier_id '
                 . 'ORDER BY i.item ASC'
             );
 
@@ -1238,13 +1395,21 @@ if (!function_exists('loadInventory')) {
             );
 
             $averageUsage = inventoryCalculateAverageDailyUseMap($db, $idList);
+            $locationMap = inventoryLoadLocationsForItems($db, $idList);
 
             return array_map(
-                static function (array $row) use ($averageUsage): array {
+                static function (array $row) use ($averageUsage, $locationMap): array {
                     $available = (int) $row['available_qty'];
                     $reorderPoint = (int) $row['reorder_point'];
                     $storedStatus = (string) $row['status'];
                     $id = (int) $row['id'];
+                    $supplierName = $row['supplier_name'] !== null ? (string) $row['supplier_name'] : null;
+                    $supplierDisplay = $supplierName !== null ? $supplierName : (string) $row['supplier'];
+                    $assignedLocations = $locationMap[$id] ?? [];
+                    $locationIds = array_values(array_unique(array_map(
+                        static fn (array $location): int => (int) $location['storage_location_id'],
+                        $assignedLocations
+                    )));
 
                     return [
                         'id' => $id,
@@ -1253,17 +1418,26 @@ if (!function_exists('loadInventory')) {
                         'part_number' => (string) $row['part_number'],
                         'finish' => $row['finish'] !== null ? inventoryNormalizeFinish((string) $row['finish']) : null,
                         'location' => (string) $row['location'],
+                        'location_ids' => $locationIds,
                         'stock' => (int) $row['stock'],
                         'committed_qty' => (int) $row['committed_qty'],
                         'available_qty' => $available,
                         'status' => inventoryResolveStatus($available, $reorderPoint, $storedStatus),
-                        'supplier' => (string) $row['supplier'],
-                        'supplier_contact' => $row['supplier_contact'] !== null ? (string) $row['supplier_contact'] : null,
+                        'supplier_id' => $row['supplier_id'] !== null ? (int) $row['supplier_id'] : null,
+                        'supplier' => $supplierDisplay,
+                        'supplier_name' => $supplierName,
+                        'supplier_contact' => $row['supplier_contact'] !== null
+                            ? (string) $row['supplier_contact']
+                            : ($row['supplier_contact_email'] !== null ? (string) $row['supplier_contact_email'] : null),
+                        'supplier_contact_phone' => $row['supplier_contact_phone'] !== null
+                            ? (string) $row['supplier_contact_phone']
+                            : null,
                         'reorder_point' => $reorderPoint,
                         'lead_time_days' => (int) $row['lead_time_days'],
                         'average_daily_use' => $averageUsage[$id] ?? null,
                         'active_reservations' => (int) $row['active_reservations'],
                         'discontinued' => inventoryIsDiscontinuedStatus($storedStatus),
+                        'supplier_lead_time_days' => $row['supplier_lead_time'] !== null ? (int) $row['supplier_lead_time'] : 0,
                     ];
                 },
                 $rows
@@ -1376,12 +1550,16 @@ if (!function_exists('loadInventory')) {
             'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, '
             . $committedSelect . ' AS committed_qty, '
             . '(i.stock - ' . $committedSelect . ') AS available_qty, i.status, i.supplier, i.supplier_contact, '
+            . 'i.supplier_id, i.supplier_sku, '
             . 'i.reorder_point, i.lead_time_days, i.average_daily_use, '
             . 'i.pack_size, i.purchase_uom, i.stock_uom, '
-            . $activeSelect . ' AS active_reservations '
+            . $activeSelect . ' AS active_reservations, '
+            . 's.name AS supplier_name, s.contact_email AS supplier_contact_email, s.contact_phone AS supplier_contact_phone, '
+            . 's.default_lead_time_days AS supplier_lead_time '
             . 'FROM inventory_items i '
             . $joinCommitments
             . $joinClause
+            . 'LEFT JOIN suppliers s ON s.id = i.supplier_id '
             . 'WHERE i.id = :id'
         );
         $statement->bindValue(':id', $id, \PDO::PARAM_INT);
@@ -1402,6 +1580,8 @@ if (!function_exists('loadInventory')) {
         $averageUsage = inventoryCalculateAverageDailyUseMap($db, [$id]);
 
         $packSize = inventoryNormalizeNumericValue($row['pack_size'] ?? 0.0);
+        $supplierName = $row['supplier_name'] !== null ? (string) $row['supplier_name'] : null;
+        $supplierDisplay = $supplierName !== null ? $supplierName : (string) $row['supplier'];
 
         return [
             'id' => $id,
@@ -1414,8 +1594,15 @@ if (!function_exists('loadInventory')) {
             'committed_qty' => (int) $row['committed_qty'],
             'available_qty' => $available,
             'status' => inventoryResolveStatus($available, $reorderPoint, $storedStatus),
-            'supplier' => (string) $row['supplier'],
-            'supplier_contact' => $row['supplier_contact'] !== null ? (string) $row['supplier_contact'] : null,
+            'supplier_id' => $row['supplier_id'] !== null ? (int) $row['supplier_id'] : null,
+            'supplier' => $supplierDisplay,
+            'supplier_name' => $supplierName,
+            'supplier_contact' => $row['supplier_contact'] !== null
+                ? (string) $row['supplier_contact']
+                : ($row['supplier_contact_email'] !== null ? (string) $row['supplier_contact_email'] : null),
+            'supplier_contact_phone' => $row['supplier_contact_phone'] !== null
+                ? (string) $row['supplier_contact_phone']
+                : null,
             'reorder_point' => $reorderPoint,
             'lead_time_days' => (int) $row['lead_time_days'],
             'average_daily_use' => $averageUsage[$id] ?? null,
@@ -1424,6 +1611,7 @@ if (!function_exists('loadInventory')) {
             'pack_size' => $packSize,
             'purchase_uom' => $row['purchase_uom'] !== null ? (string) $row['purchase_uom'] : null,
             'stock_uom' => $row['stock_uom'] !== null ? (string) $row['stock_uom'] : null,
+            'supplier_lead_time_days' => $row['supplier_lead_time'] !== null ? (int) $row['supplier_lead_time'] : 0,
         ];
     }
 
@@ -1475,12 +1663,16 @@ if (!function_exists('loadInventory')) {
             'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, '
             . $committedSelect . ' AS committed_qty, '
             . '(i.stock - ' . $committedSelect . ') AS available_qty, i.status, i.supplier, i.supplier_contact, '
+            . 'i.supplier_id, i.supplier_sku, '
             . 'i.reorder_point, i.lead_time_days, i.average_daily_use, '
             . 'i.pack_size, i.purchase_uom, i.stock_uom, '
-            . $activeSelect . ' AS active_reservations '
+            . $activeSelect . ' AS active_reservations, '
+            . 's.name AS supplier_name, s.contact_email AS supplier_contact_email, s.contact_phone AS supplier_contact_phone, '
+            . 's.default_lead_time_days AS supplier_lead_time '
             . 'FROM inventory_items i '
             . $joinCommitments
             . $joinClause
+            . 'LEFT JOIN suppliers s ON s.id = i.supplier_id '
             . 'WHERE i.sku = :sku LIMIT 1'
         );
         $statement->bindValue(':sku', $sku, \PDO::PARAM_STR);
@@ -1501,6 +1693,8 @@ if (!function_exists('loadInventory')) {
         $averageUsage = inventoryCalculateAverageDailyUseMap($db, [$id]);
 
         $packSize = inventoryNormalizeNumericValue($row['pack_size'] ?? 0.0);
+        $supplierName = $row['supplier_name'] !== null ? (string) $row['supplier_name'] : null;
+        $supplierDisplay = $supplierName !== null ? $supplierName : (string) $row['supplier'];
 
         return [
             'id' => $id,
@@ -1513,8 +1707,15 @@ if (!function_exists('loadInventory')) {
             'committed_qty' => (int) $row['committed_qty'],
             'available_qty' => $available,
             'status' => inventoryResolveStatus($available, $reorderPoint, $storedStatus),
-            'supplier' => (string) $row['supplier'],
-            'supplier_contact' => $row['supplier_contact'] !== null ? (string) $row['supplier_contact'] : null,
+            'supplier_id' => $row['supplier_id'] !== null ? (int) $row['supplier_id'] : null,
+            'supplier' => $supplierDisplay,
+            'supplier_name' => $supplierName,
+            'supplier_contact' => $row['supplier_contact'] !== null
+                ? (string) $row['supplier_contact']
+                : ($row['supplier_contact_email'] !== null ? (string) $row['supplier_contact_email'] : null),
+            'supplier_contact_phone' => $row['supplier_contact_phone'] !== null
+                ? (string) $row['supplier_contact_phone']
+                : null,
             'reorder_point' => $reorderPoint,
             'lead_time_days' => (int) $row['lead_time_days'],
             'average_daily_use' => $averageUsage[$id] ?? null,
@@ -1523,6 +1724,7 @@ if (!function_exists('loadInventory')) {
             'pack_size' => $packSize,
             'purchase_uom' => $row['purchase_uom'] !== null ? (string) $row['purchase_uom'] : null,
             'stock_uom' => $row['stock_uom'] !== null ? (string) $row['stock_uom'] : null,
+            'supplier_lead_time_days' => $row['supplier_lead_time'] !== null ? (int) $row['supplier_lead_time'] : 0,
         ];
     }
 
@@ -1538,6 +1740,8 @@ if (!function_exists('loadInventory')) {
      *   stock:int,
      *   status:string,
      *   supplier:string,
+     *   supplier_id:?int,
+     *   supplier_sku?:?string,
      *   supplier_contact:?string,
      *   reorder_point:int,
      *   lead_time_days:int,
@@ -1557,11 +1761,15 @@ if (!function_exists('loadInventory')) {
         $stockUom = isset($payload['stock_uom']) && $payload['stock_uom'] !== null && $payload['stock_uom'] !== ''
             ? (string) $payload['stock_uom']
             : null;
+        $supplierId = isset($payload['supplier_id']) ? (int) $payload['supplier_id'] : null;
+        $supplierSku = isset($payload['supplier_sku']) && $payload['supplier_sku'] !== null && $payload['supplier_sku'] !== ''
+            ? (string) $payload['supplier_sku']
+            : null;
 
         $statement = $db->prepare(
-            'INSERT INTO inventory_items (item, sku, part_number, finish, location, stock, status, supplier, '
-            . 'supplier_contact, reorder_point, lead_time_days, average_daily_use, pack_size, purchase_uom, stock_uom) '
-            . 'VALUES (:item, :sku, :part_number, :finish, :location, :stock, :status, :supplier, :supplier_contact, '
+            'INSERT INTO inventory_items (item, sku, part_number, finish, location, stock, status, supplier, supplier_id, '
+            . 'supplier_sku, supplier_contact, reorder_point, lead_time_days, average_daily_use, pack_size, purchase_uom, stock_uom) '
+            . 'VALUES (:item, :sku, :part_number, :finish, :location, :stock, :status, :supplier, :supplier_id, :supplier_sku, :supplier_contact, '
             . ':reorder_point, :lead_time_days, :average_daily_use, :pack_size, :purchase_uom, :stock_uom) RETURNING id'
         );
 
@@ -1574,6 +1782,8 @@ if (!function_exists('loadInventory')) {
             ':stock' => $payload['stock'],
             ':status' => $payload['status'],
             ':supplier' => $payload['supplier'],
+            ':supplier_id' => $supplierId,
+            ':supplier_sku' => $supplierSku,
             ':supplier_contact' => $payload['supplier_contact'],
             ':reorder_point' => $payload['reorder_point'],
             ':lead_time_days' => $payload['lead_time_days'],
@@ -1598,6 +1808,8 @@ if (!function_exists('loadInventory')) {
      *   stock:int,
      *   status:string,
      *   supplier:string,
+     *   supplier_id:?int,
+     *   supplier_sku?:?string,
      *   supplier_contact:?string,
      *   reorder_point:int,
      *   lead_time_days:int,
@@ -1617,11 +1829,15 @@ if (!function_exists('loadInventory')) {
         $stockUom = isset($payload['stock_uom']) && $payload['stock_uom'] !== null && $payload['stock_uom'] !== ''
             ? (string) $payload['stock_uom']
             : null;
+        $supplierId = isset($payload['supplier_id']) ? (int) $payload['supplier_id'] : null;
+        $supplierSku = isset($payload['supplier_sku']) && $payload['supplier_sku'] !== null && $payload['supplier_sku'] !== ''
+            ? (string) $payload['supplier_sku']
+            : null;
 
         $statement = $db->prepare(
             'UPDATE inventory_items SET item = :item, sku = :sku, part_number = :part_number, finish = :finish, '
-            . 'location = :location, stock = :stock, status = :status, supplier = :supplier, '
-            . 'supplier_contact = :supplier_contact, reorder_point = :reorder_point, lead_time_days = :lead_time_days, '
+            . 'location = :location, stock = :stock, status = :status, supplier = :supplier, supplier_id = :supplier_id, '
+            . 'supplier_sku = :supplier_sku, supplier_contact = :supplier_contact, reorder_point = :reorder_point, lead_time_days = :lead_time_days, '
             . 'average_daily_use = :average_daily_use, pack_size = :pack_size, purchase_uom = :purchase_uom, '
             . 'stock_uom = :stock_uom WHERE id = :id'
         );
@@ -1636,6 +1852,8 @@ if (!function_exists('loadInventory')) {
             ':stock' => $payload['stock'],
             ':status' => $payload['status'],
             ':supplier' => $payload['supplier'],
+            ':supplier_id' => $supplierId,
+            ':supplier_sku' => $supplierSku,
             ':supplier_contact' => $payload['supplier_contact'],
             ':reorder_point' => $payload['reorder_point'],
             ':lead_time_days' => $payload['lead_time_days'],

@@ -1155,23 +1155,30 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
      *   line_count:int
      * }>
      */
-    function purchaseOrderListRecent(\PDO $db, string $filter = 'open', int $limit = 50): array
+    function purchaseOrderListRecent(\PDO $db, string $filter = 'open', int $limit = 50, ?int $supplierId = null): array
     {
         purchaseOrderEnsureSchema($db);
 
         $limit = max(1, $limit);
         $filterKey = strtolower(trim($filter));
-        $where = '';
+        $conditions = [];
         $params = [];
 
         if ($filterKey === 'open') {
             $statuses = purchaseOrderOpenStatuses();
             $quoted = implode(', ', array_map(static fn (string $status): string => $db->quote($status), $statuses));
-            $where = 'WHERE po.status IN (' . $quoted . ')';
+            $conditions[] = 'po.status IN (' . $quoted . ')';
         } elseif ($filterKey !== '' && $filterKey !== 'all' && in_array($filterKey, purchaseOrderStatusList(), true)) {
-            $where = 'WHERE po.status = :status';
+            $conditions[] = 'po.status = :status';
             $params[':status'] = $filterKey;
         }
+
+        if ($supplierId !== null && $supplierId > 0) {
+            $conditions[] = 'po.supplier_id = :supplier_id';
+            $params[':supplier_id'] = $supplierId;
+        }
+
+        $where = $conditions !== [] ? 'WHERE ' . implode(' AND ', $conditions) : '';
 
         $sql =
             "SELECT\n"

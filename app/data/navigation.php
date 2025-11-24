@@ -16,7 +16,7 @@ return [
         ['icon' => 'inbox', 'label' => 'Receive Material', 'href' => '/receive-material.php'],
         ['icon' => 'box', 'label' => 'Stock Levels', 'badge' => 'soon'],
         ['icon' => 'layers', 'label' => 'Kitting', 'badge' => 'soon'],
-        ['icon' => 'tag', 'label' => 'Suppliers'],
+        ['icon' => 'tag', 'label' => 'Suppliers', 'href' => '/admin/suppliers.php'],
     ],
     'Maintenance' => [
         ['icon' => 'settings', 'label' => 'Maintenance Hub', 'href' => '/maintenance.php'],
