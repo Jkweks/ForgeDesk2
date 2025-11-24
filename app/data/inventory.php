@@ -5,6 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/purchase_orders.php';
 require_once __DIR__ . '/storage_locations.php';
 require_once __DIR__ . '/suppliers.php';
+require_once __DIR__ . '/cycle_counts.php';
 
 if (!function_exists('loadInventory')) {
     function inventoryIsDiscontinuedStatus(string $status): bool
