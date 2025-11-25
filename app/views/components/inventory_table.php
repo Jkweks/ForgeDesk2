@@ -76,7 +76,7 @@ if (!function_exists('renderInventoryTable')) {
             echo '<input type="hidden" class="column-filter" data-key="locationIds" data-filter-type="tokens" />';
             echo '<div class="location-filter__menu" data-location-filter-menu hidden>';
             if ($locationHierarchy === []) {
-                echo '<p class="small">No storage locations configured yet.</p>';
+                echo '<p class="small">No storage locations configured yet. Add them from the admin dashboard to filter inventory.</p>';
             } else {
                 echo '<div class="location-hierarchy" data-location-hierarchy>';
                 foreach ($locationHierarchy as $aisle) {
