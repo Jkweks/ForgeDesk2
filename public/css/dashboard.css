@@ -1311,11 +1311,15 @@ a.link:focus{
   min-width:320px;
   width:max(320px, 28vw);
   max-width:min(520px, 92vw);
+  display:flex;
+  flex-direction:column;
+  gap:12px;
 }
 .location-filter__menu[hidden]{display:none}
 .location-filter__options{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
-.location-hierarchy{display:flex;flex-direction:column;gap:10px;max-height:320px;overflow:auto;padding-right:4px}
-.location-branch{border-left:1px solid rgba(255,255,255,.12);margin-left:10px;padding-left:10px;display:flex;flex-direction:column;gap:6px}
+.location-hierarchy{display:flex;flex-direction:column;gap:12px;max-height:320px;overflow:auto;padding:2px 4px 2px 0}
+.location-branch{border-left:1px solid rgba(255,255,255,.12);margin-left:10px;padding-left:10px;display:flex;flex-direction:column;gap:8px}
+.location-branch+.location-branch{margin-top:4px}
 .location-branch[data-level="aisle"]{border-left:0;margin-left:0;padding-left:0}
 .location-branch[data-level="bin"]{border-left:0;margin-left:0;padding-left:0}
 .checkbox-option{display:flex;align-items:center;gap:8px;font-size:.9rem}
