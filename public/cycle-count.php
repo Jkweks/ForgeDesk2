@@ -301,58 +301,7 @@ $bodyClassAttribute = ' class="' . implode(' ', $bodyClasses) . '"';
                     <?php if ($locationHierarchy === []): ?>
                       <p class="small">No storage locations configured yet. Add them from the admin dashboard to filter counts.</p>
                     <?php else: ?>
-                      <div class="location-hierarchy" data-location-hierarchy>
-                        <?php foreach ($locationHierarchy as $aisle): ?>
-                          <?php $aisleIds = implode(',', $aisle['location_ids']); ?>
-                          <div class="location-branch" data-level="aisle">
-                            <label class="checkbox-option">
-                              <input type="checkbox" data-location-group data-child-ids="<?= e($aisleIds) ?>" />
-                              <span><?= e($aisle['label']) ?></span>
-                            </label>
-                            <?php foreach ($aisle['racks'] as $rack): ?>
-                              <?php $rackIds = implode(',', $rack['location_ids']); ?>
-                              <div class="location-branch" data-level="rack">
-                                <label class="checkbox-option">
-                                  <input type="checkbox" data-location-group data-child-ids="<?= e($rackIds) ?>" />
-                                  <span><?= e($rack['label']) ?></span>
-                                </label>
-                                <?php foreach ($rack['shelves'] as $shelf): ?>
-                                  <?php
-                                  $shelfIds = implode(',', $shelf['location_ids']);
-                                  $hasRealBins = array_filter($shelf['bins'], static function ($bin): bool {
-                                      return isset($bin['bin']) && $bin['bin'] !== null && trim((string) $bin['bin']) !== '';
-                                  });
-                                  $showShelfGroup = $hasRealBins !== [] || count($shelf['bins']) > 1;
-                                  ?>
-                                  <div class="location-branch" data-level="shelf">
-                                    <?php if ($showShelfGroup): ?>
-                                      <label class="checkbox-option">
-                                        <input type="checkbox" data-location-group data-child-ids="<?= e($shelfIds) ?>" />
-                                        <span><?= e($shelf['label']) ?></span>
-                                      </label>
-                                    <?php endif; ?>
-                                    <div class="location-branch" data-level="bin">
-                                      <?php foreach ($shelf['bins'] as $bin): ?>
-                                        <?php $isChecked = in_array($bin['id'], $selectedLocationIds, true); ?>
-                                        <label class="checkbox-option">
-                                          <input
-                                            type="checkbox"
-                                            name="location_ids[]"
-                                            value="<?= e((string) $bin['id']) ?>"
-                                            data-location-node="bin"
-                                            <?= $isChecked ? 'checked' : '' ?>
-                                          />
-                                          <span class="location-leaf__label"><?= e($bin['label']) ?></span>
-                                        </label>
-                                      <?php endforeach; ?>
-                                    </div>
-                                  </div>
-                                <?php endforeach; ?>
-                              </div>
-                            <?php endforeach; ?>
-                          </div>
-                        <?php endforeach; ?>
-                      </div>
+                      <?php renderLocationHierarchy($locationHierarchy, $selectedLocationIds, 'location_ids[]'); ?>
                     <?php endif; ?>
                     <button type="button" class="button ghost" data-location-filter-close>Done</button>
                   </div>

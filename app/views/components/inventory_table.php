@@ -78,54 +78,7 @@ if (!function_exists('renderInventoryTable')) {
             if ($locationHierarchy === []) {
                 echo '<p class="small">No storage locations configured yet. Add them from the admin dashboard to filter inventory.</p>';
             } else {
-                echo '<div class="location-hierarchy" data-location-hierarchy>';
-                foreach ($locationHierarchy as $aisle) {
-                    $aisleIds = implode(',', $aisle['location_ids']);
-                    echo '<div class="location-branch" data-level="aisle">';
-                    echo '<label class="checkbox-option">';
-                    echo '<input type="checkbox" data-location-group data-child-ids="' . e($aisleIds) . '">';
-                    echo '<span>' . e($aisle['label']) . '</span>';
-                    echo '</label>';
-
-                    foreach ($aisle['racks'] as $rack) {
-                        $rackIds = implode(',', $rack['location_ids']);
-                        echo '<div class="location-branch" data-level="rack">';
-                        echo '<label class="checkbox-option">';
-                        echo '<input type="checkbox" data-location-group data-child-ids="' . e($rackIds) . '">';
-                        echo '<span>' . e($rack['label']) . '</span>';
-                        echo '</label>';
-
-                        foreach ($rack['shelves'] as $shelf) {
-                            $shelfIds = implode(',', $shelf['location_ids']);
-                            $hasRealBins = array_filter($shelf['bins'], static function ($bin): bool {
-                                return isset($bin['bin']) && $bin['bin'] !== null && trim((string) $bin['bin']) !== '';
-                            });
-                            $showShelfGroup = $hasRealBins !== [] || count($shelf['bins']) > 1;
-
-                            echo '<div class="location-branch" data-level="shelf">';
-                            if ($showShelfGroup) {
-                                echo '<label class="checkbox-option">';
-                                echo '<input type="checkbox" data-location-group data-child-ids="' . e($shelfIds) . '">';
-                                echo '<span>' . e($shelf['label']) . '</span>';
-                                echo '</label>';
-                            }
-                            echo '<div class="location-branch" data-level="bin">';
-                            foreach ($shelf['bins'] as $bin) {
-                                echo '<label class="checkbox-option">';
-                                echo '<input type="checkbox" value="' . e((string) $bin['id']) . '" data-location-node="bin">';
-                                echo '<span class="location-leaf__label">' . e($bin['label']) . '</span>';
-                                echo '</label>';
-                            }
-                            echo '</div>';
-                            echo '</div>';
-                        }
-
-                        echo '</div>';
-                    }
-
-                    echo '</div>';
-                }
-                echo '</div>';
+                renderLocationHierarchy($locationHierarchy);
             }
             echo '<button type="button" class="button ghost" data-location-filter-close>Done</button>';
             echo '</div>';
