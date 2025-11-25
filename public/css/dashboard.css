@@ -1322,10 +1322,8 @@ a.link:focus{
 .location-branch+.location-branch{margin-top:8px}
 .location-branch[data-level="aisle"]{border-left:0;margin-left:0;padding-left:0}
 .location-branch[data-level="bin"]{border-left:0;margin-left:0;padding-left:0}
-.checkbox-option{display:flex;align-items:flex-start;gap:8px;font-size:.9rem}
-.location-leaf__text{display:flex;flex-direction:column;gap:2px;line-height:1.2}
-.location-leaf__label{display:block}
-.location-leaf__path{display:block;font-size:.8rem;color:rgba(255,255,255,.7);line-height:1.2}
+.checkbox-option{display:flex;align-items:center;gap:8px;font-size:.9rem}
+.location-leaf__label{display:inline-block;line-height:1.2}
 .checkbox-option input{margin:0}
 .location-component-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 @media(max-width:640px){.location-component-grid{grid-template-columns:1fr}}

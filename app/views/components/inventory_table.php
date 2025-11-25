@@ -114,9 +114,6 @@ if (!function_exists('renderInventoryTable')) {
                                 echo '<label class="checkbox-option">';
                                 echo '<input type="checkbox" value="' . e((string) $bin['id']) . '" data-location-node="bin">';
                                 echo '<span class="location-leaf__label">' . e($bin['label']) . '</span>';
-                                if (!empty($bin['path_label']) && $bin['path_label'] !== $bin['label']) {
-                                    echo '<span class="location-leaf__path">' . e($bin['path_label']) . '</span>';
-                                }
                                 echo '</label>';
                             }
                             echo '</div>';

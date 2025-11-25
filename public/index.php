@@ -9,6 +9,7 @@ require_once __DIR__ . '/../app/helpers/database.php';
 require_once __DIR__ . '/../app/helpers/view.php';
 require_once __DIR__ . '/../app/data/metrics.php';
 require_once __DIR__ . '/../app/data/inventory.php';
+require_once __DIR__ . '/../app/data/storage_locations.php';
 require_once __DIR__ . '/../app/views/components/inventory_table.php';
 
 $databaseConfig = $app['database'];
@@ -24,11 +25,13 @@ $committedInventory = [];
 $allInventoryCount = 0;
 $lowCriticalCount = 0;
 $committedCount = 0;
+$locationHierarchy = [];
 
 try {
     $db = db($databaseConfig);
     $metrics = loadMetrics($db);
     $inventory = loadInventory($db);
+    $locationHierarchy = storageLocationsHierarchy($db);
     $totals = inventoryReservationSummary($db);
 
     $inventoryStats = [
@@ -164,6 +167,7 @@ unset($groupItems, $item);
                     'id' => 'dashboard-inventory-all',
                     'pageSize' => 15,
                     'showActions' => false,
+                    'locationHierarchy' => $locationHierarchy,
                 ]); ?>
               </section>
               <section id="report-panel-low" class="report-tabs__panel" role="tabpanel" aria-labelledby="report-tab-low" data-report-panel="low" hidden>
