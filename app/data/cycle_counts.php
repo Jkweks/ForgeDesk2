@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/inventory.php';
+require_once __DIR__ . '/storage_locations.php';
 
 if (!function_exists('ensureCycleCountSchema')) {
     function ensureCycleCountSchema(\PDO $db): void
@@ -57,34 +58,54 @@ if (!function_exists('ensureCycleCountSchema')) {
     /**
      * Start a new cycle count session and seed line items for each inventory record.
      *
-     * @param array{name?:string,location?:string|null} $filters
+     * @param array{name?:string,location_ids?:list<int>} $filters
      */
     function createCycleCountSession(\PDO $db, array $filters): int
     {
         ensureCycleCountSchema($db);
         ensureInventorySchema($db);
+        storageLocationsEnsureSchema($db);
 
         $name = trim($filters['name'] ?? '');
         if ($name === '') {
             $name = 'Cycle Count ' . date('Y-m-d H:i');
         }
 
-        $locationFilter = null;
-        if (array_key_exists('location', $filters)) {
-            $locationCandidate = trim((string) $filters['location']);
-            if ($locationCandidate !== '') {
-                $locationFilter = $locationCandidate;
-            }
+        $locationIds = [];
+        if (isset($filters['location_ids']) && is_array($filters['location_ids'])) {
+            $locationIds = array_values(array_unique(array_filter(
+                array_map(static fn ($value) => (int) $value, $filters['location_ids']),
+                static fn (int $value): bool => $value > 0
+            )));
         }
+
+        $locationMap = $locationIds !== [] ? storageLocationsMapByIds($db, $locationIds) : [];
+        $locationNames = array_values(array_map(
+            static fn (array $location): string => storageLocationDescribe($location),
+            $locationMap
+        ));
 
         $inventory = loadInventory($db);
 
-        if ($locationFilter !== null) {
+        if ($locationMap !== []) {
+            $placeholders = implode(',', array_fill(0, count($locationMap), '?'));
+            $locationIdsList = array_keys($locationMap);
+            $statement = $db->prepare(
+                'SELECT DISTINCT inventory_item_id
+                 FROM inventory_item_locations
+                 WHERE storage_location_id IN (' . $placeholders . ')'
+            );
+            $statement->execute($locationIdsList);
+            $itemFilter = $statement->fetchAll(\PDO::FETCH_COLUMN);
+            $allowedItems = array_flip(array_map('intval', $itemFilter));
+
             $inventory = array_values(array_filter(
                 $inventory,
-                static fn (array $item): bool => stripos($item['location'], $locationFilter) !== false
+                static fn (array $item): bool => isset($allowedItems[$item['id']])
             ));
         }
+
+        $locationFilter = $locationNames !== [] ? implode(', ', $locationNames) : null;
 
         usort(
             $inventory,

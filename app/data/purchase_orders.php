@@ -519,6 +519,7 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
         }
 
         $affectedItems = [];
+        $statusChanged = array_key_exists('status', $payload);
         $inventoryDefaults = isset($payload['lines']) ? purchaseOrderLoadInventoryDefaults($db, $payload['lines']) : [];
 
         try {
@@ -679,8 +680,22 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
             throw $exception;
         }
 
-        if ($affectedItems !== []) {
-            purchaseOrderUpdateOnOrderCache($db, array_keys($affectedItems));
+        $onOrderItems = array_keys($affectedItems);
+
+        if ($statusChanged) {
+            $lineItemStatement = $db->prepare(
+                'SELECT DISTINCT inventory_item_id FROM purchase_order_lines'
+                . ' WHERE purchase_order_id = :id AND inventory_item_id IS NOT NULL'
+            );
+            $lineItemStatement->execute([':id' => $purchaseOrderId]);
+
+            /** @var list<int> $lineItems */
+            $lineItems = array_map('intval', $lineItemStatement->fetchAll(\PDO::FETCH_COLUMN));
+            $onOrderItems = array_values(array_unique(array_merge($onOrderItems, $lineItems)));
+        }
+
+        if ($onOrderItems !== []) {
+            purchaseOrderUpdateOnOrderCache($db, $onOrderItems);
         }
     }
 
@@ -1140,23 +1155,30 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
      *   line_count:int
      * }>
      */
-    function purchaseOrderListRecent(\PDO $db, string $filter = 'open', int $limit = 50): array
+    function purchaseOrderListRecent(\PDO $db, string $filter = 'open', int $limit = 50, ?int $supplierId = null): array
     {
         purchaseOrderEnsureSchema($db);
 
         $limit = max(1, $limit);
         $filterKey = strtolower(trim($filter));
-        $where = '';
+        $conditions = [];
         $params = [];
 
         if ($filterKey === 'open') {
             $statuses = purchaseOrderOpenStatuses();
             $quoted = implode(', ', array_map(static fn (string $status): string => $db->quote($status), $statuses));
-            $where = 'WHERE po.status IN (' . $quoted . ')';
+            $conditions[] = 'po.status IN (' . $quoted . ')';
         } elseif ($filterKey !== '' && $filterKey !== 'all' && in_array($filterKey, purchaseOrderStatusList(), true)) {
-            $where = 'WHERE po.status = :status';
+            $conditions[] = 'po.status = :status';
             $params[':status'] = $filterKey;
         }
+
+        if ($supplierId !== null && $supplierId > 0) {
+            $conditions[] = 'po.supplier_id = :supplier_id';
+            $params[':supplier_id'] = $supplierId;
+        }
+
+        $where = $conditions !== [] ? 'WHERE ' . implode(' AND ', $conditions) : '';
 
         $sql =
             "SELECT\n"

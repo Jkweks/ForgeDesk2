@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/xlsx.php';
 require_once __DIR__ . '/../data/inventory.php';
+require_once __DIR__ . '/../data/storage_locations.php';
 
 if (!function_exists('seedInventoryFromXlsx')) {
     /**
@@ -198,6 +199,28 @@ if (!function_exists('seedInventoryFromXlsx')) {
                 'lead_time_days' => $leadTime,
             ];
 
+            $locationAssignments = [];
+            $locationName = trim((string) ($values['location'] ?? ''));
+            if ($locationName !== '') {
+                try {
+                    $locationRecord = storageLocationsGetOrCreateByName($db, $locationName);
+                    $locationAssignments[] = [
+                        'storage_location_id' => $locationRecord['id'],
+                        'name' => $locationRecord['name'],
+                        'quantity' => $stock,
+                    ];
+                } catch (\Throwable $exception) {
+                    $result['messages'][] = [
+                        'type' => 'warning',
+                        'text' => sprintf('Row %d location "%s" could not be created: %s', $rowNumber, $locationName, $exception->getMessage()),
+                    ];
+                }
+            }
+
+            $payload['location'] = $locationAssignments !== []
+                ? inventoryFormatLocationSummary($locationAssignments)
+                : 'Unassigned';
+
             try {
                 $existing = findInventoryItemBySku($db, $sku);
 
@@ -210,11 +233,18 @@ if (!function_exists('seedInventoryFromXlsx')) {
                     : inventoryStatusFromAvailable($availableQty, $payload['reorder_point']);
 
                 if ($existing === null) {
-                    createInventoryItem($db, $payload);
+                    $newId = createInventoryItem($db, $payload);
+                    if ($locationAssignments !== []) {
+                        inventorySyncLocationAssignments($db, $newId, $locationAssignments);
+                    }
                     $result['inserted']++;
                     $action = 'Inserted';
                 } else {
-                    updateInventoryItem($db, (int) $existing['id'], $payload);
+                    $existingId = (int) $existing['id'];
+                    updateInventoryItem($db, $existingId, $payload);
+                    if ($locationAssignments !== []) {
+                        inventorySyncLocationAssignments($db, $existingId, $locationAssignments);
+                    }
                     $result['updated']++;
                     $action = 'Updated';
                 }

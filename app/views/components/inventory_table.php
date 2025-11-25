@@ -13,7 +13,8 @@ if (!function_exists('renderInventoryTable')) {
      *   emptyMessage?:string,
      *   id?:string,
      *   pageSize?:int,
-     *   showActions?:bool
+     *   showActions?:bool,
+     *   locationHierarchy?:array
      * } $options
      */
     function renderInventoryTable(array $rows, array $options = []): void
@@ -23,6 +24,7 @@ if (!function_exists('renderInventoryTable')) {
         $tableId = $options['id'] ?? null;
         $pageSize = isset($options['pageSize']) ? max(1, (int) $options['pageSize']) : 50;
         $showActions = $options['showActions'] ?? true;
+        $locationHierarchy = $options['locationHierarchy'] ?? [];
 
         $containerAttributes = ['class' => 'inventory-table-container', 'data-inventory-table' => 'true'];
         $containerAttributes['data-page-size'] = (string) $pageSize;
@@ -68,7 +70,70 @@ if (!function_exists('renderInventoryTable')) {
             echo '<tr class="filter-row">';
             echo '<th><input type="search" class="column-filter" data-key="item" placeholder="Search items" aria-label="Filter by item"></th>';
             echo '<th><input type="search" class="column-filter" data-key="sku" data-alt-keys="partNumber" placeholder="Search SKU or part #" aria-label="Filter by SKU"></th>';
-            echo '<th><input type="search" class="column-filter" data-key="location" placeholder="Search location" aria-label="Filter by location"></th>';
+            echo '<th>';
+            echo '<div class="location-filter" data-location-filter data-filter-target="locationIds">';
+            echo '<button type="button" class="location-filter__toggle" data-location-filter-toggle aria-expanded="false">All locations</button>';
+            echo '<input type="hidden" class="column-filter" data-key="locationIds" data-filter-type="tokens" />';
+            echo '<div class="location-filter__menu" data-location-filter-menu hidden>';
+            if ($locationHierarchy === []) {
+                echo '<p class="small">No storage locations configured yet.</p>';
+            } else {
+                echo '<div class="location-hierarchy" data-location-hierarchy>';
+                foreach ($locationHierarchy as $aisle) {
+                    $aisleIds = implode(',', $aisle['location_ids']);
+                    echo '<div class="location-branch" data-level="aisle">';
+                    echo '<label class="checkbox-option">';
+                    echo '<input type="checkbox" data-location-group data-child-ids="' . e($aisleIds) . '">';
+                    echo '<span>' . e($aisle['label']) . '</span>';
+                    echo '</label>';
+
+                    foreach ($aisle['racks'] as $rack) {
+                        $rackIds = implode(',', $rack['location_ids']);
+                        echo '<div class="location-branch" data-level="rack">';
+                        echo '<label class="checkbox-option">';
+                        echo '<input type="checkbox" data-location-group data-child-ids="' . e($rackIds) . '">';
+                        echo '<span>' . e($rack['label']) . '</span>';
+                        echo '</label>';
+
+                        foreach ($rack['shelves'] as $shelf) {
+                            $shelfIds = implode(',', $shelf['location_ids']);
+                            $hasRealBins = array_filter($shelf['bins'], static function ($bin): bool {
+                                return isset($bin['bin']) && $bin['bin'] !== null && trim((string) $bin['bin']) !== '';
+                            });
+                            $showShelfGroup = $hasRealBins !== [] || count($shelf['bins']) > 1;
+
+                            echo '<div class="location-branch" data-level="shelf">';
+                            if ($showShelfGroup) {
+                                echo '<label class="checkbox-option">';
+                                echo '<input type="checkbox" data-location-group data-child-ids="' . e($shelfIds) . '">';
+                                echo '<span>' . e($shelf['label']) . '</span>';
+                                echo '</label>';
+                            }
+                            echo '<div class="location-branch" data-level="bin">';
+                            foreach ($shelf['bins'] as $bin) {
+                                echo '<label class="checkbox-option">';
+                                echo '<input type="checkbox" value="' . e((string) $bin['id']) . '" data-location-node="bin">';
+                                echo '<span class="location-leaf__label">' . e($bin['label']) . '</span>';
+                                if (!empty($bin['path_label']) && $bin['path_label'] !== $bin['label']) {
+                                    echo '<span class="location-leaf__path">' . e($bin['path_label']) . '</span>';
+                                }
+                                echo '</label>';
+                            }
+                            echo '</div>';
+                            echo '</div>';
+                        }
+
+                        echo '</div>';
+                    }
+
+                    echo '</div>';
+                }
+                echo '</div>';
+            }
+            echo '<button type="button" class="button ghost" data-location-filter-close>Done</button>';
+            echo '</div>';
+            echo '</div>';
+            echo '</th>';
             echo '<th><input type="search" class="column-filter" data-key="stock" placeholder="Search stock" aria-label="Filter by stock" inputmode="numeric"></th>';
             echo '<th><input type="search" class="column-filter" data-key="committed" placeholder="Search committed" aria-label="Filter by committed" inputmode="numeric"></th>';
             echo '<th><input type="search" class="column-filter" data-key="available" placeholder="Search available" aria-label="Filter by available" inputmode="numeric"></th>';
@@ -103,6 +168,7 @@ if (!function_exists('renderInventoryTable')) {
                     . ' data-sku="' . e((string) $row['sku']) . '"'
                     . ' data-part-number="' . e((string) $row['part_number']) . '"'
                     . ' data-location="' . e((string) $row['location']) . '"'
+                    . ' data-location-ids="' . e(implode(',', $row['location_ids'] ?? [])) . '"'
                     . ' data-stock="' . e((string) $row['stock']) . '"'
                     . ' data-committed="' . e((string) $row['committed_qty']) . '"'
                     . ' data-available="' . e((string) $row['available_qty']) . '"'

@@ -8,6 +8,8 @@ require_once __DIR__ . '/../app/helpers/icons.php';
 require_once __DIR__ . '/../app/helpers/database.php';
 require_once __DIR__ . '/../app/helpers/view.php';
 require_once __DIR__ . '/../app/data/inventory.php';
+require_once __DIR__ . '/../app/data/suppliers.php';
+require_once __DIR__ . '/../app/data/storage_locations.php';
 require_once __DIR__ . '/../app/views/components/inventory_table.php';
 
 $databaseConfig = $app['database'];
@@ -25,14 +27,16 @@ $editingId = null;
 $finishOptions = inventoryFinishOptions();
 $categoryOptions = inventoryCategoryOptions();
 $currentAverageDailyUse = null;
+$locationHierarchy = [];
+$itemActivity = [];
 
 $formData = [
     'item' => '',
     'part_number' => '',
     'finish' => '',
     'sku' => '',
-    'location' => '',
     'stock' => '0',
+    'supplier_id' => '',
     'supplier' => '',
     'supplier_contact' => '',
     'reorder_point' => '0',
@@ -43,7 +47,13 @@ $formData = [
     'category' => '',
     'subcategories' => [],
     'discontinued' => false,
+    'locations' => [],
 ];
+$storageLocations = [];
+$storageLocationMap = [];
+$locationAssignmentsList = [];
+$suppliers = [];
+$supplierMap = [];
 
 foreach ($nav as &$groupItems) {
     foreach ($groupItems as &$item) {
@@ -69,6 +79,30 @@ foreach ($nav as &$groupItems) {
 unset($groupItems, $item);
 
 if ($dbError === null) {
+    try {
+        $storageLocations = storageLocationsList($db, true);
+        foreach ($storageLocations as $location) {
+            $storageLocationMap[$location['id']] = $location;
+        }
+        $locationHierarchy = storageLocationsHierarchy($db);
+    } catch (\Throwable $exception) {
+        $errors[] = 'Unable to load storage locations: ' . $exception->getMessage();
+        $storageLocations = [];
+        $storageLocationMap = [];
+        $locationHierarchy = [];
+    }
+
+    try {
+        $suppliers = suppliersList($db);
+        foreach ($suppliers as $supplier) {
+            $supplierMap[$supplier['id']] = $supplier;
+        }
+    } catch (\Throwable $exception) {
+        $errors[] = 'Unable to load suppliers: ' . $exception->getMessage();
+        $suppliers = [];
+        $supplierMap = [];
+    }
+
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $action = $_POST['action'] ?? 'create';
 
@@ -78,10 +112,13 @@ if ($dbError === null) {
             'item' => trim((string) ($_POST['item'] ?? '')),
             'part_number' => trim((string) ($_POST['part_number'] ?? '')),
             'finish' => trim((string) ($_POST['finish'] ?? '')),
-            'location' => trim((string) ($_POST['location'] ?? '')),
-            'supplier' => trim((string) ($_POST['supplier'] ?? '')),
+            'supplier' => trim((string) ($_POST['supplier_custom'] ?? ($_POST['supplier'] ?? ''))),
             'supplier_contact' => trim((string) ($_POST['supplier_contact'] ?? '')),
+            'supplier_id' => null,
+            'supplier_sku' => null,
         ];
+
+        $supplierChoice = trim((string) ($_POST['supplier_id'] ?? ''));
 
         $stockRaw = trim((string) ($_POST['stock'] ?? '0'));
         $reorderRaw = trim((string) ($_POST['reorder_point'] ?? '0'));
@@ -94,8 +131,9 @@ if ($dbError === null) {
             'part_number' => $payload['part_number'],
             'finish' => $payload['finish'],
             'sku' => '',
-            'location' => $payload['location'],
+            'location' => '',
             'stock' => $stockRaw,
+            'supplier_id' => $supplierChoice,
             'supplier' => $payload['supplier'],
             'supplier_contact' => $payload['supplier_contact'],
             'reorder_point' => $reorderRaw,
@@ -119,6 +157,67 @@ if ($dbError === null) {
             : [];
         $formData['subcategories'] = array_values(array_unique($submittedSubcategories));
 
+        $submittedLocations = isset($_POST['locations']) && is_array($_POST['locations']) ? $_POST['locations'] : [];
+        $formLocationRows = [];
+        $locationAssignmentsList = [];
+
+        foreach ($submittedLocations as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $locationIdRaw = trim((string) ($row['location_id'] ?? ''));
+            $quantityRaw = trim((string) ($row['quantity'] ?? ''));
+            $locationId = $locationIdRaw !== '' && ctype_digit($locationIdRaw) ? (int) $locationIdRaw : null;
+            $locationRecord = $locationId !== null && isset($storageLocationMap[$locationId]) ? $storageLocationMap[$locationId] : null;
+
+            $formLocationRows[] = [
+                'location_id' => $locationId !== null ? $locationId : '',
+                'label' => $locationRecord['name'] ?? '',
+                'quantity' => $quantityRaw,
+            ];
+
+            if ($locationRecord === null) {
+                continue;
+            }
+
+            if ($quantityRaw === '') {
+                $quantity = 0;
+            } else {
+                $quantity = filter_var($quantityRaw, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
+                if ($quantity === false) {
+                    $errors['locations'] = 'Quantities must be non-negative integers.';
+                    continue;
+                }
+            }
+
+            if (!isset($locationAssignmentsList[$locationRecord['id']])) {
+                $locationAssignmentsList[$locationRecord['id']] = [
+                    'storage_location_id' => $locationRecord['id'],
+                    'name' => $locationRecord['name'],
+                    'quantity' => $quantity,
+                ];
+            } else {
+                $locationAssignmentsList[$locationRecord['id']]['quantity'] += $quantity;
+            }
+        }
+
+        if ($formLocationRows === []) {
+            $formLocationRows[] = ['location_id' => '', 'label' => '', 'quantity' => ''];
+        }
+        $formData['locations'] = $formLocationRows;
+
+        if (empty($errors['locations'])) {
+            if ($storageLocations === []) {
+                $errors['locations'] = 'Add storage locations before creating inventory.';
+            } elseif ($locationAssignmentsList === []) {
+                $errors['locations'] = 'Select at least one storage location.';
+            }
+        }
+
+        $locationAssignmentsList = array_values($locationAssignmentsList);
+        $payload['location'] = inventoryFormatLocationSummary($locationAssignmentsList);
+
         if ($formData['category'] !== '' && !isset($categoryOptions[$formData['category']])) {
             $errors['category'] = 'Select a valid category.';
             $formData['category'] = '';
@@ -138,14 +237,6 @@ if ($dbError === null) {
             $errors['part_number'] = 'Part number is required.';
         }
 
-        if ($payload['location'] === '') {
-            $errors['location'] = 'Storage location is required.';
-        }
-
-        if ($payload['supplier'] === '') {
-            $errors['supplier'] = 'Supplier name is required.';
-        }
-
         $stock = filter_var($stockRaw, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
         if ($stock === false) {
             $errors['stock'] = 'Stock must be a non-negative integer.';
@@ -159,6 +250,35 @@ if ($dbError === null) {
         $leadTimeDays = filter_var($leadTimeRaw, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
         if ($leadTimeDays === false) {
             $errors['lead_time_days'] = 'Lead time must be a non-negative integer.';
+        }
+
+        $selectedSupplier = null;
+        if ($supplierChoice === 'custom') {
+            if ($payload['supplier'] === '') {
+                $errors['supplier'] = 'Supplier name is required.';
+            }
+            $formData['supplier_id'] = 'custom';
+        } elseif ($supplierChoice !== '') {
+            if (!ctype_digit($supplierChoice) || !isset($supplierMap[(int) $supplierChoice])) {
+                $errors['supplier'] = 'Select a valid supplier.';
+            } else {
+                $selectedSupplier = $supplierMap[(int) $supplierChoice];
+                $payload['supplier_id'] = (int) $supplierChoice;
+                $payload['supplier'] = $selectedSupplier['name'];
+                $formData['supplier_id'] = (string) $supplierChoice;
+
+                if ($payload['supplier_contact'] === '' && !empty($selectedSupplier['contact_email'])) {
+                    $payload['supplier_contact'] = (string) $selectedSupplier['contact_email'];
+                    $formData['supplier_contact'] = $payload['supplier_contact'];
+                }
+
+                if (($leadTimeDays === false || $leadTimeDays === 0) && ($selectedSupplier['default_lead_time_days'] ?? 0) > 0) {
+                    $leadTimeDays = (int) $selectedSupplier['default_lead_time_days'];
+                    $formData['lead_time_days'] = (string) $leadTimeDays;
+                }
+            }
+        } elseif ($payload['supplier'] === '') {
+            $errors['supplier'] = 'Supplier name is required.';
         }
 
         $payload['stock'] = $stock === false ? 0 : $stock;
@@ -244,9 +364,11 @@ if ($dbError === null) {
             try {
                 if ($action === 'update' && $editingId !== null) {
                     updateInventoryItem($db, $editingId, $payload);
+                    inventorySyncLocationAssignments($db, $editingId, $locationAssignmentsList);
                     header('Location: inventory.php?success=updated');
                 } else {
-                    createInventoryItem($db, $payload);
+                    $newItemId = createInventoryItem($db, $payload);
+                    inventorySyncLocationAssignments($db, $newItemId, $locationAssignmentsList);
                     header('Location: inventory.php?success=created');
                 }
 
@@ -274,8 +396,8 @@ if ($dbError === null) {
                     'sku' => $existing['sku'],
                     'part_number' => $existing['part_number'],
                     'finish' => $existing['finish'] ?? '',
-                    'location' => $existing['location'],
                     'stock' => (string) $existing['stock'],
+                    'supplier_id' => $existing['supplier_id'] !== null ? (string) $existing['supplier_id'] : '',
                     'supplier' => $existing['supplier'],
                     'supplier_contact' => $existing['supplier_contact'] ?? '',
                     'reorder_point' => (string) $existing['reorder_point'],
@@ -287,10 +409,32 @@ if ($dbError === null) {
                     'subcategories' => [],
                     'discontinued' => $existing['discontinued'],
                 ];
+                if ($formData['supplier_id'] === '' && $existing['supplier'] !== '') {
+                    foreach ($suppliers as $supplier) {
+                        if (strcasecmp($supplier['name'], (string) $existing['supplier']) === 0) {
+                            $formData['supplier_id'] = (string) $supplier['id'];
+                            break;
+                        }
+                    }
+                }
                 $formData['sku'] = inventoryComposeSku(
                     $formData['part_number'],
                     $existing['finish'] ?? null
                 );
+
+                $existingLocations = inventoryLoadItemLocations($db, $editingId);
+                if ($existingLocations !== []) {
+                    $formData['locations'] = array_map(
+                        static fn (array $location): array => [
+                            'location_id' => $location['storage_location_id'],
+                            'label' => $location['name'],
+                            'quantity' => (string) $location['quantity'],
+                        ],
+                        $existingLocations
+                    );
+                }
+
+                $itemActivity = inventoryLoadItemActivity($db, $editingId, 50);
             } else {
                 $successMessage = null;
                 $errors['general'] = 'The requested inventory item could not be found.';
@@ -301,6 +445,10 @@ if ($dbError === null) {
 
     $inventory = loadInventory($db);
     $inventorySummary = inventoryReservationSummary($db);
+}
+
+if ($formData['locations'] === []) {
+    $formData['locations'][] = ['location_id' => '', 'label' => '', 'quantity' => ''];
 }
 
 if (isset($_GET['success'])) {
@@ -319,6 +467,9 @@ if ($formData['sku'] === '' && $formData['part_number'] !== '') {
 }
 
 $activeModalTab = !empty($errors['category']) ? 'categories' : 'details';
+if (isset($_GET['tab']) && in_array($_GET['tab'], ['details', 'categories', 'activity'], true)) {
+    $activeModalTab = $_GET['tab'];
+}
 
 $modalRequested = isset($_GET['modal']) && $_GET['modal'] === 'open';
 $modalOpen = $modalRequested || $editingId !== null || ($errors !== [] && $_SERVER['REQUEST_METHOD'] === 'POST');
@@ -427,6 +578,7 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
                 'emptyMessage' => 'No inventory items found. Use the button above to add your first part.',
                 'id' => 'inventory-table-all',
                 'pageSize' => 15,
+                'locationHierarchy' => $locationHierarchy,
             ]); ?>
           <?php endif; ?>
         </div>
@@ -460,10 +612,12 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
         <?php
         $detailsActive = $activeModalTab === 'details';
         $categoriesActive = $activeModalTab === 'categories';
+        $activityActive = $activeModalTab === 'activity';
         ?>
         <div class="modal-tabs" role="tablist">
           <button type="button" role="tab" id="inventory-tab-details" aria-controls="inventory-panel-details" aria-selected="<?= $detailsActive ? 'true' : 'false' ?>" tabindex="<?= $detailsActive ? '0' : '-1' ?>">Part Details</button>
           <button type="button" role="tab" id="inventory-tab-categories" aria-controls="inventory-panel-categories" aria-selected="<?= $categoriesActive ? 'true' : 'false' ?>" tabindex="<?= $categoriesActive ? '0' : '-1' ?>">Categories</button>
+          <button type="button" role="tab" id="inventory-tab-activity" aria-controls="inventory-panel-activity" aria-selected="<?= $activityActive ? 'true' : 'false' ?>" tabindex="<?= $activityActive ? '0' : '-1' ?>">Activity</button>
         </div>
 
         <div id="inventory-panel-details" class="tab-panel" role="tabpanel" aria-labelledby="inventory-tab-details"<?= $detailsActive ? '' : ' hidden' ?>>
@@ -506,25 +660,109 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
             <?php endif; ?>
           </div>
 
-          <div class="field">
-            <label for="location">Location<span aria-hidden="true">*</span></label>
-            <input type="text" id="location" name="location" value="<?= e($formData['location']) ?>" required />
-            <?php if (!empty($errors['location'])): ?>
-              <p class="field-error"><?= e($errors['location']) ?></p>
+          <section class="location-manager">
+            <div class="location-manager__header">
+              <span>Storage locations<span aria-hidden="true">*</span></span>
+              <p class="small">Assign one or more storage locations along with the quantity typically staged there.</p>
+            </div>
+            <div class="location-rows" data-location-rows>
+              <?php
+              $renderLocations = $formData['locations'] !== []
+                  ? $formData['locations']
+                  : [['location_id' => '', 'label' => '', 'quantity' => '']];
+              ?>
+              <?php foreach ($renderLocations as $index => $row): ?>
+                <div class="location-row" data-location-row>
+                  <div class="field">
+                    <label for="location-select-<?= e((string) $index) ?>">Location</label>
+                    <select
+                      id="location-select-<?= e((string) $index) ?>"
+                      data-location-input="location_id"
+                      name="locations[<?= e((string) $index) ?>][location_id]"
+                      required
+                    >
+                      <option value="">Select location</option>
+                      <?php foreach ($storageLocations as $option): ?>
+                        <?php $selected = (string) ($row['location_id'] ?? '') === (string) $option['id']; ?>
+                        <option
+                          value="<?= e((string) $option['id']) ?>"
+                          <?= $selected ? 'selected' : '' ?>
+                        >
+                          <?= e($option['name']) ?><?= $option['is_active'] ? '' : ' (inactive)' ?>
+                        </option>
+                      <?php endforeach; ?>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="location-qty-<?= e((string) $index) ?>">Qty in slot</label>
+                    <input
+                      type="number"
+                      id="location-qty-<?= e((string) $index) ?>"
+                      data-location-input="quantity"
+                      name="locations[<?= e((string) $index) ?>][quantity]"
+                      min="0"
+                      step="1"
+                      value="<?= e((string) ($row['quantity'] ?? '')) ?>"
+                    />
+                  </div>
+                  <button type="button" class="button ghost icon-only" data-remove-location aria-label="Remove location">&times;</button>
+                </div>
+              <?php endforeach; ?>
+            </div>
+            <div class="location-actions">
+              <button type="button" class="button secondary" data-add-location>Add another location</button>
+              <p class="field-help">Manage the available locations from the <a href="/admin/storage-locations.php">Storage Locations dashboard</a>.</p>
+            </div>
+            <?php if (!empty($errors['locations'])): ?>
+              <p class="field-error"><?= e($errors['locations']) ?></p>
             <?php endif; ?>
-          </div>
+          </section>
 
-          <div class="field">
-            <label for="supplier">Supplier<span aria-hidden="true">*</span></label>
-            <input type="text" id="supplier" name="supplier" value="<?= e($formData['supplier']) ?>" required />
-            <?php if (!empty($errors['supplier'])): ?>
-              <p class="field-error"><?= e($errors['supplier']) ?></p>
-            <?php endif; ?>
+          <div class="field-grid">
+            <div class="field">
+              <label for="supplier_id">Supplier<span aria-hidden="true">*</span></label>
+              <select id="supplier_id" name="supplier_id" data-supplier-select>
+                <option value="">Select a supplier</option>
+                <?php foreach ($suppliers as $supplier): ?>
+                  <?php
+                    $isSelected = $formData['supplier_id'] !== '' && (int) $formData['supplier_id'] === (int) $supplier['id'];
+                    $contactEmail = $supplier['contact_email'] ?? '';
+                    $contactPhone = $supplier['contact_phone'] ?? '';
+                  ?>
+                  <option
+                    value="<?= e((string) $supplier['id']) ?>"
+                    data-contact-email="<?= e((string) $contactEmail) ?>"
+                    data-contact-phone="<?= e((string) $contactPhone) ?>"
+                    data-lead-time="<?= e((string) ($supplier['default_lead_time_days'] ?? 0)) ?>"
+                    <?= $isSelected ? 'selected' : '' ?>
+                  >
+                    <?= e($supplier['name']) ?>
+                  </option>
+                <?php endforeach; ?>
+                <option value="custom"<?= $formData['supplier_id'] === 'custom' ? ' selected' : '' ?>>Custom supplier</option>
+              </select>
+              <p class="field-help">Maintain supplier records from the Suppliers admin dashboard.</p>
+              <?php if (!empty($errors['supplier'])): ?>
+                <p class="field-error"><?= e($errors['supplier']) ?></p>
+              <?php endif; ?>
+            </div>
+
+            <div class="field">
+              <label for="supplier">Custom supplier name<span aria-hidden="true">*</span></label>
+              <input
+                type="text"
+                id="supplier"
+                name="supplier_custom"
+                value="<?= e($formData['supplier']) ?>"
+                placeholder="Other vendor name"
+              />
+              <p class="field-help">Use when the vendor is not yet in the directory.</p>
+            </div>
           </div>
 
           <div class="field">
             <label for="supplier_contact">Supplier Contact</label>
-            <input type="email" id="supplier_contact" name="supplier_contact" value="<?= e($formData['supplier_contact']) ?>" />
+            <input type="text" id="supplier_contact" name="supplier_contact" value="<?= e($formData['supplier_contact']) ?>" />
           </div>
 
           <div class="field-grid">
@@ -660,11 +898,103 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
           </div>
         </div>
 
+        <div id="inventory-panel-activity" class="tab-panel" role="tabpanel" aria-labelledby="inventory-tab-activity"<?= $activityActive ? '' : ' hidden' ?>>
+          <?php if ($editingId === null): ?>
+            <p class="small">Save the item to review receipts, cycle counts, and inventory adjustments.</p>
+          <?php elseif ($itemActivity === []): ?>
+            <p class="small">No transactions recorded for this part yet.</p>
+          <?php else: ?>
+            <div class="table-wrapper">
+              <table class="table activity-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Date</th>
+                    <th scope="col">Type</th>
+                    <th scope="col">Reference</th>
+                    <th scope="col" class="numeric">Change</th>
+                    <th scope="col">Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <?php foreach ($itemActivity as $entry): ?>
+                    <?php
+                      $timestamp = strtotime((string) $entry['occurred_at']);
+                      $displayDate = $timestamp !== false ? date('Y-m-d H:i', $timestamp) : (string) $entry['occurred_at'];
+                      $kind = $entry['kind'];
+                      $typeLabel = $kind === 'cycle_count'
+                        ? 'Cycle count'
+                        : ($kind === 'receipt' ? 'PO receipt' : 'Inventory transaction');
+                      $change = (float) $entry['quantity_change'];
+                      $pillClass = $change < 0 ? 'danger' : ($change > 0 ? 'success' : 'brand');
+                      $changeLabel = ($change > 0 ? '+' : '') . inventoryFormatQuantity($change);
+                      $details = $entry['details'] ?? [];
+                      $context = '';
+
+                      if ($kind === 'cycle_count') {
+                          $expected = isset($details['expected_qty']) ? inventoryFormatQuantity((int) $details['expected_qty']) : '—';
+                          $counted = isset($details['counted_qty']) ? inventoryFormatQuantity((int) $details['counted_qty']) : '—';
+                          $context = 'Counted ' . $counted . ' vs expected ' . $expected;
+                      } elseif ($kind === 'receipt') {
+                          $received = isset($details['received_qty']) ? inventoryFormatQuantity($details['received_qty']) : '0';
+                          $cancelled = isset($details['cancelled_qty']) ? (float) $details['cancelled_qty'] : 0.0;
+                          $context = 'Received ' . $received;
+                          if ($cancelled > 0.0001) {
+                              $context .= ' · Cancelled ' . inventoryFormatQuantity($cancelled);
+                          }
+                      } else {
+                          $before = $details['stock_before'] ?? null;
+                          $after = $details['stock_after'] ?? null;
+                          if ($before !== null && $after !== null) {
+                              $context = 'Stock ' . inventoryFormatQuantity($before) . ' → ' . inventoryFormatQuantity($after);
+                          }
+                      }
+
+                      $note = $entry['note'] ?? null;
+                    ?>
+                    <tr>
+                      <td><?= e($displayDate) ?></td>
+                      <td><?= e($typeLabel) ?></td>
+                      <td><?= e((string) $entry['reference']) ?></td>
+                      <td class="numeric"><span class="quantity-pill <?= e($pillClass) ?>"><?= e($changeLabel) ?></span></td>
+                      <td>
+                        <?= $context !== '' ? e($context) : '<span class="muted">No extra details</span>' ?>
+                        <?php if ($note !== null): ?>
+                          <p class="small muted">Note: <?= e($note) ?></p>
+                        <?php endif; ?>
+                      </td>
+                    </tr>
+                  <?php endforeach; ?>
+                </tbody>
+              </table>
+            </div>
+          <?php endif; ?>
+        </div>
+
         <footer>
           <a class="button secondary" href="inventory.php">Cancel</a>
           <button type="submit" class="button primary"><?= $editingId === null ? 'Create Item' : 'Update Item' ?></button>
         </footer>
       </form>
+      <template id="location-row-template">
+        <div class="location-row" data-location-row>
+          <div class="field">
+            <label>Location</label>
+            <select data-location-input="location_id" required>
+              <option value="">Select location</option>
+              <?php foreach ($storageLocations as $option): ?>
+                <option value="<?= e((string) $option['id']) ?>">
+                  <?= e($option['name']) ?><?= $option['is_active'] ? '' : ' (inactive)' ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <div class="field">
+            <label>Qty in slot</label>
+            <input type="number" min="0" step="1" data-location-input="quantity" />
+          </div>
+          <button type="button" class="button ghost icon-only" data-remove-location aria-label="Remove location">&times;</button>
+        </div>
+      </template>
     </div>
   </div>
 
@@ -812,6 +1142,155 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
 
     categorySelect.addEventListener('change', syncGroups);
     syncGroups();
+  })();
+
+  (function () {
+    const modal = document.getElementById('inventory-modal');
+    if (!modal) {
+      return;
+    }
+
+    const supplierSelect = modal.querySelector('[data-supplier-select]');
+    const contactInput = modal.querySelector('#supplier_contact');
+    const leadInput = modal.querySelector('#lead_time_days');
+    const customInput = modal.querySelector('input[name="supplier_custom"]');
+
+    if (!(supplierSelect instanceof HTMLSelectElement)) {
+      return;
+    }
+
+    function applySupplierDefaults() {
+      const option = supplierSelect.options[supplierSelect.selectedIndex];
+      const isCustom = supplierSelect.value === 'custom' || supplierSelect.value === '';
+
+      if (customInput instanceof HTMLInputElement) {
+        customInput.disabled = !isCustom;
+        if (!isCustom && customInput.value.trim() === '') {
+          customInput.placeholder = option?.textContent || 'Other vendor name';
+        }
+      }
+
+      if (!(option instanceof HTMLOptionElement)) {
+        return;
+      }
+
+      const contactEmail = option.dataset.contactEmail || '';
+      const contactPhone = option.dataset.contactPhone || '';
+      const leadTime = parseInt(option.dataset.leadTime || '0', 10);
+
+      if (contactInput instanceof HTMLInputElement && contactInput.value.trim() === '') {
+        contactInput.value = contactEmail || contactPhone;
+      }
+
+      if (leadInput instanceof HTMLInputElement) {
+        const current = parseInt(leadInput.value || '0', 10);
+        if ((Number.isNaN(current) || current === 0) && Number.isFinite(leadTime) && leadTime > 0) {
+          leadInput.value = String(leadTime);
+        }
+      }
+    }
+
+    supplierSelect.addEventListener('change', applySupplierDefaults);
+    applySupplierDefaults();
+  })();
+
+  (function () {
+    const modal = document.getElementById('inventory-modal');
+    if (!modal) {
+      return;
+    }
+
+    const rowsContainer = modal.querySelector('[data-location-rows]');
+    const template = document.getElementById('location-row-template');
+    const addButton = modal.querySelector('[data-add-location]');
+
+    if (!(rowsContainer instanceof HTMLElement) || !(template instanceof HTMLTemplateElement)) {
+      return;
+    }
+
+    function getRows() {
+      return Array.from(rowsContainer.querySelectorAll('[data-location-row]'));
+    }
+
+    function syncNames() {
+      getRows().forEach((row, index) => {
+        const inputs = Array.from(row.querySelectorAll('[data-location-input]'));
+        inputs.forEach((input) => {
+          const key = input.getAttribute('data-location-input');
+          if (!key) {
+            return;
+          }
+
+          input.setAttribute('name', 'locations[' + index + '][' + key + ']');
+
+          if (input instanceof HTMLInputElement || input instanceof HTMLSelectElement) {
+            const baseId = 'location-' + key + '-' + index;
+            input.id = baseId;
+            const label = input.closest('.field')?.querySelector('label');
+            if (label instanceof HTMLLabelElement) {
+              label.setAttribute('for', baseId);
+            }
+          }
+        });
+      });
+    }
+
+    function attachRow(row) {
+      const removeButton = row.querySelector('[data-remove-location]');
+      if (removeButton instanceof HTMLButtonElement) {
+        removeButton.addEventListener('click', function (event) {
+          event.preventDefault();
+          const rows = getRows();
+          if (rows.length <= 1) {
+            const select = row.querySelector('[data-location-input="location_id"]');
+            const qty = row.querySelector('[data-location-input="quantity"]');
+            if (select instanceof HTMLSelectElement) {
+              select.value = '';
+            }
+            if (qty instanceof HTMLInputElement) {
+              qty.value = '';
+            }
+            return;
+          }
+
+          row.remove();
+          syncNames();
+        });
+      }
+    }
+
+    function addRow(defaults = {}) {
+      const fragment = template.content.cloneNode(true);
+      rowsContainer.appendChild(fragment);
+      const rows = getRows();
+      const newRow = rows[rows.length - 1];
+      if (!newRow) {
+        return;
+      }
+
+      const locationSelect = newRow.querySelector('[data-location-input="location_id"]');
+      if (locationSelect instanceof HTMLSelectElement && defaults.location_id) {
+        locationSelect.value = String(defaults.location_id);
+      }
+
+      const qtyInput = newRow.querySelector('[data-location-input="quantity"]');
+      if (qtyInput instanceof HTMLInputElement && Object.prototype.hasOwnProperty.call(defaults, 'quantity')) {
+        qtyInput.value = defaults.quantity;
+      }
+
+      attachRow(newRow);
+      syncNames();
+    }
+
+    getRows().forEach(attachRow);
+    syncNames();
+
+    if (addButton instanceof HTMLButtonElement) {
+      addButton.addEventListener('click', function (event) {
+        event.preventDefault();
+        addRow();
+      });
+    }
   })();
 
   </script>

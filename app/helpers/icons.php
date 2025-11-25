@@ -21,6 +21,7 @@ function icon(string $name): string
         'upload' => 'M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2M7 9l5-5 5 5M12 4v12',
         'repeat' => 'M17 1l4 4-4 4M7 23l-4-4 4-4M20 5H10a5 5 0 0 0-5 5v3M4 19h10a5 5 0 0 0 5-5v-3',
         'truck' => 'M2 6h11v9H2zM13 9h5l4 4v6h-9zM6 21a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm11 0a3 3 0 1 1 0-6 3 3 0 0 1 0 6z',
+        'map' => 'M1 6l8-3 6 2 8-3v13l-8 3-6-2-8 3zM9 3v13M15 5v13',
     ];
 
     $path = $map[$name] ?? '';

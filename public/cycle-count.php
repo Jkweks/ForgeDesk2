@@ -9,6 +9,7 @@ require_once __DIR__ . '/../app/helpers/icons.php';
 require_once __DIR__ . '/../app/helpers/database.php';
 require_once __DIR__ . '/../app/helpers/view.php';
 require_once __DIR__ . '/../app/data/cycle_counts.php';
+require_once __DIR__ . '/../app/data/storage_locations.php';
 
 foreach ($nav as &$groupItems) {
     foreach ($groupItems as &$item) {
@@ -27,6 +28,9 @@ $sessions = [];
 $activeSession = null;
 $currentStep = 1;
 $lineView = null;
+$storageLocations = [];
+$locationHierarchy = [];
+$selectedLocationIds = [];
 
 try {
     $db = db($databaseConfig);
@@ -35,17 +39,40 @@ try {
 }
 
 if ($dbError === null) {
+    try {
+        $storageLocations = storageLocationsList($db);
+        $locationHierarchy = storageLocationsHierarchy($db);
+    } catch (\Throwable $exception) {
+        $startErrors['general'] = 'Unable to load storage locations: ' . $exception->getMessage();
+        $storageLocations = [];
+        $locationHierarchy = [];
+    }
+
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $action = $_POST['action'] ?? '';
 
         if ($action === 'start') {
             $name = trim((string) ($_POST['name'] ?? ''));
-            $location = trim((string) ($_POST['location'] ?? ''));
+            $selectedLocationIds = isset($_POST['location_ids']) && is_array($_POST['location_ids'])
+                ? array_values(array_unique(array_filter(
+                    array_map(static fn ($value) => (int) $value, $_POST['location_ids']),
+                    static fn (int $value): bool => $value > 0
+                )))
+                : [];
+
+            if ($selectedLocationIds !== []) {
+                $validIds = array_column($storageLocations, 'id');
+                $validMap = array_flip($validIds);
+                $selectedLocationIds = array_values(array_filter(
+                    $selectedLocationIds,
+                    static fn (int $value): bool => $value > 0 && isset($validMap[$value])
+                ));
+            }
 
             try {
                 $sessionId = createCycleCountSession($db, [
                     'name' => $name,
-                    'location' => $location !== '' ? $location : null,
+                    'location_ids' => $selectedLocationIds,
                 ]);
 
                 if ($sessionId > 0) {
@@ -244,7 +271,7 @@ $bodyClassAttribute = ' class="' . implode(' ', $bodyClasses) . '"';
         <div class="session-grid">
           <section class="session-start" aria-labelledby="start-count-title">
             <h2 id="start-count-title">Start a cycle count</h2>
-            <p class="small">Filter by location or leave blank to include the full warehouse.</p>
+            <p class="small">Filter by one or more storage locations or leave blank to include the full warehouse.</p>
 
             <?php if (!empty($startErrors['general'])): ?>
               <div class="alert error" role="alert">
@@ -259,8 +286,81 @@ $bodyClassAttribute = ' class="' . implode(' ', $bodyClasses) . '"';
                 <input type="text" id="session-name" name="name" placeholder="Cycle count for Aisle 4" />
               </div>
               <div class="field">
-                <label for="session-location">Location filter <span class="optional">Optional</span></label>
-                <input type="text" id="session-location" name="location" placeholder="Aisle 4" />
+                <label for="session-location-picker">Storage locations <span class="optional">Optional</span></label>
+                <div class="location-filter" data-location-filter>
+                  <button
+                    type="button"
+                    class="location-filter__toggle"
+                    id="session-location-picker"
+                    data-location-filter-toggle
+                    aria-expanded="false"
+                  >
+                    <?= $selectedLocationIds === [] ? 'All locations' : count($selectedLocationIds) . ' selected' ?>
+                  </button>
+                  <div class="location-filter__menu" data-location-filter-menu hidden>
+                    <?php if ($locationHierarchy === []): ?>
+                      <p class="small">No storage locations configured yet. Add them from the admin dashboard to filter counts.</p>
+                    <?php else: ?>
+                      <div class="location-hierarchy" data-location-hierarchy>
+                        <?php foreach ($locationHierarchy as $aisle): ?>
+                          <?php $aisleIds = implode(',', $aisle['location_ids']); ?>
+                          <div class="location-branch" data-level="aisle">
+                            <label class="checkbox-option">
+                              <input type="checkbox" data-location-group data-child-ids="<?= e($aisleIds) ?>" />
+                              <span><?= e($aisle['label']) ?></span>
+                            </label>
+                            <?php foreach ($aisle['racks'] as $rack): ?>
+                              <?php $rackIds = implode(',', $rack['location_ids']); ?>
+                              <div class="location-branch" data-level="rack">
+                                <label class="checkbox-option">
+                                  <input type="checkbox" data-location-group data-child-ids="<?= e($rackIds) ?>" />
+                                  <span><?= e($rack['label']) ?></span>
+                                </label>
+                                <?php foreach ($rack['shelves'] as $shelf): ?>
+                                  <?php
+                                  $shelfIds = implode(',', $shelf['location_ids']);
+                                  $hasRealBins = array_filter($shelf['bins'], static function ($bin): bool {
+                                      return isset($bin['bin']) && $bin['bin'] !== null && trim((string) $bin['bin']) !== '';
+                                  });
+                                  $showShelfGroup = $hasRealBins !== [] || count($shelf['bins']) > 1;
+                                  ?>
+                                  <div class="location-branch" data-level="shelf">
+                                    <?php if ($showShelfGroup): ?>
+                                      <label class="checkbox-option">
+                                        <input type="checkbox" data-location-group data-child-ids="<?= e($shelfIds) ?>" />
+                                        <span><?= e($shelf['label']) ?></span>
+                                      </label>
+                                    <?php endif; ?>
+                                    <div class="location-branch" data-level="bin">
+                                      <?php foreach ($shelf['bins'] as $bin): ?>
+                                        <?php $isChecked = in_array($bin['id'], $selectedLocationIds, true); ?>
+                                        <label class="checkbox-option">
+                                          <input
+                                            type="checkbox"
+                                            name="location_ids[]"
+                                            value="<?= e((string) $bin['id']) ?>"
+                                            data-location-node="bin"
+                                            <?= $isChecked ? 'checked' : '' ?>
+                                          />
+                                          <span class="location-leaf__label"><?= e($bin['label']) ?></span>
+                                          <?php if (!empty($bin['path_label']) && $bin['path_label'] !== $bin['label']): ?>
+                                            <span class="location-leaf__path"><?= e($bin['path_label']) ?></span>
+                                          <?php endif; ?>
+                                        </label>
+                                      <?php endforeach; ?>
+                                    </div>
+                                  </div>
+                                <?php endforeach; ?>
+                              </div>
+                            <?php endforeach; ?>
+                          </div>
+                        <?php endforeach; ?>
+                      </div>
+                    <?php endif; ?>
+                    <button type="button" class="button ghost" data-location-filter-close>Done</button>
+                  </div>
+                </div>
+                <p class="field-help">Use the dropdown to include an aisle, a rack within an aisle, or individual bins.</p>
               </div>
               <button type="submit" class="button primary">Start counting</button>
             </form>
@@ -407,6 +507,118 @@ $bodyClassAttribute = ' class="' . implode(' ', $bodyClasses) . '"';
       <div class="modal" id="count-modal" hidden></div>
     <?php endif; ?>
   </div>
+  <script>
+  (function () {
+    const container = document.querySelector('[data-location-filter]');
+    if (!container) {
+      return;
+    }
+
+    const toggle = container.querySelector('[data-location-filter-toggle]');
+    const menu = container.querySelector('[data-location-filter-menu]');
+    const closeButton = container.querySelector('[data-location-filter-close]');
+    const binCheckboxes = menu ? Array.from(menu.querySelectorAll('input[type="checkbox"][data-location-node="bin"]')) : [];
+    const groupCheckboxes = menu ? Array.from(menu.querySelectorAll('input[type="checkbox"][data-location-group]')) : [];
+
+    if (!(toggle instanceof HTMLButtonElement) || !(menu instanceof HTMLElement)) {
+      return;
+    }
+
+    function getChildIds(input) {
+      const raw = input.dataset.childIds;
+      if (!raw) {
+        return [];
+      }
+
+      return raw
+        .split(',')
+        .map((value) => value.trim())
+        .filter((value) => value !== '');
+    }
+
+    function updateGroupStates() {
+      groupCheckboxes.forEach((group) => {
+        const childIds = getChildIds(group);
+        if (childIds.length === 0) {
+          group.checked = false;
+          group.indeterminate = false;
+          return;
+        }
+
+        const matchingBins = binCheckboxes.filter((bin) => childIds.includes(bin.value));
+        const checkedCount = matchingBins.filter((bin) => bin.checked).length;
+
+        group.checked = checkedCount === matchingBins.length && matchingBins.length > 0;
+        group.indeterminate = checkedCount > 0 && checkedCount < matchingBins.length;
+      });
+    }
+
+    function updateLabel() {
+      const active = binCheckboxes.filter((input) => input.checked);
+      toggle.textContent = active.length === 0 ? 'All locations' : active.length + ' selected';
+    }
+
+    function setMenu(open) {
+      if (open) {
+        menu.removeAttribute('hidden');
+        toggle.setAttribute('aria-expanded', 'true');
+      } else {
+        menu.setAttribute('hidden', 'hidden');
+        toggle.setAttribute('aria-expanded', 'false');
+      }
+    }
+
+    toggle.addEventListener('click', function (event) {
+      event.preventDefault();
+      const isOpen = toggle.getAttribute('aria-expanded') === 'true';
+      setMenu(!isOpen);
+    });
+
+    if (closeButton instanceof HTMLElement) {
+      closeButton.addEventListener('click', function (event) {
+        event.preventDefault();
+        setMenu(false);
+      });
+    }
+
+    document.addEventListener('click', function (event) {
+      if (!container.contains(event.target)) {
+        setMenu(false);
+      }
+    });
+
+    groupCheckboxes.forEach((input) => {
+      input.addEventListener('change', function (event) {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement)) {
+          return;
+        }
+
+        const childIds = getChildIds(target);
+        const shouldCheck = target.checked;
+
+        binCheckboxes.forEach((bin) => {
+          if (childIds.includes(bin.value)) {
+            bin.checked = shouldCheck;
+          }
+        });
+
+        updateGroupStates();
+        updateLabel();
+      });
+    });
+
+    binCheckboxes.forEach((input) => {
+      input.addEventListener('change', function () {
+        updateGroupStates();
+        updateLabel();
+      });
+    });
+
+    updateGroupStates();
+    updateLabel();
+  })();
+  </script>
   <script src="js/dashboard.js"></script>
 </body>
 </html>

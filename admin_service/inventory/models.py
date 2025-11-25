@@ -33,6 +33,68 @@ class InventoryItem(models.Model):
         return f"{self.item} ({self.sku})"
 
 
+class StorageLocation(models.Model):
+    """Warehouse storage location with hierarchical components."""
+
+    id = models.AutoField(primary_key=True)
+    name = models.TextField()
+    description = models.TextField(blank=True, null=True)
+    is_active = models.BooleanField(default=True)
+    sort_order = models.IntegerField(default=0)
+    aisle = models.CharField(max_length=255, blank=True, null=True)
+    rack = models.CharField(max_length=255, blank=True, null=True)
+    shelf = models.CharField(max_length=255, blank=True, null=True)
+    bin = models.CharField(max_length=255, blank=True, null=True)
+    created_at = models.DateTimeField()
+    updated_at = models.DateTimeField()
+
+    class Meta:
+        managed = False
+        db_table = "storage_locations"
+        ordering = ["sort_order", "aisle", "rack", "shelf", "bin", "name"]
+        verbose_name = "Storage location"
+        verbose_name_plural = "Storage locations"
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        parts = [
+            value
+            for value in [self.aisle, self.rack, self.shelf, self.bin]
+            if value not in (None, "")
+        ]
+        if parts:
+            return ".".join(parts)
+        return self.name
+
+
+class InventoryItemLocation(models.Model):
+    """Join table for mapping items to storage locations with quantities."""
+
+    id = models.AutoField(primary_key=True)
+    inventory_item = models.ForeignKey(
+        InventoryItem,
+        on_delete=models.CASCADE,
+        db_column="inventory_item_id",
+        related_name="location_assignments",
+    )
+    storage_location = models.ForeignKey(
+        StorageLocation,
+        on_delete=models.CASCADE,
+        db_column="storage_location_id",
+        related_name="item_assignments",
+    )
+    quantity = models.IntegerField(default=0)
+
+    class Meta:
+        managed = False
+        db_table = "inventory_item_locations"
+        unique_together = ("inventory_item", "storage_location")
+        verbose_name = "Inventory item location"
+        verbose_name_plural = "Inventory item locations"
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return f"{self.inventory_item} → {self.storage_location}"
+
+
 class InventoryMetric(models.Model):
     """Key performance metrics displayed in the main dashboard."""
 
@@ -385,3 +447,92 @@ class PurchaseOrderReceiptLine(models.Model):
 
     def __str__(self) -> str:  # pragma: no cover - trivial
         return f"Receipt {self.receipt_id} line {self.purchase_order_line_id}"
+
+
+class MaintenanceMachine(models.Model):
+    """Machine/equipment master data for maintenance tracking."""
+
+    id = models.BigAutoField(primary_key=True)
+    name = models.TextField()
+    equipment_type = models.TextField()
+    manufacturer = models.TextField(blank=True, null=True)
+    model = models.TextField(blank=True, null=True)
+    serial_number = models.TextField(blank=True, null=True)
+    location = models.TextField(blank=True, null=True)
+    documents = models.JSONField(default=list)
+    notes = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField()
+    updated_at = models.DateTimeField()
+
+    class Meta:
+        managed = False
+        db_table = "maintenance_machines"
+        ordering = ["name"]
+        verbose_name = "Maintenance machine"
+        verbose_name_plural = "Maintenance machines"
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return self.name
+
+
+class MaintenanceTask(models.Model):
+    """Preventative maintenance task definition for a machine."""
+
+    id = models.BigAutoField(primary_key=True)
+    machine = models.ForeignKey(
+        MaintenanceMachine,
+        on_delete=models.CASCADE,
+        db_column="machine_id",
+        related_name="tasks",
+    )
+    title = models.TextField()
+    description = models.TextField(blank=True, null=True)
+    frequency = models.TextField(blank=True, null=True)
+    assigned_to = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField()
+    updated_at = models.DateTimeField()
+
+    class Meta:
+        managed = False
+        db_table = "maintenance_tasks"
+        ordering = ["machine", "title"]
+        verbose_name = "Maintenance task"
+        verbose_name_plural = "Maintenance tasks"
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return self.title
+
+
+class MaintenanceRecord(models.Model):
+    """Recorded maintenance work performed on a machine."""
+
+    id = models.BigAutoField(primary_key=True)
+    machine = models.ForeignKey(
+        MaintenanceMachine,
+        on_delete=models.CASCADE,
+        db_column="machine_id",
+        related_name="records",
+    )
+    task = models.ForeignKey(
+        MaintenanceTask,
+        on_delete=models.SET_NULL,
+        db_column="task_id",
+        related_name="records",
+        blank=True,
+        null=True,
+    )
+    performed_by = models.TextField(blank=True, null=True)
+    performed_at = models.DateField(blank=True, null=True)
+    notes = models.TextField(blank=True, null=True)
+    attachments = models.JSONField(default=list)
+    created_at = models.DateTimeField()
+
+    class Meta:
+        managed = False
+        db_table = "maintenance_records"
+        ordering = ["-performed_at", "-created_at"]
+        verbose_name = "Maintenance record"
+        verbose_name_plural = "Maintenance records"
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return f"{self.machine} maintenance"

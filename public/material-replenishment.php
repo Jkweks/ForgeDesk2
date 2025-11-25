@@ -656,7 +656,10 @@ function materialReplenishmentFormatDecimal(float $value, int $precision = 2): s
                       <table class="table replenishment-table" data-replenishment-table>
                         <thead>
                           <tr>
-                            <th scope="col">Include</th>
+                            <th scope="col">
+                              <label class="sr-only" for="select-all-<?= e($key) ?>">Select all lines</label>
+                              <input type="checkbox" id="select-all-<?= e($key) ?>" data-select-all />
+                            </th>
                             <th scope="col" class="sortable" data-sort-key="item" aria-sort="none">Item</th>
                             <th scope="col" class="sortable" data-sort-key="sku" aria-sort="none">SKU</th>
                             <th scope="col" class="sortable numeric" data-sort-key="on-hand" data-sort-type="number" aria-sort="none">On Hand</th>
@@ -670,13 +673,28 @@ function materialReplenishmentFormatDecimal(float $value, int $precision = 2): s
                             <th scope="col" class="sortable numeric" data-sort-key="unit-cost" data-sort-type="number" aria-sort="none">Unit Cost</th>
                             <th scope="col" class="sortable" data-sort-key="uom" aria-sort="none">UOM</th>
                           </tr>
+                          <tr class="filter-row">
+                            <th></th>
+                            <th><input type="search" class="column-filter" data-key="item" placeholder="Search items" aria-label="Filter by item"></th>
+                            <th><input type="search" class="column-filter" data-key="sku" placeholder="Search SKU" aria-label="Filter by SKU"></th>
+                            <th><input type="search" class="column-filter" data-key="on-hand" placeholder="Search on hand" aria-label="Filter by on hand" inputmode="decimal"></th>
+                            <th><input type="search" class="column-filter" data-key="committed" placeholder="Search committed" aria-label="Filter by committed" inputmode="decimal"></th>
+                            <th><input type="search" class="column-filter" data-key="on-order" placeholder="Search on order" aria-label="Filter by on order" inputmode="decimal"></th>
+                            <th><input type="search" class="column-filter" data-key="available" placeholder="Search available" aria-label="Filter by available" inputmode="decimal"></th>
+                            <th><input type="search" class="column-filter" data-key="projected" placeholder="Search projected" aria-label="Filter by projected" inputmode="decimal"></th>
+                            <th><input type="search" class="column-filter" data-key="adu" placeholder="Search ADU" aria-label="Filter by average daily use" inputmode="decimal"></th>
+                            <th><input type="search" class="column-filter" data-key="days-of-supply" placeholder="Search days" aria-label="Filter by days of supply" inputmode="decimal"></th>
+                            <th><input type="search" class="column-filter" data-key="order-qty" placeholder="Search qty" aria-label="Filter by order quantity" inputmode="decimal"></th>
+                            <th><input type="search" class="column-filter" data-key="unit-cost" placeholder="Search cost" aria-label="Filter by unit cost" inputmode="decimal"></th>
+                            <th><input type="search" class="column-filter" data-key="uom" placeholder="Search UOM" aria-label="Filter by unit of measure"></th>
+                          </tr>
                         </thead>
                         <tbody>
                           <?php foreach ($group['items'] as $item): ?>
                             <?php
                               $itemId = (int) $item['id'];
                               $recommended = (float) $item['recommended_order_qty'];
-                              $isSelected = $selected !== [] ? in_array($itemId, $selected, true) : ($recommended > 0.0001);
+                              $isSelected = $selected !== [] ? in_array($itemId, $selected, true) : false;
                               $packSize = isset($item['pack_size']) ? (float) $item['pack_size'] : 0.0;
                               $defaultUnitChoice = $packSize > 1.0 ? 'pack' : 'each';
                               $unitChoice = $units[$itemId] ?? $defaultUnitChoice;
