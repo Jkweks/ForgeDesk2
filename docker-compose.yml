@@ -13,7 +13,7 @@ services:
       APP_USER_NAME: "Inventory Lead"
       DB_HOST: postgres
       DB_PORT: 5433
-      DB_DATABASE: forge_desk_dev
+      DB_DATABASE: forgedesk
       DB_USERNAME: forge_dev
       DB_PASSWORD: forgepass_dev
     volumes:
