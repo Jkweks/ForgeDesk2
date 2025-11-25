@@ -1318,11 +1318,12 @@ a.link:focus{
 .location-filter__menu[hidden]{display:none}
 .location-filter__options{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
 .location-hierarchy{display:flex;flex-direction:column;gap:12px;max-height:320px;overflow:auto;padding:2px 4px 2px 0}
-.location-branch{border-left:1px solid rgba(255,255,255,.12);margin-left:10px;padding-left:10px;display:flex;flex-direction:column;gap:8px}
-.location-branch+.location-branch{margin-top:4px}
+.location-branch{border-left:1px solid rgba(255,255,255,.12);margin-left:10px;padding-left:10px;display:flex;flex-direction:column;gap:10px}
+.location-branch+.location-branch{margin-top:8px}
 .location-branch[data-level="aisle"]{border-left:0;margin-left:0;padding-left:0}
 .location-branch[data-level="bin"]{border-left:0;margin-left:0;padding-left:0}
-.checkbox-option{display:flex;align-items:center;gap:8px;font-size:.9rem}
+.checkbox-option{display:flex;align-items:flex-start;gap:8px;font-size:.9rem}
+.location-leaf__text{display:flex;flex-direction:column;gap:2px;line-height:1.2}
 .location-leaf__label{display:block}
 .location-leaf__path{display:block;font-size:.8rem;color:rgba(255,255,255,.7);line-height:1.2}
 .checkbox-option input{margin:0}
