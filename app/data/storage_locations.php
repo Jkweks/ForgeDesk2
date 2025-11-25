@@ -181,14 +181,12 @@ if (!function_exists('storageLocationsEnsureSchema')) {
             $tree[$aisleKey]['racks'][$rackKey]['shelves'][$shelfKey]['bins'][] = [
                 'id' => $location['id'],
                 'label' => $leafLabel !== null ? $leafLabel : $location['display_name'],
-                'path_label' => storageLocationDescribe([
+                'path_label' => storageLocationFormatName([
                     'aisle' => $location['aisle'],
                     'rack' => $location['rack'],
                     'shelf' => $location['shelf'],
                     'bin' => $location['bin'],
-                    'display_name' => $location['display_name'],
-                    'name' => $location['name'],
-                ], ' · ', false),
+                ], $location['display_name']),
                 'bin' => $location['bin'],
                 'display_name' => $location['display_name'],
             ];
