@@ -53,7 +53,7 @@ services:
     image: postgres:15-alpine
     command: ["postgres", "-c", "port=5433"]
     environment:
-      POSTGRES_DB: forge_desk_dev
+      POSTGRES_DB: forgedesk
       POSTGRES_USER: forge_dev
       POSTGRES_PASSWORD: forgepass_dev
     volumes:
