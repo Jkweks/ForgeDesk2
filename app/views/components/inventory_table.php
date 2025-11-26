@@ -48,6 +48,35 @@ if (!function_exists('renderInventoryTable')) {
         }
 
         echo '<div' . $attributesString . '>';
+
+        if ($includeFilters) {
+            $locationToggleId = ($tableId !== null ? $tableId . '-' : '') . 'location-filter';
+
+            echo '<div class="location-filter location-filter--detached" data-location-filter data-filter-target="locationIds" data-location-filter-id="' . e($locationToggleId) . '">';
+            echo '<input type="hidden" class="column-filter" data-key="locationIds" data-filter-type="tokens" />';
+            echo '<div class="location-filter__modal" data-location-filter-modal hidden>';
+            echo '<div class="modal-backdrop" data-location-filter-backdrop></div>';
+            echo '<div class="location-filter__dialog" role="dialog" aria-modal="true" aria-label="Select storage locations">';
+            echo '<div class="location-filter__dialog-header">';
+            echo '<h3>Select locations</h3>';
+            echo '<button type="button" class="button ghost icon-only" data-location-filter-close aria-label="Close location filter">&times;</button>';
+            echo '</div>';
+            echo '<div class="location-filter__dialog-body">';
+            if ($locationHierarchy === []) {
+                echo '<p class="small">No storage locations configured yet. Add them from the admin dashboard to filter inventory.</p>';
+            } else {
+                renderLocationHierarchy($locationHierarchy);
+            }
+            echo '</div>';
+            echo '<div class="location-filter__actions">';
+            echo '<button type="button" class="button ghost" data-location-filter-clear>Clear</button>';
+            echo '<button type="button" class="button primary" data-location-filter-apply>Apply</button>';
+            echo '</div>';
+            echo '</div>';
+            echo '</div>';
+            echo '</div>';
+        }
+
         echo '<table class="table inventory-table"' . ($tableId !== null ? ' id="' . e($tableId) . '"' : '') . '>';
         echo '<thead>';
         echo '<tr>';
@@ -71,68 +100,10 @@ if (!function_exists('renderInventoryTable')) {
             echo '<th><input type="search" class="column-filter" data-key="item" placeholder="Search items" aria-label="Filter by item"></th>';
             echo '<th><input type="search" class="column-filter" data-key="sku" data-alt-keys="partNumber" placeholder="Search SKU or part #" aria-label="Filter by SKU"></th>';
             echo '<th>';
-            echo '<div class="location-filter" data-location-filter data-filter-target="locationIds">';
-            echo '<button type="button" class="location-filter__toggle" data-location-filter-toggle aria-expanded="false">All locations</button>';
-            echo '<input type="hidden" class="column-filter" data-key="locationIds" data-filter-type="tokens" />';
-            echo '<div class="location-filter__menu" data-location-filter-menu hidden>';
-            if ($locationHierarchy === []) {
-                echo '<p class="small">No storage locations configured yet.</p>';
-            } else {
-                echo '<div class="location-hierarchy" data-location-hierarchy>';
-                foreach ($locationHierarchy as $aisle) {
-                    $aisleIds = implode(',', $aisle['location_ids']);
-                    echo '<div class="location-branch" data-level="aisle">';
-                    echo '<label class="checkbox-option">';
-                    echo '<input type="checkbox" data-location-group data-child-ids="' . e($aisleIds) . '">';
-                    echo '<span>' . e($aisle['label']) . '</span>';
-                    echo '</label>';
-
-                    foreach ($aisle['racks'] as $rack) {
-                        $rackIds = implode(',', $rack['location_ids']);
-                        echo '<div class="location-branch" data-level="rack">';
-                        echo '<label class="checkbox-option">';
-                        echo '<input type="checkbox" data-location-group data-child-ids="' . e($rackIds) . '">';
-                        echo '<span>' . e($rack['label']) . '</span>';
-                        echo '</label>';
-
-                        foreach ($rack['shelves'] as $shelf) {
-                            $shelfIds = implode(',', $shelf['location_ids']);
-                            $hasRealBins = array_filter($shelf['bins'], static function ($bin): bool {
-                                return isset($bin['bin']) && $bin['bin'] !== null && trim((string) $bin['bin']) !== '';
-                            });
-                            $showShelfGroup = $hasRealBins !== [] || count($shelf['bins']) > 1;
-
-                            echo '<div class="location-branch" data-level="shelf">';
-                            if ($showShelfGroup) {
-                                echo '<label class="checkbox-option">';
-                                echo '<input type="checkbox" data-location-group data-child-ids="' . e($shelfIds) . '">';
-                                echo '<span>' . e($shelf['label']) . '</span>';
-                                echo '</label>';
-                            }
-                            echo '<div class="location-branch" data-level="bin">';
-                            foreach ($shelf['bins'] as $bin) {
-                                echo '<label class="checkbox-option">';
-                                echo '<input type="checkbox" value="' . e((string) $bin['id']) . '" data-location-node="bin">';
-                                echo '<span class="location-leaf__label">' . e($bin['label']) . '</span>';
-                                if (!empty($bin['path_label']) && $bin['path_label'] !== $bin['label']) {
-                                    echo '<span class="location-leaf__path">' . e($bin['path_label']) . '</span>';
-                                }
-                                echo '</label>';
-                            }
-                            echo '</div>';
-                            echo '</div>';
-                        }
-
-                        echo '</div>';
-                    }
-
-                    echo '</div>';
-                }
-                echo '</div>';
-            }
-            echo '<button type="button" class="button ghost" data-location-filter-close>Done</button>';
-            echo '</div>';
-            echo '</div>';
+            echo '<button type="button" class="location-filter__toggle location-filter__toggle--inline" id="' . e($locationToggleId) . '" data-location-filter-toggle data-location-filter-id="' . e($locationToggleId) . '" aria-expanded="false">';
+            echo '<span class="location-filter__label">All locations</span>';
+            echo '<span class="location-filter__chevron" aria-hidden="true">▾</span>';
+            echo '</button>';
             echo '</th>';
             echo '<th><input type="search" class="column-filter" data-key="stock" placeholder="Search stock" aria-label="Filter by stock" inputmode="numeric"></th>';
             echo '<th><input type="search" class="column-filter" data-key="committed" placeholder="Search committed" aria-label="Filter by committed" inputmode="numeric"></th>';

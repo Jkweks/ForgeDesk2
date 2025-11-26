@@ -133,17 +133,46 @@
         });
       }
 
+      function getLocationFilterId(filterContainer) {
+        return filterContainer.dataset.locationFilterId || '';
+      }
+
+      function getLocationFilterToggles(filterContainer) {
+        const tableContainer = filterContainer.closest('[data-inventory-table]');
+        const filterId = getLocationFilterId(filterContainer);
+        if (filterId) {
+          const scope = tableContainer instanceof HTMLElement ? tableContainer : document;
+          const matches = Array.from(scope.querySelectorAll(`[data-location-filter-toggle][data-location-filter-id="${filterId}"]`));
+          if (matches.length > 0) {
+            return matches;
+          }
+        }
+
+        return Array.from(filterContainer.querySelectorAll('[data-location-filter-toggle]'));
+      }
+
+      function getLocationFilterLabels(toggles) {
+        const labels = [];
+        toggles.forEach((toggle) => {
+          labels.push(...Array.from(toggle.querySelectorAll('.location-filter__label')));
+        });
+        return labels;
+      }
+
       function syncLocationFilterFromInput(filterContainer) {
         if (!(filterContainer instanceof HTMLElement)) {
           return;
         }
 
+        const toggles = getLocationFilterToggles(filterContainer);
+        const labels = getLocationFilterLabels(toggles);
         const input = filterContainer.querySelector('.column-filter[data-filter-type="tokens"]');
+        const modal = filterContainer.querySelector('[data-location-filter-modal]');
         const binCheckboxes = input
-          ? Array.from(filterContainer.querySelectorAll('input[type="checkbox"][data-location-node="bin"]'))
+          ? Array.from((modal || filterContainer).querySelectorAll('input[type="checkbox"][data-location-node="bin"]'))
           : [];
         const groupCheckboxes = input
-          ? Array.from(filterContainer.querySelectorAll('input[type="checkbox"][data-location-group]'))
+          ? Array.from((modal || filterContainer).querySelectorAll('input[type="checkbox"][data-location-group]'))
           : [];
 
         if (!(input instanceof HTMLInputElement)) {
@@ -183,13 +212,19 @@
         }
 
         function updateLabel() {
-          const toggle = filterContainer.querySelector('[data-location-filter-toggle]');
-          if (!(toggle instanceof HTMLButtonElement)) {
-            return;
-          }
-
           const active = binCheckboxes.filter((bin) => bin.checked).length;
-          toggle.textContent = active === 0 ? 'All locations' : `${active} selected`;
+          const text = active === 0 ? 'All locations' : `${active} selected`;
+          if (labels.length > 0) {
+            labels.forEach((label) => {
+              label.textContent = text;
+            });
+          } else {
+            toggles.forEach((toggle) => {
+              if (toggle instanceof HTMLButtonElement) {
+                toggle.textContent = text;
+              }
+            });
+          }
         }
 
         updateGroupStates();
@@ -201,9 +236,13 @@
           return;
         }
 
-        const toggle = filterContainer.querySelector('[data-location-filter-toggle]');
-        const menu = filterContainer.querySelector('[data-location-filter-menu]');
+        const toggles = getLocationFilterToggles(filterContainer);
+        const labels = getLocationFilterLabels(toggles);
+        const modal = filterContainer.querySelector('[data-location-filter-modal]');
+        const backdrop = filterContainer.querySelector('[data-location-filter-backdrop]');
         const closeButton = filterContainer.querySelector('[data-location-filter-close]');
+        const applyButton = filterContainer.querySelector('[data-location-filter-apply]');
+        const clearButton = filterContainer.querySelector('[data-location-filter-clear]');
         const input = filterContainer.querySelector('.column-filter[data-filter-type="tokens"]');
         const binCheckboxes = input
           ? Array.from(filterContainer.querySelectorAll('input[type="checkbox"][data-location-node="bin"]'))
@@ -212,9 +251,15 @@
           ? Array.from(filterContainer.querySelectorAll('input[type="checkbox"][data-location-group]'))
           : [];
 
-        if (!(toggle instanceof HTMLButtonElement) || !(menu instanceof HTMLElement) || !(input instanceof HTMLInputElement)) {
+        if (
+          toggles.length === 0
+          || !(modal instanceof HTMLElement)
+          || !(input instanceof HTMLInputElement)
+        ) {
           return;
         }
+
+        const primaryToggle = toggles[0];
 
         function getChildIds(node) {
           const raw = node.dataset.childIds;
@@ -241,7 +286,18 @@
 
         function updateLabel() {
           const active = binCheckboxes.filter((bin) => bin.checked).length;
-          toggle.textContent = active === 0 ? 'All locations' : `${active} selected`;
+          const text = active === 0 ? 'All locations' : `${active} selected`;
+          if (labels.length > 0) {
+            labels.forEach((label) => {
+              label.textContent = text;
+            });
+          } else {
+            toggles.forEach((toggle) => {
+              if (toggle instanceof HTMLButtonElement) {
+                toggle.textContent = text;
+              }
+            });
+          }
         }
 
         function syncInputFromSelection() {
@@ -257,34 +313,62 @@
           persistState();
         }
 
-        function setMenu(open) {
+        function setModal(open) {
           if (open) {
-            menu.removeAttribute('hidden');
-            toggle.setAttribute('aria-expanded', 'true');
+            modal.removeAttribute('hidden');
+            toggles.forEach((toggle) => {
+              toggle.setAttribute('aria-expanded', 'true');
+            });
           } else {
-            menu.setAttribute('hidden', 'hidden');
-            toggle.setAttribute('aria-expanded', 'false');
+            modal.setAttribute('hidden', 'hidden');
+            toggles.forEach((toggle) => {
+              toggle.setAttribute('aria-expanded', 'false');
+            });
           }
         }
 
-        toggle.addEventListener('click', (event) => {
-          event.preventDefault();
-          const isOpen = toggle.getAttribute('aria-expanded') === 'true';
-          setMenu(!isOpen);
+        function clearSelections() {
+          binCheckboxes.forEach((bin) => {
+            bin.checked = false;
+          });
+          syncInputFromSelection();
+        }
+
+        toggles.forEach((toggle) => {
+          toggle.addEventListener('click', (event) => {
+            event.preventDefault();
+            const isOpen = primaryToggle.getAttribute('aria-expanded') === 'true';
+            setModal(!isOpen);
+          });
         });
 
         if (closeButton instanceof HTMLElement) {
           closeButton.addEventListener('click', (event) => {
             event.preventDefault();
-            setMenu(false);
+            setModal(false);
           });
         }
 
-        document.addEventListener('click', (event) => {
-          if (!filterContainer.contains(event.target)) {
-            setMenu(false);
-          }
-        });
+        if (backdrop instanceof HTMLElement) {
+          backdrop.addEventListener('click', () => {
+            setModal(false);
+          });
+        }
+
+        if (applyButton instanceof HTMLElement) {
+          applyButton.addEventListener('click', (event) => {
+            event.preventDefault();
+            setModal(false);
+            syncInputFromSelection();
+          });
+        }
+
+        if (clearButton instanceof HTMLElement) {
+          clearButton.addEventListener('click', (event) => {
+            event.preventDefault();
+            clearSelections();
+          });
+        }
 
         groupCheckboxes.forEach((group) => {
           group.addEventListener('change', (event) => {
@@ -302,13 +386,15 @@
               }
             });
 
-            syncInputFromSelection();
+            updateGroupStates();
+            updateLabel();
           });
         });
 
         binCheckboxes.forEach((bin) => {
           bin.addEventListener('change', () => {
-            syncInputFromSelection();
+            updateGroupStates();
+            updateLabel();
           });
         });
 

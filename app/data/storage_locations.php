@@ -50,25 +50,23 @@ if (!function_exists('storageLocationsEnsureSchema')) {
         ];
     }
 
-    function storageLocationDescribe(array $location, string $delimiter = ' · '): string
+    function storageLocationDescribe(array $location, string $delimiter = ' · ', bool $includePrefixes = true): string
     {
         $parts = [];
 
-        if (isset($location['aisle']) && trim((string) $location['aisle']) !== '') {
-            $parts[] = 'Aisle ' . trim((string) $location['aisle']);
-        }
+        $append = static function (?string $value, string $prefix) use (&$parts, $includePrefixes): void {
+            if ($value === null || trim((string) $value) === '') {
+                return;
+            }
 
-        if (isset($location['rack']) && trim((string) $location['rack']) !== '') {
-            $parts[] = 'Rack ' . trim((string) $location['rack']);
-        }
+            $normalized = trim((string) $value);
+            $parts[] = $includePrefixes ? $prefix . $normalized : $normalized;
+        };
 
-        if (isset($location['shelf']) && trim((string) $location['shelf']) !== '') {
-            $parts[] = 'Shelf ' . trim((string) $location['shelf']);
-        }
-
-        if (isset($location['bin']) && trim((string) $location['bin']) !== '') {
-            $parts[] = 'Bin ' . trim((string) $location['bin']);
-        }
+        $append($location['aisle'] ?? null, 'Aisle ');
+        $append($location['rack'] ?? null, 'Rack ');
+        $append($location['shelf'] ?? null, 'Shelf ');
+        $append($location['bin'] ?? null, 'Bin ');
 
         if ($parts === []) {
             return isset($location['display_name']) && trim((string) $location['display_name']) !== ''
@@ -183,14 +181,12 @@ if (!function_exists('storageLocationsEnsureSchema')) {
             $tree[$aisleKey]['racks'][$rackKey]['shelves'][$shelfKey]['bins'][] = [
                 'id' => $location['id'],
                 'label' => $leafLabel !== null ? $leafLabel : $location['display_name'],
-                'path_label' => storageLocationDescribe([
+                'path_label' => storageLocationFormatName([
                     'aisle' => $location['aisle'],
                     'rack' => $location['rack'],
                     'shelf' => $location['shelf'],
                     'bin' => $location['bin'],
-                    'display_name' => $location['display_name'],
-                    'name' => $location['name'],
-                ]),
+                ], $location['display_name']),
                 'bin' => $location['bin'],
                 'display_name' => $location['display_name'],
             ];
