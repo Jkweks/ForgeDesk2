@@ -55,6 +55,66 @@ if (!function_exists('maintenanceParseDocumentInput')) {
     }
 }
 
+if (!function_exists('maintenanceParsePartsInput')) {
+    /**
+     * @return array<int,string>
+     */
+    function maintenanceParsePartsInput(string $raw): array
+    {
+        if ($raw === '') {
+            return [];
+        }
+
+        $parts = [];
+        $lines = preg_split('/\r?\n/', $raw) ?: [];
+
+        foreach ($lines as $line) {
+            $line = trim($line);
+
+            if ($line === '') {
+                continue;
+            }
+
+            $parts[] = $line;
+        }
+
+        return $parts;
+    }
+}
+
+if (!function_exists('maintenanceFormatMinutes')) {
+    function maintenanceFormatMinutes(?int $minutes): string
+    {
+        if ($minutes === null) {
+            return '—';
+        }
+
+        if ($minutes < 60) {
+            return $minutes . ' min';
+        }
+
+        $hours = intdiv($minutes, 60);
+        $remaining = $minutes % 60;
+
+        if ($remaining === 0) {
+            return $hours . ' hr' . ($hours === 1 ? '' : 's');
+        }
+
+        return $hours . ' hr ' . $remaining . ' min';
+    }
+}
+
+if (!function_exists('maintenanceFormatLaborHours')) {
+    function maintenanceFormatLaborHours(?float $hours): string
+    {
+        if ($hours === null) {
+            return '—';
+        }
+
+        return rtrim(rtrim(number_format($hours, 2, '.', ''), '0'), '.') . ' hr';
+    }
+}
+
 foreach ($nav as &$groupItems) {
     foreach ($groupItems as &$item) {
         $item['active'] = ($item['label'] ?? '') === 'Maintenance Hub';
@@ -83,6 +143,11 @@ $taskForm = [
     'frequency' => '',
     'assigned_to' => '',
     'description' => '',
+    'interval_count' => '',
+    'interval_unit' => '',
+    'start_date' => date('Y-m-d'),
+    'status' => 'active',
+    'priority' => 'medium',
 ];
 $recordForm = [
     'machine_id' => '',
@@ -90,6 +155,9 @@ $recordForm = [
     'performed_by' => '',
     'performed_at' => date('Y-m-d'),
     'notes' => '',
+    'downtime_minutes' => '',
+    'labor_hours' => '',
+    'parts_used_raw' => '',
     'attachments_raw' => '',
 ];
 
@@ -104,6 +172,11 @@ $machineMap = [];
 $tasks = [];
 $taskMap = [];
 $records = [];
+$showRetired = false;
+
+if ((isset($_GET['show_retired']) && $_GET['show_retired'] === '1') || (isset($_POST['show_retired']) && $_POST['show_retired'] === '1')) {
+    $showRetired = true;
+}
 
 $shouldReload = false;
 
@@ -113,7 +186,7 @@ if ($dbError === null) {
         foreach ($machines as $machine) {
             $machineMap[$machine['id']] = $machine;
         }
-        $tasks = maintenanceTasksList($db);
+        $tasks = maintenanceTasksList($db, $showRetired);
         foreach ($tasks as $task) {
             $taskMap[$task['id']] = $task;
         }
@@ -180,15 +253,62 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
             'frequency' => trim((string) ($_POST['task_frequency'] ?? '')),
             'assigned_to' => trim((string) ($_POST['task_assigned_to'] ?? '')),
             'description' => trim((string) ($_POST['task_description'] ?? '')),
+            'interval_count' => trim((string) ($_POST['task_interval_count'] ?? '')),
+            'interval_unit' => trim((string) ($_POST['task_interval_unit'] ?? '')),
+            'start_date' => trim((string) ($_POST['task_start_date'] ?? date('Y-m-d'))),
+            'status' => trim((string) ($_POST['task_status'] ?? 'active')),
+            'priority' => trim((string) ($_POST['task_priority'] ?? 'medium')),
         ];
 
         $machineId = $taskForm['machine_id'] !== '' && ctype_digit($taskForm['machine_id']) ? (int) $taskForm['machine_id'] : null;
+
+        $intervalCount = $taskForm['interval_count'] !== '' && ctype_digit($taskForm['interval_count'])
+            ? (int) $taskForm['interval_count']
+            : null;
+        $intervalUnit = $taskForm['interval_unit'] !== '' ? $taskForm['interval_unit'] : null;
+        $validUnits = ['day', 'week', 'month', 'year'];
+        $validStatuses = ['active', 'paused', 'retired'];
+        $validPriorities = ['low', 'medium', 'high', 'critical'];
+
+        if ($intervalUnit !== null && !in_array($intervalUnit, $validUnits, true)) {
+            $errors[] = 'Select a valid interval unit.';
+        }
+
+        if (($intervalCount !== null && $intervalUnit === null) || ($intervalCount === null && $intervalUnit !== null)) {
+            $errors[] = 'Provide both interval amount and unit, or leave both blank.';
+        }
+
+        if ($intervalCount !== null && $intervalCount <= 0) {
+            $errors[] = 'Interval amount must be greater than zero.';
+        }
+
+        $startDate = $taskForm['start_date'] !== '' ? $taskForm['start_date'] : null;
+
+        if ($intervalCount === null) {
+            $startDate = null;
+        }
+
+        if ($startDate !== null && \DateTime::createFromFormat('Y-m-d', $startDate) === false) {
+            $errors[] = 'Provide a valid start date (YYYY-MM-DD).';
+        }
+
+        if ($intervalCount !== null && $startDate === null) {
+            $startDate = date('Y-m-d');
+        }
 
         if ($machineId === null || !isset($machineMap[$machineId])) {
             $errors[] = 'Select a valid machine for the task.';
         }
         if ($taskForm['title'] === '') {
             $errors[] = 'Task title is required.';
+        }
+
+        if (!in_array($taskForm['status'], $validStatuses, true)) {
+            $errors[] = 'Select a valid task status.';
+        }
+
+        if (!in_array($taskForm['priority'], $validPriorities, true)) {
+            $errors[] = 'Select a valid task priority.';
         }
 
         if (empty($errors) && $machineId !== null) {
@@ -199,6 +319,11 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
                     'description' => $taskForm['description'] !== '' ? $taskForm['description'] : null,
                     'frequency' => $taskForm['frequency'] !== '' ? $taskForm['frequency'] : null,
                     'assigned_to' => $taskForm['assigned_to'] !== '' ? $taskForm['assigned_to'] : null,
+                    'interval_count' => $intervalCount,
+                    'interval_unit' => $intervalUnit,
+                    'start_date' => $startDate,
+                    'status' => $taskForm['status'],
+                    'priority' => $taskForm['priority'],
                 ]);
                 $successMessage = 'Maintenance task added.';
                 $shouldReload = true;
@@ -208,6 +333,11 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
                     'frequency' => '',
                     'assigned_to' => '',
                     'description' => '',
+                    'interval_count' => '',
+                    'interval_unit' => '',
+                    'start_date' => date('Y-m-d'),
+                    'status' => 'active',
+                    'priority' => 'medium',
                 ];
             } catch (\Throwable $exception) {
                 $errors[] = 'Unable to save task: ' . $exception->getMessage();
@@ -220,6 +350,9 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
             'performed_by' => trim((string) ($_POST['performed_by'] ?? '')),
             'performed_at' => trim((string) ($_POST['performed_at'] ?? date('Y-m-d'))),
             'notes' => trim((string) ($_POST['record_notes'] ?? '')),
+            'downtime_minutes' => trim((string) ($_POST['downtime_minutes'] ?? '')),
+            'labor_hours' => trim((string) ($_POST['labor_hours'] ?? '')),
+            'parts_used_raw' => trim((string) ($_POST['parts_used'] ?? '')),
             'attachments_raw' => trim((string) ($_POST['record_attachments'] ?? '')),
         ];
 
@@ -229,6 +362,34 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $recordTaskId = $recordForm['task_id'] !== '' && ctype_digit($recordForm['task_id'])
             ? (int) $recordForm['task_id']
             : null;
+
+        $downtimeMinutes = null;
+        if ($recordForm['downtime_minutes'] !== '') {
+            if (ctype_digit($recordForm['downtime_minutes'])) {
+                $downtimeMinutes = (int) $recordForm['downtime_minutes'];
+            } else {
+                $errors[] = 'Downtime must be a whole number of minutes.';
+            }
+        }
+
+        if ($downtimeMinutes !== null && $downtimeMinutes < 0) {
+            $errors[] = 'Downtime cannot be negative.';
+        }
+
+        $laborHours = null;
+        if ($recordForm['labor_hours'] !== '') {
+            if (is_numeric($recordForm['labor_hours'])) {
+                $laborHours = (float) $recordForm['labor_hours'];
+            } else {
+                $errors[] = 'Labor hours must be numeric.';
+            }
+        }
+
+        if ($laborHours !== null && $laborHours < 0) {
+            $errors[] = 'Labor hours cannot be negative.';
+        }
+
+        $partsUsed = maintenanceParsePartsInput($recordForm['parts_used_raw']);
 
         if ($recordMachineId === null || !isset($machineMap[$recordMachineId])) {
             $errors[] = 'Select a machine for the maintenance record.';
@@ -250,6 +411,9 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
                     'performed_by' => $recordForm['performed_by'] !== '' ? $recordForm['performed_by'] : null,
                     'performed_at' => $recordForm['performed_at'] !== '' ? $recordForm['performed_at'] : null,
                     'notes' => $recordForm['notes'] !== '' ? $recordForm['notes'] : null,
+                    'downtime_minutes' => $downtimeMinutes,
+                    'labor_hours' => $laborHours !== null ? round($laborHours, 2) : null,
+                    'parts_used' => $partsUsed,
                     'attachments' => maintenanceParseDocumentInput($recordForm['attachments_raw']),
                 ]);
                 $successMessage = 'Maintenance activity logged.';
@@ -260,6 +424,9 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
                     'performed_by' => '',
                     'performed_at' => date('Y-m-d'),
                     'notes' => '',
+                    'downtime_minutes' => '',
+                    'labor_hours' => '',
+                    'parts_used_raw' => '',
                     'attachments_raw' => '',
                 ];
             } catch (\Throwable $exception) {
@@ -276,7 +443,7 @@ if ($dbError === null && $shouldReload) {
         foreach ($machines as $machine) {
             $machineMap[$machine['id']] = $machine;
         }
-        $tasks = maintenanceTasksList($db);
+        $tasks = maintenanceTasksList($db, $showRetired);
         $taskMap = [];
         foreach ($tasks as $task) {
             $taskMap[$task['id']] = $task;
@@ -288,7 +455,11 @@ if ($dbError === null && $shouldReload) {
 }
 
 $machineCount = count($machines);
-$taskCount = count($tasks);
+$visibleTasks = array_filter(
+    $tasks,
+    static fn (array $task): bool => $task['status'] !== 'retired'
+);
+$taskCount = count($visibleTasks);
 $recordsCount = count($records);
 $documentsCount = array_reduce(
     $machines,
@@ -296,6 +467,42 @@ $documentsCount = array_reduce(
     0
 );
 $lastPerformed = $records[0]['performed_at'] ?? null;
+$todayTs = strtotime(date('Y-m-d'));
+$windowEndTs = strtotime('+14 days', $todayTs);
+$overdueTasks = array_filter(
+    $visibleTasks,
+    static fn (array $task): bool => $task['is_overdue'] === true
+);
+$dueSoonTasks = array_filter(
+    $visibleTasks,
+    static function (array $task) use ($todayTs, $windowEndTs): bool {
+        if ($task['next_due_date'] === null) {
+            return false;
+        }
+
+        $dueTs = strtotime($task['next_due_date']);
+
+        if ($dueTs === false) {
+            return false;
+        }
+
+        return $dueTs >= $todayTs && $dueTs <= $windowEndTs;
+    }
+);
+$nextDueDate = null;
+
+foreach ($visibleTasks as $task) {
+    if ($task['next_due_date'] === null) {
+        continue;
+    }
+
+    if ($nextDueDate === null || $task['next_due_date'] < $nextDueDate) {
+        $nextDueDate = $task['next_due_date'];
+    }
+}
+
+$dueSoonTaskIds = array_column($dueSoonTasks, 'id');
+$overdueTaskIds = array_column($overdueTasks, 'id');
 
 ?>
 <!doctype html>
@@ -348,6 +555,22 @@ $lastPerformed = $records[0]['performed_at'] ?? null;
           <p class="metric-value"><?= e((string) $recordsCount) ?></p>
           <p class="metric-delta small">Service entries kept in the system.</p>
         </article>
+        <article class="metric">
+          <div class="metric-header">
+            <span>Due soon</span>
+            <?php if ($nextDueDate !== null): ?>
+              <span class="metric-time">Next due <?= e(date('M j', strtotime($nextDueDate))) ?></span>
+            <?php endif; ?>
+          </div>
+          <p class="metric-value"><?= e((string) count($dueSoonTasks)) ?></p>
+          <p class="metric-delta small">
+            <?php if (!empty($overdueTasks)): ?>
+              <?= e((string) count($overdueTasks)) ?> overdue task<?= count($overdueTasks) === 1 ? '' : 's' ?>.
+            <?php else: ?>
+              <?= e('No overdue tasks.') ?>
+            <?php endif; ?>
+          </p>
+        </article>
         <article class="metric accent">
           <div class="metric-header">
             <span>Documents</span>
@@ -381,6 +604,7 @@ $lastPerformed = $records[0]['performed_at'] ?? null;
             <h3>Add or update a machine</h3>
             <form method="post" class="form-grid">
               <input type="hidden" name="action" value="create_machine" />
+              <input type="hidden" name="show_retired" value="<?= $showRetired ? '1' : '0' ?>" />
               <div class="field">
                 <label for="machine-name">Machine Name</label>
                 <input id="machine-name" name="name" type="text" value="<?= e($machineForm['name']) ?>" placeholder="C.R. Onsrud CNC" required />
@@ -436,13 +660,14 @@ $lastPerformed = $records[0]['performed_at'] ?? null;
                     <th>Type</th>
                     <th>Tasks</th>
                     <th>Last Service</th>
+                    <th>Downtime</th>
                     <th>Documents</th>
                   </tr>
                 </thead>
                 <tbody>
                   <?php if (empty($machines)): ?>
                     <tr>
-                      <td colspan="5">No machines recorded yet.</td>
+                      <td colspan="6">No machines recorded yet.</td>
                     </tr>
                   <?php else: ?>
                     <?php foreach ($machines as $machine): ?>
@@ -468,6 +693,7 @@ $lastPerformed = $records[0]['performed_at'] ?? null;
                             <span class="muted">No log</span>
                           <?php endif; ?>
                         </td>
+                        <td><?= e(maintenanceFormatMinutes((int) $machine['total_downtime_minutes'])) ?></td>
                         <td>
                           <?php if (empty($machine['documents'])): ?>
                             <span class="muted">None</span>
@@ -505,6 +731,7 @@ $lastPerformed = $records[0]['performed_at'] ?? null;
             <h3>Create task</h3>
             <form method="post" class="form-grid">
               <input type="hidden" name="action" value="create_task" />
+              <input type="hidden" name="show_retired" value="<?= $showRetired ? '1' : '0' ?>" />
               <div class="field">
                 <label for="task-machine">Machine</label>
                 <select id="task-machine" name="task_machine_id" required>
@@ -523,6 +750,49 @@ $lastPerformed = $records[0]['performed_at'] ?? null;
                 <input id="task-frequency" name="task_frequency" type="text" value="<?= e($taskForm['frequency']) ?>" placeholder="Monthly" />
               </div>
               <div class="field">
+                <label for="task-interval-count">Interval Amount</label>
+                <input
+                  id="task-interval-count"
+                  name="task_interval_count"
+                  type="number"
+                  min="1"
+                  value="<?= e($taskForm['interval_count']) ?>"
+                  placeholder="e.g. 1"
+                />
+              </div>
+              <div class="field">
+                <label for="task-interval-unit">Interval Unit</label>
+                <select id="task-interval-unit" name="task_interval_unit">
+                  <option value=""<?= $taskForm['interval_unit'] === '' ? ' selected' : '' ?>>No interval</option>
+                  <?php $units = ['day' => 'Day(s)', 'week' => 'Week(s)', 'month' => 'Month(s)', 'year' => 'Year(s)']; ?>
+                  <?php foreach ($units as $value => $label): ?>
+                    <option value="<?= e($value) ?>"<?= $taskForm['interval_unit'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
+                  <?php endforeach; ?>
+                </select>
+              </div>
+              <div class="field">
+                <label for="task-start-date">Start Date</label>
+                <input id="task-start-date" name="task_start_date" type="date" value="<?= e($taskForm['start_date']) ?>" />
+              </div>
+              <div class="field">
+                <label for="task-priority">Priority</label>
+                <select id="task-priority" name="task_priority">
+                  <?php $priorities = ['low' => 'Low', 'medium' => 'Medium', 'high' => 'High', 'critical' => 'Critical']; ?>
+                  <?php foreach ($priorities as $value => $label): ?>
+                    <option value="<?= e($value) ?>"<?= $taskForm['priority'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
+                  <?php endforeach; ?>
+                </select>
+              </div>
+              <div class="field">
+                <label for="task-status">Status</label>
+                <select id="task-status" name="task_status">
+                  <?php $statuses = ['active' => 'Active', 'paused' => 'Paused', 'retired' => 'Retired']; ?>
+                  <?php foreach ($statuses as $value => $label): ?>
+                    <option value="<?= e($value) ?>"<?= $taskForm['status'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
+                  <?php endforeach; ?>
+                </select>
+              </div>
+              <div class="field">
                 <label for="task-owner">Owner / Technician</label>
                 <input id="task-owner" name="task_assigned_to" type="text" value="<?= e($taskForm['assigned_to']) ?>" placeholder="Maintenance crew" />
               </div>
@@ -537,27 +807,58 @@ $lastPerformed = $records[0]['performed_at'] ?? null;
           </div>
           <div>
             <h3>Task list</h3>
+            <form method="get" class="inline-form" style="margin-bottom: 0.5rem;">
+              <label class="small">
+                <input
+                  type="checkbox"
+                  name="show_retired"
+                  value="1"
+                  <?= $showRetired ? 'checked' : '' ?>
+                  onchange="this.form.submit()"
+                />
+                Show retired tasks
+              </label>
+            </form>
             <div class="table-wrapper">
               <table>
                 <thead>
                   <tr>
                     <th>Machine</th>
                     <th>Task</th>
+                    <th>Priority</th>
                     <th>Frequency</th>
+                    <th>Next due</th>
+                    <th>Due status</th>
                     <th>Owner</th>
                   </tr>
                 </thead>
                 <tbody>
                   <?php if (empty($tasks)): ?>
-                    <tr><td colspan="4">No tasks have been defined.</td></tr>
+                    <tr><td colspan="7">No tasks have been defined.</td></tr>
                   <?php else: ?>
                     <?php foreach ($tasks as $task): ?>
                       <tr>
                         <td><?= e($task['machine_name']) ?></td>
                         <td>
                           <strong><?= e($task['title']) ?></strong>
+                          <?php if ($task['status'] === 'paused'): ?>
+                            <span class="badge muted">Paused</span>
+                          <?php elseif ($task['status'] === 'retired'): ?>
+                            <span class="badge muted">Retired</span>
+                          <?php endif; ?>
                           <?php if (!empty($task['description'])): ?>
                             <div class="small"><?= e($task['description']) ?></div>
+                          <?php endif; ?>
+                        </td>
+                        <td>
+                          <?php if ($task['priority'] === 'critical'): ?>
+                            <span class="badge danger">Critical</span>
+                          <?php elseif ($task['priority'] === 'high'): ?>
+                            <span class="badge warning">High</span>
+                          <?php elseif ($task['priority'] === 'low'): ?>
+                            <span class="badge muted">Low</span>
+                          <?php else: ?>
+                            <span class="badge muted">Medium</span>
                           <?php endif; ?>
                         </td>
                         <td>
@@ -565,6 +866,26 @@ $lastPerformed = $records[0]['performed_at'] ?? null;
                             <?= e($task['frequency']) ?>
                           <?php else: ?>
                             <span class="muted">Ad hoc</span>
+                          <?php endif; ?>
+                        </td>
+                        <td>
+                          <?php if ($task['next_due_date'] !== null): ?>
+                            <?= e(date('M j, Y', strtotime($task['next_due_date']))) ?>
+                          <?php else: ?>
+                            <span class="muted">Not scheduled</span>
+                          <?php endif; ?>
+                        </td>
+                        <td>
+                          <?php if ($task['status'] === 'retired'): ?>
+                            <span class="muted">Not tracked</span>
+                          <?php elseif (in_array($task['id'], $overdueTaskIds, true)): ?>
+                            <span class="badge danger">Overdue</span>
+                          <?php elseif (in_array($task['id'], $dueSoonTaskIds, true)): ?>
+                            <span class="badge warning">Due soon</span>
+                          <?php elseif ($task['next_due_date'] !== null): ?>
+                            <span class="badge muted">Scheduled</span>
+                          <?php else: ?>
+                            <span class="muted">—</span>
                           <?php endif; ?>
                         </td>
                         <td>
@@ -594,6 +915,7 @@ $lastPerformed = $records[0]['performed_at'] ?? null;
             <h3>Log maintenance</h3>
             <form method="post" class="form-grid">
               <input type="hidden" name="action" value="create_record" />
+              <input type="hidden" name="show_retired" value="<?= $showRetired ? '1' : '0' ?>" />
               <div class="field">
                 <label for="record-machine">Machine</label>
                 <select id="record-machine" name="record_machine_id" required>
@@ -621,6 +943,40 @@ $lastPerformed = $records[0]['performed_at'] ?? null;
                 <input id="record-date" name="performed_at" type="date" value="<?= e($recordForm['performed_at']) ?>" />
               </div>
               <div class="field">
+                <label for="record-downtime">Downtime (minutes)</label>
+                <input
+                  id="record-downtime"
+                  name="downtime_minutes"
+                  type="number"
+                  min="0"
+                  inputmode="numeric"
+                  value="<?= e($recordForm['downtime_minutes']) ?>"
+                  placeholder="e.g. 30"
+                />
+              </div>
+              <div class="field">
+                <label for="record-labor">Labor Hours</label>
+                <input
+                  id="record-labor"
+                  name="labor_hours"
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  inputmode="decimal"
+                  value="<?= e($recordForm['labor_hours']) ?>"
+                  placeholder="e.g. 1.5"
+                />
+              </div>
+              <div class="field">
+                <label for="record-parts">Parts / Consumables (one per line)</label>
+                <textarea
+                  id="record-parts"
+                  name="parts_used"
+                  rows="3"
+                  placeholder="Coolant top-off 1 qt&#10;Linear bearing grease"
+                ><?= e($recordForm['parts_used_raw']) ?></textarea>
+              </div>
+              <div class="field">
                 <label for="record-attachments">Attachments (Label|URL)</label>
                 <textarea id="record-attachments" name="record_attachments" rows="3" placeholder="Inspection photos|https://..."><?= e($recordForm['attachments_raw']) ?></textarea>
               </div>
@@ -643,12 +999,15 @@ $lastPerformed = $records[0]['performed_at'] ?? null;
                     <th>Machine</th>
                     <th>Task</th>
                     <th>Technician</th>
+                    <th>Downtime</th>
+                    <th>Labor</th>
+                    <th>Parts / Consumables</th>
                     <th>Notes</th>
                   </tr>
                 </thead>
                 <tbody>
                   <?php if (empty($records)): ?>
-                    <tr><td colspan="5">No maintenance records yet.</td></tr>
+                    <tr><td colspan="8">No maintenance records yet.</td></tr>
                   <?php else: ?>
                     <?php foreach ($records as $record): ?>
                       <tr>
@@ -672,6 +1031,19 @@ $lastPerformed = $records[0]['performed_at'] ?? null;
                             <?= e($record['performed_by']) ?>
                           <?php else: ?>
                             <span class="muted">—</span>
+                          <?php endif; ?>
+                        </td>
+                        <td><?= e(maintenanceFormatMinutes($record['downtime_minutes'])) ?></td>
+                        <td><?= e(maintenanceFormatLaborHours($record['labor_hours'])) ?></td>
+                        <td>
+                          <?php if (!empty($record['parts_used'])): ?>
+                            <ul class="document-list">
+                              <?php foreach ($record['parts_used'] as $part): ?>
+                                <li><?= e($part) ?></li>
+                              <?php endforeach; ?>
+                            </ul>
+                          <?php else: ?>
+                            <span class="muted">None</span>
                           <?php endif; ?>
                         </td>
                         <td>
