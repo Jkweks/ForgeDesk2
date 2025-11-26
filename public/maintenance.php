@@ -552,38 +552,6 @@ $bodyClassString = implode(' ', $bodyClasses);
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title><?= e($app['name']) ?> Maintenance Hub</title>
   <link rel="stylesheet" href="css/dashboard.css" />
-  <style>
-    .tab-nav {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem;
-      margin-bottom: 1rem;
-    }
-
-    .tab-nav .tab-link {
-      border: 1px solid #d1d5db;
-      background: #f8fafc;
-      border-radius: 0.5rem;
-      padding: 0.5rem 0.75rem;
-      cursor: pointer;
-      color: inherit;
-    }
-
-    .tab-nav .tab-link.active {
-      background: #ffffff;
-      border-color: #4b5563;
-      color: #111827;
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
-    }
-
-    .tab-panel {
-      display: none;
-    }
-
-    .tab-panel.active {
-      display: block;
-    }
-  </style>
 </head>
 <body class="<?= e($bodyClassString) ?>">
   <div class="layout">
@@ -718,7 +686,7 @@ $bodyClassString = implode(' ', $bodyClasses);
                 <textarea id="machine-notes" name="notes" rows="3" placeholder="Electrical requirements, setup notes, etc."><?= e($machineForm['notes']) ?></textarea>
               </div>
               <div class="field full-width">
-                <button type="submit" class="btn btn-primary">Save Machine</button>
+                <button type="submit" class="button primary">Save Machine</button>
               </div>
             </form>
           </div>
@@ -791,7 +759,7 @@ $bodyClassString = implode(' ', $bodyClasses);
                                 $modalUrl .= '&show_retired=1';
                             }
                           ?>
-                          <a class="btn btn-secondary small" href="<?= e($modalUrl) ?>">Manage</a>
+                          <a class="button secondary" href="<?= e($modalUrl) ?>">Manage</a>
                         </td>
                       </tr>
                     <?php endforeach; ?>
@@ -883,7 +851,7 @@ $bodyClassString = implode(' ', $bodyClasses);
                 <textarea id="task-notes" name="task_description" rows="3" placeholder="Steps, tools, torque specs."><?= e($taskForm['description']) ?></textarea>
               </div>
               <div class="field full-width">
-                <button class="btn btn-primary" type="submit">Add Task</button>
+                <button class="button primary" type="submit">Add Task</button>
               </div>
             </form>
           </div>
@@ -1067,7 +1035,7 @@ $bodyClassString = implode(' ', $bodyClasses);
                 <textarea id="record-notes" name="record_notes" rows="3" placeholder="Observations, part replacements, corrective action."><?= e($recordForm['notes']) ?></textarea>
               </div>
               <div class="field full-width">
-                <button class="btn btn-primary" type="submit">Log Service</button>
+                <button class="button primary" type="submit">Log Service</button>
               </div>
             </form>
           </div>
@@ -1175,15 +1143,51 @@ $bodyClassString = implode(' ', $bodyClasses);
           <a class="modal-close" href="<?= e($closeUrl) ?>" aria-label="Close machine dialog">&times;</a>
         </header>
 
-        <nav class="tab-nav" role="tablist" aria-label="Machine sections">
-          <button type="button" class="tab-link active" data-tab-target="overview" aria-controls="tab-overview" aria-selected="true">Details</button>
-          <button type="button" class="tab-link" data-tab-target="tasks" aria-controls="tab-tasks" aria-selected="false">Preventative tasks</button>
-          <button type="button" class="tab-link" data-tab-target="log" aria-controls="tab-log" aria-selected="false">Log service</button>
-          <button type="button" class="tab-link" data-tab-target="activity" aria-controls="tab-activity" aria-selected="false">Recent activity</button>
-        </nav>
+        <div class="modal-tabs" role="tablist" aria-label="Machine sections">
+          <button
+            type="button"
+            role="tab"
+            id="machine-tab-overview"
+            aria-controls="machine-panel-overview"
+            aria-selected="true"
+            tabindex="0"
+          >
+            Details
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="machine-tab-tasks"
+            aria-controls="machine-panel-tasks"
+            aria-selected="false"
+            tabindex="-1"
+          >
+            Preventative tasks
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="machine-tab-log"
+            aria-controls="machine-panel-log"
+            aria-selected="false"
+            tabindex="-1"
+          >
+            Log service
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="machine-tab-activity"
+            aria-controls="machine-panel-activity"
+            aria-selected="false"
+            tabindex="-1"
+          >
+            Recent activity
+          </button>
+        </div>
 
         <div class="tab-panels">
-          <section class="tab-panel active" data-tab="overview" id="tab-overview" role="tabpanel" aria-label="Machine details">
+          <section class="tab-panel" id="machine-panel-overview" role="tabpanel" aria-labelledby="machine-tab-overview">
             <h3>Machine details</h3>
             <dl class="inline-list">
               <div>
@@ -1232,7 +1236,7 @@ $bodyClassString = implode(' ', $bodyClasses);
             <?php endif; ?>
           </section>
 
-          <section class="tab-panel" data-tab="tasks" id="tab-tasks" role="tabpanel" aria-label="Preventative tasks">
+          <section class="tab-panel" id="machine-panel-tasks" role="tabpanel" aria-labelledby="machine-tab-tasks" hidden>
             <h3>Preventative task</h3>
             <form method="post" class="form-grid" style="margin-bottom: 1rem;">
               <input type="hidden" name="action" value="create_task" />
@@ -1298,7 +1302,7 @@ $bodyClassString = implode(' ', $bodyClasses);
                 <textarea id="task-description-modal" name="task_description" rows="3" placeholder="Steps, parts, hazards."><?= e($taskForm['description']) ?></textarea>
               </div>
               <div class="field full-width">
-                <button class="btn btn-primary" type="submit">Save task</button>
+                <button class="button primary" type="submit">Save task</button>
               </div>
             </form>
             <div class="table-wrapper">
@@ -1375,7 +1379,7 @@ $bodyClassString = implode(' ', $bodyClasses);
             </div>
           </section>
 
-          <section class="tab-panel" data-tab="log" id="tab-log" role="tabpanel" aria-label="Log maintenance">
+          <section class="tab-panel" id="machine-panel-log" role="tabpanel" aria-labelledby="machine-tab-log" hidden>
             <h3>Log maintenance</h3>
             <form method="post" class="form-grid">
               <input type="hidden" name="action" value="create_record" />
@@ -1446,12 +1450,12 @@ $bodyClassString = implode(' ', $bodyClasses);
                 <textarea id="record-notes-modal" name="record_notes" rows="3" placeholder="Observations, part replacements, corrective action."><?= e($recordForm['notes']) ?></textarea>
               </div>
               <div class="field full-width">
-                <button class="btn btn-primary" type="submit">Log Service</button>
+                <button class="button primary" type="submit">Log Service</button>
               </div>
             </form>
           </section>
 
-          <section class="tab-panel" data-tab="activity" id="tab-activity" role="tabpanel" aria-label="Recent activity">
+          <section class="tab-panel" id="machine-panel-activity" role="tabpanel" aria-labelledby="machine-tab-activity" hidden>
             <h3>Recent activity</h3>
             <div class="table-wrapper">
               <table>
@@ -1511,29 +1515,66 @@ $bodyClassString = implode(' ', $bodyClasses);
   <?php endif; ?>
 
   <script>
-    (function() {
+    (function () {
       const modal = document.getElementById('machine-modal');
       if (!modal) {
         return;
       }
 
-      const tabButtons = Array.from(modal.querySelectorAll('[data-tab-target]'));
-      const panels = Array.from(modal.querySelectorAll('.tab-panel'));
+      const tabs = Array.from(modal.querySelectorAll('.modal-tabs [role="tab"]'));
+      if (tabs.length === 0) {
+        return;
+      }
 
-      tabButtons.forEach((button) => {
-        button.addEventListener('click', () => {
-          const target = button.getAttribute('data-tab-target');
+      const tabMap = new Map();
+      tabs.forEach((tab) => {
+        const panelId = tab.getAttribute('aria-controls');
+        if (!panelId) {
+          return;
+        }
 
-          tabButtons.forEach((btn) => {
-            const isActive = btn === button;
-            btn.classList.toggle('active', isActive);
-            btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
-          });
+        const panel = modal.querySelector('#' + panelId);
+        if (panel instanceof HTMLElement) {
+          tabMap.set(tab, panel);
+        }
+      });
 
-          panels.forEach((panel) => {
-            const isActive = panel.getAttribute('data-tab') === target;
-            panel.classList.toggle('active', isActive);
-          });
+      function activateTab(targetTab) {
+        tabs.forEach((tab) => {
+          const isActive = tab === targetTab;
+          tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+          tab.setAttribute('tabindex', isActive ? '0' : '-1');
+
+          const panel = tabMap.get(tab);
+          if (panel) {
+            if (isActive) {
+              panel.removeAttribute('hidden');
+            } else {
+              panel.setAttribute('hidden', 'hidden');
+            }
+          }
+        });
+      }
+
+      const initialTab = tabs.find((tab) => tab.getAttribute('aria-selected') === 'true') ?? tabs[0];
+      if (initialTab) {
+        activateTab(initialTab);
+      }
+
+      tabs.forEach((tab, index) => {
+        tab.addEventListener('click', () => activateTab(tab));
+        tab.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            activateTab(tab);
+          }
+
+          if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+            event.preventDefault();
+            const offset = event.key === 'ArrowRight' ? 1 : -1;
+            const nextIndex = (index + offset + tabs.length) % tabs.length;
+            tabs[nextIndex].focus();
+          }
         });
       });
     })();
