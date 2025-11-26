@@ -441,7 +441,7 @@ $bodyClassAttribute = ' class="' . implode(' ', $bodyClasses) . '"';
               <p class="small">Counted items are listed first, followed by any skipped locations for this cycle count.</p>
             </div>
             <div class="modal-header-actions">
-              <button type="button" class="button secondary" onclick="window.print()">Print PDF</button>
+              <button type="button" class="button secondary" data-print-report>Print PDF</button>
               <a class="modal-close" href="cycle-count.php" aria-label="Close session report">&times;</a>
             </div>
           </header>
@@ -757,6 +757,78 @@ $bodyClassAttribute = ' class="' . implode(' ', $bodyClasses) . '"';
 
     updateGroupStates();
     updateLabel();
+  })();
+
+  (function () {
+    const printButton = document.querySelector('[data-print-report]');
+    const reportModal = document.getElementById('session-report-modal');
+
+    if (!(printButton instanceof HTMLButtonElement) || !(reportModal instanceof HTMLElement)) {
+      return;
+    }
+
+    printButton.addEventListener('click', function () {
+      const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=900,height=650');
+
+      if (!printWindow) {
+        window.print();
+        return;
+      }
+
+      const reportClone = reportModal.cloneNode(true);
+      reportClone.classList.remove('open');
+      reportClone.removeAttribute('aria-modal');
+      reportClone.removeAttribute('role');
+      reportClone.removeAttribute('id');
+
+      const closeLink = reportClone.querySelector('.modal-close');
+      if (closeLink instanceof HTMLElement) {
+        closeLink.remove();
+      }
+
+      const html = [
+        '<!doctype html>',
+        '<html lang="en">',
+        '<head>',
+        '  <meta charset="utf-8">',
+        '  <title>Cycle Count Report</title>',
+        '  <link rel="stylesheet" href="css/dashboard.css">',
+        '  <style>',
+        '    body { margin: 0; padding: 32px; background: #fff; }',
+        '    .modal { position: static; display: block; background: transparent; padding: 0; box-shadow: none; }',
+        '    .modal-dialog { width: 100%; box-shadow: none; border: none; background: transparent; padding: 0; }',
+        '    .modal-header-actions { display: none; }',
+        '    .modal header { position: static; }',
+        '    @media print {',
+        '      body { padding: 0; }',
+        '    }',
+        '  </style>',
+        '</head>',
+        '<body class="report-print">',
+        '  <div id="print-root"></div>',
+        '</body>',
+        '</html>',
+      ].join('\n');
+
+      printWindow.document.open();
+      printWindow.document.write(html);
+      printWindow.document.close();
+
+      const target = printWindow.document.getElementById('print-root') || printWindow.document.body;
+      target.appendChild(reportClone);
+
+      const triggerPrint = function () {
+        printWindow.focus();
+        printWindow.print();
+        printWindow.close();
+      };
+
+      if (printWindow.document.readyState === 'complete') {
+        triggerPrint();
+      } else {
+        printWindow.onload = triggerPrint;
+      }
+    });
   })();
   </script>
   <script src="js/dashboard.js"></script>
