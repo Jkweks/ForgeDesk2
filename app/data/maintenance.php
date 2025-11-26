@@ -87,6 +87,8 @@ function maintenanceMachineCreate(\PDO $db, array $payload): int
  */
 function maintenanceTasksList(\PDO $db, bool $includeRetired = false): array
 {
+    $includeRetiredFlag = $includeRetired ? 1 : 0;
+
     $sql = <<<SQL
         SELECT
             t.*,
@@ -121,7 +123,7 @@ function maintenanceTasksList(\PDO $db, bool $includeRetired = false): array
             WHERE performed_at IS NOT NULL
             GROUP BY task_id
         ) AS last_records ON last_records.task_id = t.id
-        WHERE (:include_retired = TRUE OR t.status <> 'retired')
+        WHERE (:include_retired = 1 OR t.status <> 'retired')
         ORDER BY
             CASE t.priority
                 WHEN 'critical' THEN 1
@@ -136,7 +138,7 @@ function maintenanceTasksList(\PDO $db, bool $includeRetired = false): array
 
     $statement = $db->prepare($sql);
     $statement->execute([
-        'include_retired' => $includeRetired,
+        'include_retired' => $includeRetiredFlag,
     ]);
 
     return array_map(
