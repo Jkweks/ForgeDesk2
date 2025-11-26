@@ -696,7 +696,7 @@ $bodyClassString = implode(' ', $bodyClasses);
     </header>
 
     <main class="content">
-      <section class="metrics" aria-label="Maintenance summary">
+      <section class="metrics maintenance-metrics" aria-label="Maintenance summary">
         <article class="metric">
           <div class="metric-header">
             <span>Machines</span>
@@ -804,7 +804,7 @@ $bodyClassString = implode(' ', $bodyClasses);
               <button type="button" class="button primary" data-modal-open="machine-form-modal">+ Add machine</button>
             </div>
             <div class="table-wrapper">
-              <table>
+              <table class="table maintenance-table">
                 <thead>
                   <tr>
                     <th>Asset</th>
@@ -897,7 +897,7 @@ $bodyClassString = implode(' ', $bodyClasses);
               </form>
             </div>
             <div class="table-wrapper">
-              <table>
+              <table class="table maintenance-table">
                 <thead>
                   <tr>
                     <th>Machine</th>
@@ -985,7 +985,7 @@ $bodyClassString = implode(' ', $bodyClasses);
               <button type="button" class="button primary" data-modal-open="record-form-modal">+ Log service</button>
             </div>
             <div class="table-wrapper">
-              <table>
+              <table class="table maintenance-table">
                 <thead>
                   <tr>
                     <th>Date</th>
