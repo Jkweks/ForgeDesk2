@@ -662,6 +662,7 @@ function materialReplenishmentFormatDecimal(float $value, int $precision = 2): s
                             </th>
                             <th scope="col" class="sortable" data-sort-key="item" aria-sort="none">Item</th>
                             <th scope="col" class="sortable" data-sort-key="sku" aria-sort="none">SKU</th>
+                            <th scope="col" class="sortable" data-sort-key="status" aria-sort="none">Status</th>
                             <th scope="col" class="sortable numeric" data-sort-key="on-hand" data-sort-type="number" aria-sort="none">On Hand</th>
                             <th scope="col" class="sortable numeric" data-sort-key="committed" data-sort-type="number" aria-sort="none">Committed</th>
                             <th scope="col" class="sortable numeric" data-sort-key="on-order" data-sort-type="number" aria-sort="none">On Order</th>
@@ -677,6 +678,7 @@ function materialReplenishmentFormatDecimal(float $value, int $precision = 2): s
                             <th></th>
                             <th><input type="search" class="column-filter" data-key="item" placeholder="Search items" aria-label="Filter by item"></th>
                             <th><input type="search" class="column-filter" data-key="sku" placeholder="Search SKU" aria-label="Filter by SKU"></th>
+                            <th><input type="search" class="column-filter" data-key="status" placeholder="Filter status" aria-label="Filter by status"></th>
                             <th><input type="search" class="column-filter" data-key="on-hand" placeholder="Search on hand" aria-label="Filter by on hand" inputmode="decimal"></th>
                             <th><input type="search" class="column-filter" data-key="committed" placeholder="Search committed" aria-label="Filter by committed" inputmode="decimal"></th>
                             <th><input type="search" class="column-filter" data-key="on-order" placeholder="Search on order" aria-label="Filter by on order" inputmode="decimal"></th>
@@ -723,17 +725,24 @@ function materialReplenishmentFormatDecimal(float $value, int $precision = 2): s
                               $recommendedEachValue = $recommended > 0.0001 ? number_format($recommended, 3, '.', '') : '';
                               $unitCost = $unitCosts[$itemId] ?? '';
                               $rowClasses = [];
-                              if ($recommended > 0.0001) {
-                                  $rowClasses[] = 'needs-action';
-                              }
                               if (isset($invalidLineIds[$itemId])) {
                                   $rowClasses[] = 'is-invalid';
+                              }
+                              $status = isset($item['status']) ? (string) $item['status'] : 'In Stock';
+                              $statusClass = 'muted';
+                              if (strcasecmp($status, 'Critical') === 0) {
+                                  $statusClass = 'danger';
+                              } elseif (strcasecmp($status, 'Low') === 0) {
+                                  $statusClass = 'warning';
+                              } elseif (strcasecmp($status, 'In Stock') === 0) {
+                                  $statusClass = 'success';
                               }
                               $averageDailyUse = $item['average_daily_use'];
                               $daysOfSupply = $item['days_of_supply'];
                               $dataAttributes = [
                                   'item' => $item['item'],
                                   'sku' => $item['sku'],
+                                  'status' => $status,
                                   'on-hand' => number_format((float) $item['stock'], 3, '.', ''),
                                   'committed' => number_format((float) $item['committed_qty'], 3, '.', ''),
                                   'on-order' => number_format((float) $item['on_order_qty'], 3, '.', ''),
@@ -773,6 +782,9 @@ function materialReplenishmentFormatDecimal(float $value, int $precision = 2): s
                                 <?php endif; ?>
                               </td>
                               <td data-title="SKU"><?= e($item['sku'] !== '' ? $item['sku'] : '—') ?></td>
+                              <td data-title="Status">
+                                <span class="badge <?= e($statusClass) ?>"><?= e($status) ?></span>
+                              </td>
                               <td data-title="On Hand" class="numeric"><?= e(inventoryFormatQuantity((int) $item['stock'])) ?></td>
                               <td data-title="Committed" class="numeric"><?= e(inventoryFormatQuantity((int) $item['committed_qty'])) ?></td>
                               <td data-title="On Order" class="numeric"><?= e(materialReplenishmentFormatDecimal((float) $item['on_order_qty'], 2)) ?></td>
