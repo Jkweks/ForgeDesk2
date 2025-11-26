@@ -59,6 +59,39 @@ function maintenanceMachineList(\PDO $db): array
 /**
  * @param array<string,mixed> $payload
  */
+function maintenanceMachineUpdate(\PDO $db, int $machineId, array $payload): void
+{
+    $sql = <<<SQL
+        UPDATE maintenance_machines
+        SET
+            name = :name,
+            equipment_type = :equipment_type,
+            manufacturer = :manufacturer,
+            model = :model,
+            serial_number = :serial_number,
+            location = :location,
+            documents = :documents,
+            notes = :notes
+        WHERE id = :id
+    SQL;
+
+    $statement = $db->prepare($sql);
+    $statement->execute([
+        'id' => $machineId,
+        'name' => $payload['name'],
+        'equipment_type' => $payload['equipment_type'],
+        'manufacturer' => $payload['manufacturer'],
+        'model' => $payload['model'],
+        'serial_number' => $payload['serial_number'],
+        'location' => $payload['location'],
+        'documents' => maintenanceEncodeDocuments($payload['documents'] ?? []),
+        'notes' => $payload['notes'],
+    ]);
+}
+
+/**
+ * @param array<string,mixed> $payload
+ */
 function maintenanceMachineCreate(\PDO $db, array $payload): int
 {
     $sql = <<<SQL
