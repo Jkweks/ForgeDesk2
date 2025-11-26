@@ -552,6 +552,38 @@ $bodyClassString = implode(' ', $bodyClasses);
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title><?= e($app['name']) ?> Maintenance Hub</title>
   <link rel="stylesheet" href="css/dashboard.css" />
+  <style>
+    .tab-nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .tab-nav .tab-link {
+      border: 1px solid #d1d5db;
+      background: #f8fafc;
+      border-radius: 0.5rem;
+      padding: 0.5rem 0.75rem;
+      cursor: pointer;
+      color: inherit;
+    }
+
+    .tab-nav .tab-link.active {
+      background: #ffffff;
+      border-color: #4b5563;
+      color: #111827;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+    }
+
+    .tab-panel {
+      display: none;
+    }
+
+    .tab-panel.active {
+      display: block;
+    }
+  </style>
 </head>
 <body class="<?= e($bodyClassString) ?>">
   <div class="layout">
@@ -1143,8 +1175,15 @@ $bodyClassString = implode(' ', $bodyClasses);
           <a class="modal-close" href="<?= e($closeUrl) ?>" aria-label="Close machine dialog">&times;</a>
         </header>
 
-        <div class="grid two-columns">
-          <div>
+        <nav class="tab-nav" role="tablist" aria-label="Machine sections">
+          <button type="button" class="tab-link active" data-tab-target="overview" aria-controls="tab-overview" aria-selected="true">Details</button>
+          <button type="button" class="tab-link" data-tab-target="tasks" aria-controls="tab-tasks" aria-selected="false">Preventative tasks</button>
+          <button type="button" class="tab-link" data-tab-target="log" aria-controls="tab-log" aria-selected="false">Log service</button>
+          <button type="button" class="tab-link" data-tab-target="activity" aria-controls="tab-activity" aria-selected="false">Recent activity</button>
+        </nav>
+
+        <div class="tab-panels">
+          <section class="tab-panel active" data-tab="overview" id="tab-overview" role="tabpanel" aria-label="Machine details">
             <h3>Machine details</h3>
             <dl class="inline-list">
               <div>
@@ -1191,8 +1230,9 @@ $bodyClassString = implode(' ', $bodyClasses);
             <?php if (!empty($machineModal['notes'])): ?>
               <p class="small" style="margin-top: 0.5rem;">Notes: <?= e($machineModal['notes']) ?></p>
             <?php endif; ?>
-          </div>
-          <div>
+          </section>
+
+          <section class="tab-panel" data-tab="tasks" id="tab-tasks" role="tabpanel" aria-label="Preventative tasks">
             <h3>Preventative task</h3>
             <form method="post" class="form-grid" style="margin-bottom: 1rem;">
               <input type="hidden" name="action" value="create_task" />
@@ -1235,34 +1275,32 @@ $bodyClassString = implode(' ', $bodyClasses);
               <div class="field">
                 <label for="task-priority-modal">Priority</label>
                 <select id="task-priority-modal" name="task_priority">
-                  <?php $priorities = ['low' => 'Low', 'medium' => 'Medium', 'high' => 'High', 'critical' => 'Critical']; ?>
-                  <?php foreach ($priorities as $value => $label): ?>
-                    <option value="<?= e($value) ?>"<?= $taskForm['priority'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
-                  <?php endforeach; ?>
+                  <option value="low"<?= $taskForm['priority'] === 'low' ? ' selected' : '' ?>>Low</option>
+                  <option value="medium"<?= $taskForm['priority'] === 'medium' ? ' selected' : '' ?>>Medium</option>
+                  <option value="high"<?= $taskForm['priority'] === 'high' ? ' selected' : '' ?>>High</option>
+                  <option value="critical"<?= $taskForm['priority'] === 'critical' ? ' selected' : '' ?>>Critical</option>
                 </select>
               </div>
               <div class="field">
                 <label for="task-status-modal">Status</label>
                 <select id="task-status-modal" name="task_status">
-                  <?php $statuses = ['active' => 'Active', 'paused' => 'Paused', 'retired' => 'Retired']; ?>
-                  <?php foreach ($statuses as $value => $label): ?>
-                    <option value="<?= e($value) ?>"<?= $taskForm['status'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
-                  <?php endforeach; ?>
+                  <option value="active"<?= $taskForm['status'] === 'active' ? ' selected' : '' ?>>Active</option>
+                  <option value="paused"<?= $taskForm['status'] === 'paused' ? ' selected' : '' ?>>Paused</option>
+                  <option value="retired"<?= $taskForm['status'] === 'retired' ? ' selected' : '' ?>>Retired</option>
                 </select>
               </div>
-              <div class="field">
-                <label for="task-owner-modal">Owner / Technician</label>
-                <input id="task-owner-modal" name="task_assigned_to" type="text" value="<?= e($taskForm['assigned_to']) ?>" placeholder="Maintenance crew" />
+              <div class="field full-width">
+                <label for="task-assignee-modal">Owner</label>
+                <input id="task-assignee-modal" name="task_assigned_to" type="text" value="<?= e($taskForm['assigned_to']) ?>" placeholder="Optional technician" />
               </div>
               <div class="field full-width">
-                <label for="task-notes-modal">Description</label>
-                <textarea id="task-notes-modal" name="task_description" rows="2" placeholder="Steps, tools, torque specs."><?= e($taskForm['description']) ?></textarea>
+                <label for="task-description-modal">Description</label>
+                <textarea id="task-description-modal" name="task_description" rows="3" placeholder="Steps, parts, hazards."><?= e($taskForm['description']) ?></textarea>
               </div>
               <div class="field full-width">
-                <button class="btn btn-primary" type="submit">Add Task</button>
+                <button class="btn btn-primary" type="submit">Save task</button>
               </div>
             </form>
-
             <div class="table-wrapper">
               <table>
                 <thead>
@@ -1276,7 +1314,7 @@ $bodyClassString = implode(' ', $bodyClasses);
                 </thead>
                 <tbody>
                   <?php if (empty($machineTasks)): ?>
-                    <tr><td colspan="5">No tasks for this machine yet.</td></tr>
+                    <tr><td colspan="5">No preventative tasks yet for this machine.</td></tr>
                   <?php else: ?>
                     <?php foreach ($machineTasks as $task): ?>
                       <tr>
@@ -1335,11 +1373,9 @@ $bodyClassString = implode(' ', $bodyClasses);
                 </tbody>
               </table>
             </div>
-          </div>
-        </div>
+          </section>
 
-        <div class="grid two-columns" style="margin-top: 1.5rem;">
-          <div>
+          <section class="tab-panel" data-tab="log" id="tab-log" role="tabpanel" aria-label="Log maintenance">
             <h3>Log maintenance</h3>
             <form method="post" class="form-grid">
               <input type="hidden" name="action" value="create_record" />
@@ -1413,8 +1449,9 @@ $bodyClassString = implode(' ', $bodyClasses);
                 <button class="btn btn-primary" type="submit">Log Service</button>
               </div>
             </form>
-          </div>
-          <div>
+          </section>
+
+          <section class="tab-panel" data-tab="activity" id="tab-activity" role="tabpanel" aria-label="Recent activity">
             <h3>Recent activity</h3>
             <div class="table-wrapper">
               <table>
@@ -1467,10 +1504,39 @@ $bodyClassString = implode(' ', $bodyClasses);
                 </tbody>
               </table>
             </div>
-          </div>
+          </section>
         </div>
       </div>
     </div>
   <?php endif; ?>
+
+  <script>
+    (function() {
+      const modal = document.getElementById('machine-modal');
+      if (!modal) {
+        return;
+      }
+
+      const tabButtons = Array.from(modal.querySelectorAll('[data-tab-target]'));
+      const panels = Array.from(modal.querySelectorAll('.tab-panel'));
+
+      tabButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+          const target = button.getAttribute('data-tab-target');
+
+          tabButtons.forEach((btn) => {
+            const isActive = btn === button;
+            btn.classList.toggle('active', isActive);
+            btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+          });
+
+          panels.forEach((panel) => {
+            const isActive = panel.getAttribute('data-tab') === target;
+            panel.classList.toggle('active', isActive);
+          });
+        });
+      });
+    })();
+  </script>
 </body>
 </html>
