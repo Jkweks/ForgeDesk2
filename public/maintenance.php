@@ -172,6 +172,11 @@ $machineMap = [];
 $tasks = [];
 $taskMap = [];
 $records = [];
+$tasksByMachine = [];
+$recordsByMachine = [];
+$machineModalId = null;
+$machineModal = null;
+$machineModalOpen = false;
 $showRetired = false;
 
 if ((isset($_GET['show_retired']) && $_GET['show_retired'] === '1') || (isset($_POST['show_retired']) && $_POST['show_retired'] === '1')) {
@@ -191,6 +196,23 @@ if ($dbError === null) {
             $taskMap[$task['id']] = $task;
         }
         $records = maintenanceRecordsList($db);
+
+        foreach ($tasks as $task) {
+            $tasksByMachine[$task['machine_id']][] = $task;
+        }
+
+        foreach ($records as $record) {
+            $recordsByMachine[$record['machine_id']][] = $record;
+        }
+
+        $modalRequest = $_GET['machine_modal'] ?? ($_POST['machine_modal'] ?? null);
+        if ($modalRequest !== null && ctype_digit((string) $modalRequest)) {
+            $machineModalId = (int) $modalRequest;
+            if (isset($machineMap[$machineModalId])) {
+                $machineModal = $machineMap[$machineModalId];
+                $machineModalOpen = true;
+            }
+        }
     } catch (\Throwable $exception) {
         $errors[] = 'Unable to load maintenance data: ' . $exception->getMessage();
     }
@@ -449,6 +471,16 @@ if ($dbError === null && $shouldReload) {
             $taskMap[$task['id']] = $task;
         }
         $records = maintenanceRecordsList($db);
+
+        $tasksByMachine = [];
+        foreach ($tasks as $task) {
+            $tasksByMachine[$task['machine_id']][] = $task;
+        }
+
+        $recordsByMachine = [];
+        foreach ($records as $record) {
+            $recordsByMachine[$record['machine_id']][] = $record;
+        }
     } catch (\Throwable $exception) {
         $errors[] = 'Unable to refresh maintenance data: ' . $exception->getMessage();
     }
@@ -504,6 +536,14 @@ foreach ($visibleTasks as $task) {
 $dueSoonTaskIds = array_column($dueSoonTasks, 'id');
 $overdueTaskIds = array_column($overdueTasks, 'id');
 
+$bodyClasses = ['has-sidebar-toggle'];
+
+if ($machineModalOpen) {
+    $bodyClasses[] = 'modal-open';
+}
+
+$bodyClassString = implode(' ', $bodyClasses);
+
 ?>
 <!doctype html>
 <html lang="en">
@@ -513,7 +553,7 @@ $overdueTaskIds = array_column($overdueTasks, 'id');
   <title><?= e($app['name']) ?> Maintenance Hub</title>
   <link rel="stylesheet" href="css/dashboard.css" />
 </head>
-<body class="has-sidebar-toggle">
+<body class="<?= e($bodyClassString) ?>">
   <div class="layout">
     <?php require __DIR__ . '/../app/views/partials/sidebar.php'; ?>
 
@@ -662,6 +702,7 @@ $overdueTaskIds = array_column($overdueTasks, 'id');
                     <th>Last Service</th>
                     <th>Downtime</th>
                     <th>Documents</th>
+                    <th>Manage</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -710,6 +751,15 @@ $overdueTaskIds = array_column($overdueTasks, 'id');
                               <?php endforeach; ?>
                             </ul>
                           <?php endif; ?>
+                        </td>
+                        <td>
+                          <?php
+                            $modalUrl = 'maintenance.php?machine_modal=' . $machine['id'];
+                            if ($showRetired) {
+                                $modalUrl .= '&show_retired=1';
+                            }
+                          ?>
+                          <a class="btn btn-secondary small" href="<?= e($modalUrl) ?>">Manage</a>
                         </td>
                       </tr>
                     <?php endforeach; ?>
@@ -1075,5 +1125,352 @@ $overdueTaskIds = array_column($overdueTasks, 'id');
       </section>
     </main>
   </div>
+
+  <?php if ($machineModal !== null): ?>
+    <?php
+      $modalClasses = 'modal' . ($machineModalOpen ? ' open' : '');
+      $machineTasks = $tasksByMachine[$machineModal['id']] ?? [];
+      $machineRecords = $recordsByMachine[$machineModal['id']] ?? [];
+      $closeUrl = $showRetired ? 'maintenance.php?show_retired=1' : 'maintenance.php';
+    ?>
+    <div id="machine-modal" class="<?= e($modalClasses) ?>" role="dialog" aria-modal="true" aria-labelledby="machine-modal-title" aria-hidden="<?= $machineModalOpen ? 'false' : 'true' ?>" data-close-url="<?= e($closeUrl) ?>">
+      <div class="modal-dialog">
+        <header>
+          <div>
+            <h2 id="machine-modal-title">Manage <?= e($machineModal['name']) ?></h2>
+            <p>Preventative tasks and service log entries scoped to this asset.</p>
+          </div>
+          <a class="modal-close" href="<?= e($closeUrl) ?>" aria-label="Close machine dialog">&times;</a>
+        </header>
+
+        <div class="grid two-columns">
+          <div>
+            <h3>Machine details</h3>
+            <dl class="inline-list">
+              <div>
+                <dt>Type</dt>
+                <dd><?= e($machineModal['equipment_type']) ?></dd>
+              </div>
+              <?php if (!empty($machineModal['manufacturer']) || !empty($machineModal['model'])): ?>
+                <div>
+                  <dt>Make / Model</dt>
+                  <dd><?= e(trim(($machineModal['manufacturer'] ?? '') . ' ' . ($machineModal['model'] ?? ''))) ?></dd>
+                </div>
+              <?php endif; ?>
+              <?php if (!empty($machineModal['serial_number'])): ?>
+                <div>
+                  <dt>Serial</dt>
+                  <dd><?= e($machineModal['serial_number']) ?></dd>
+                </div>
+              <?php endif; ?>
+              <?php if (!empty($machineModal['location'])): ?>
+                <div>
+                  <dt>Location</dt>
+                  <dd><?= e($machineModal['location']) ?></dd>
+                </div>
+              <?php endif; ?>
+              <div>
+                <dt>Total downtime logged</dt>
+                <dd><?= e(maintenanceFormatMinutes((int) $machineModal['total_downtime_minutes'])) ?></dd>
+              </div>
+            </dl>
+            <?php if (!empty($machineModal['documents'])): ?>
+              <h4>Documents</h4>
+              <ul class="document-list">
+                <?php foreach ($machineModal['documents'] as $doc): ?>
+                  <li>
+                    <?php if ($doc['url'] !== ''): ?>
+                      <a href="<?= e($doc['url']) ?>" target="_blank" rel="noreferrer"><?= e($doc['label']) ?></a>
+                    <?php else: ?>
+                      <?= e($doc['label']) ?>
+                    <?php endif; ?>
+                  </li>
+                <?php endforeach; ?>
+              </ul>
+            <?php endif; ?>
+            <?php if (!empty($machineModal['notes'])): ?>
+              <p class="small" style="margin-top: 0.5rem;">Notes: <?= e($machineModal['notes']) ?></p>
+            <?php endif; ?>
+          </div>
+          <div>
+            <h3>Preventative task</h3>
+            <form method="post" class="form-grid" style="margin-bottom: 1rem;">
+              <input type="hidden" name="action" value="create_task" />
+              <input type="hidden" name="task_machine_id" value="<?= e((string) $machineModal['id']) ?>" />
+              <input type="hidden" name="machine_modal" value="<?= e((string) $machineModal['id']) ?>" />
+              <input type="hidden" name="show_retired" value="<?= $showRetired ? '1' : '0' ?>" />
+              <div class="field">
+                <label for="task-title-modal">Task</label>
+                <input id="task-title-modal" name="task_title" type="text" value="<?= e($taskForm['title']) ?>" placeholder="Lubricate rails" required />
+              </div>
+              <div class="field">
+                <label for="task-frequency-modal">Frequency</label>
+                <input id="task-frequency-modal" name="task_frequency" type="text" value="<?= e($taskForm['frequency']) ?>" placeholder="Monthly" />
+              </div>
+              <div class="field">
+                <label for="task-interval-count-modal">Interval Amount</label>
+                <input
+                  id="task-interval-count-modal"
+                  name="task_interval_count"
+                  type="number"
+                  min="1"
+                  value="<?= e($taskForm['interval_count']) ?>"
+                  placeholder="e.g. 1"
+                />
+              </div>
+              <div class="field">
+                <label for="task-interval-unit-modal">Interval Unit</label>
+                <select id="task-interval-unit-modal" name="task_interval_unit">
+                  <option value=""<?= $taskForm['interval_unit'] === '' ? ' selected' : '' ?>>No interval</option>
+                  <?php $units = ['day' => 'Day(s)', 'week' => 'Week(s)', 'month' => 'Month(s)', 'year' => 'Year(s)']; ?>
+                  <?php foreach ($units as $value => $label): ?>
+                    <option value="<?= e($value) ?>"<?= $taskForm['interval_unit'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
+                  <?php endforeach; ?>
+                </select>
+              </div>
+              <div class="field">
+                <label for="task-start-date-modal">Start Date</label>
+                <input id="task-start-date-modal" name="task_start_date" type="date" value="<?= e($taskForm['start_date']) ?>" />
+              </div>
+              <div class="field">
+                <label for="task-priority-modal">Priority</label>
+                <select id="task-priority-modal" name="task_priority">
+                  <?php $priorities = ['low' => 'Low', 'medium' => 'Medium', 'high' => 'High', 'critical' => 'Critical']; ?>
+                  <?php foreach ($priorities as $value => $label): ?>
+                    <option value="<?= e($value) ?>"<?= $taskForm['priority'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
+                  <?php endforeach; ?>
+                </select>
+              </div>
+              <div class="field">
+                <label for="task-status-modal">Status</label>
+                <select id="task-status-modal" name="task_status">
+                  <?php $statuses = ['active' => 'Active', 'paused' => 'Paused', 'retired' => 'Retired']; ?>
+                  <?php foreach ($statuses as $value => $label): ?>
+                    <option value="<?= e($value) ?>"<?= $taskForm['status'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
+                  <?php endforeach; ?>
+                </select>
+              </div>
+              <div class="field">
+                <label for="task-owner-modal">Owner / Technician</label>
+                <input id="task-owner-modal" name="task_assigned_to" type="text" value="<?= e($taskForm['assigned_to']) ?>" placeholder="Maintenance crew" />
+              </div>
+              <div class="field full-width">
+                <label for="task-notes-modal">Description</label>
+                <textarea id="task-notes-modal" name="task_description" rows="2" placeholder="Steps, tools, torque specs."><?= e($taskForm['description']) ?></textarea>
+              </div>
+              <div class="field full-width">
+                <button class="btn btn-primary" type="submit">Add Task</button>
+              </div>
+            </form>
+
+            <div class="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Task</th>
+                    <th>Priority</th>
+                    <th>Frequency</th>
+                    <th>Next due</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <?php if (empty($machineTasks)): ?>
+                    <tr><td colspan="5">No tasks for this machine yet.</td></tr>
+                  <?php else: ?>
+                    <?php foreach ($machineTasks as $task): ?>
+                      <tr>
+                        <td>
+                          <strong><?= e($task['title']) ?></strong>
+                          <?php if ($task['status'] === 'paused'): ?>
+                            <span class="badge muted">Paused</span>
+                          <?php elseif ($task['status'] === 'retired'): ?>
+                            <span class="badge muted">Retired</span>
+                          <?php endif; ?>
+                          <?php if (!empty($task['description'])): ?>
+                            <div class="small"><?= e($task['description']) ?></div>
+                          <?php endif; ?>
+                        </td>
+                        <td>
+                          <?php if ($task['priority'] === 'critical'): ?>
+                            <span class="badge danger">Critical</span>
+                          <?php elseif ($task['priority'] === 'high'): ?>
+                            <span class="badge warning">High</span>
+                          <?php elseif ($task['priority'] === 'low'): ?>
+                            <span class="badge muted">Low</span>
+                          <?php else: ?>
+                            <span class="badge muted">Medium</span>
+                          <?php endif; ?>
+                        </td>
+                        <td>
+                          <?php if ($task['frequency'] !== null): ?>
+                            <?= e($task['frequency']) ?>
+                          <?php else: ?>
+                            <span class="muted">Ad hoc</span>
+                          <?php endif; ?>
+                        </td>
+                        <td>
+                          <?php if ($task['next_due_date'] !== null): ?>
+                            <?= e(date('M j, Y', strtotime($task['next_due_date']))) ?>
+                          <?php else: ?>
+                            <span class="muted">Not scheduled</span>
+                          <?php endif; ?>
+                        </td>
+                        <td>
+                          <?php if ($task['status'] === 'retired'): ?>
+                            <span class="muted">Not tracked</span>
+                          <?php elseif (in_array($task['id'], $overdueTaskIds, true)): ?>
+                            <span class="badge danger">Overdue</span>
+                          <?php elseif (in_array($task['id'], $dueSoonTaskIds, true)): ?>
+                            <span class="badge warning">Due soon</span>
+                          <?php elseif ($task['next_due_date'] !== null): ?>
+                            <span class="badge muted">Scheduled</span>
+                          <?php else: ?>
+                            <span class="muted">—</span>
+                          <?php endif; ?>
+                        </td>
+                      </tr>
+                    <?php endforeach; ?>
+                  <?php endif; ?>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid two-columns" style="margin-top: 1.5rem;">
+          <div>
+            <h3>Log maintenance</h3>
+            <form method="post" class="form-grid">
+              <input type="hidden" name="action" value="create_record" />
+              <input type="hidden" name="record_machine_id" value="<?= e((string) $machineModal['id']) ?>" />
+              <input type="hidden" name="machine_modal" value="<?= e((string) $machineModal['id']) ?>" />
+              <input type="hidden" name="show_retired" value="<?= $showRetired ? '1' : '0' ?>" />
+              <div class="field">
+                <label>Machine</label>
+                <div class="muted"><?= e($machineModal['name']) ?></div>
+              </div>
+              <div class="field">
+                <label for="record-task-modal">Related Task</label>
+                <select id="record-task-modal" name="record_task_id">
+                  <option value="">Optional</option>
+                  <?php foreach ($machineTasks as $task): ?>
+                    <option value="<?= e((string) $task['id']) ?>"<?= $recordForm['task_id'] === (string) $task['id'] ? ' selected' : '' ?>><?= e($task['title']) ?></option>
+                  <?php endforeach; ?>
+                </select>
+              </div>
+              <div class="field">
+                <label for="record-owner-modal">Performed By</label>
+                <input id="record-owner-modal" name="performed_by" type="text" value="<?= e($recordForm['performed_by']) ?>" placeholder="Tech name" />
+              </div>
+              <div class="field">
+                <label for="record-date-modal">Date</label>
+                <input id="record-date-modal" name="performed_at" type="date" value="<?= e($recordForm['performed_at']) ?>" />
+              </div>
+              <div class="field">
+                <label for="record-downtime-modal">Downtime (minutes)</label>
+                <input
+                  id="record-downtime-modal"
+                  name="downtime_minutes"
+                  type="number"
+                  min="0"
+                  inputmode="numeric"
+                  value="<?= e($recordForm['downtime_minutes']) ?>"
+                  placeholder="e.g. 30"
+                />
+              </div>
+              <div class="field">
+                <label for="record-labor-modal">Labor Hours</label>
+                <input
+                  id="record-labor-modal"
+                  name="labor_hours"
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  inputmode="decimal"
+                  value="<?= e($recordForm['labor_hours']) ?>"
+                  placeholder="e.g. 1.5"
+                />
+              </div>
+              <div class="field">
+                <label for="record-parts-modal">Parts / Consumables (one per line)</label>
+                <textarea
+                  id="record-parts-modal"
+                  name="parts_used"
+                  rows="3"
+                  placeholder="Coolant top-off 1 qt&#10;Linear bearing grease"
+                ><?= e($recordForm['parts_used_raw']) ?></textarea>
+              </div>
+              <div class="field">
+                <label for="record-attachments-modal">Attachments (Label|URL)</label>
+                <textarea id="record-attachments-modal" name="record_attachments" rows="3" placeholder="Inspection photos|https://..."><?= e($recordForm['attachments_raw']) ?></textarea>
+              </div>
+              <div class="field full-width">
+                <label for="record-notes-modal">Notes</label>
+                <textarea id="record-notes-modal" name="record_notes" rows="3" placeholder="Observations, part replacements, corrective action."><?= e($recordForm['notes']) ?></textarea>
+              </div>
+              <div class="field full-width">
+                <button class="btn btn-primary" type="submit">Log Service</button>
+              </div>
+            </form>
+          </div>
+          <div>
+            <h3>Recent activity</h3>
+            <div class="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Task</th>
+                    <th>Downtime</th>
+                    <th>Labor</th>
+                    <th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <?php if (empty($machineRecords)): ?>
+                    <tr><td colspan="5">No records for this machine yet.</td></tr>
+                  <?php else: ?>
+                    <?php foreach ($machineRecords as $record): ?>
+                      <tr>
+                        <td>
+                          <?php if ($record['performed_at'] !== null): ?>
+                            <?= e(date('M j, Y', strtotime($record['performed_at']))) ?>
+                          <?php else: ?>
+                            <span class="muted">Pending</span>
+                          <?php endif; ?>
+                        </td>
+                        <td>
+                          <?php if ($record['task_title'] !== null): ?>
+                            <?= e($record['task_title']) ?>
+                          <?php else: ?>
+                            <span class="muted">Unplanned</span>
+                          <?php endif; ?>
+                        </td>
+                        <td><?= e(maintenanceFormatMinutes($record['downtime_minutes'])) ?></td>
+                        <td><?= e(maintenanceFormatLaborHours($record['labor_hours'])) ?></td>
+                        <td>
+                          <?php if (!empty($record['notes'])): ?>
+                            <div><?= e($record['notes']) ?></div>
+                          <?php endif; ?>
+                          <?php if (!empty($record['parts_used'])): ?>
+                            <ul class="document-list">
+                              <?php foreach ($record['parts_used'] as $part): ?>
+                                <li><?= e($part) ?></li>
+                              <?php endforeach; ?>
+                            </ul>
+                          <?php endif; ?>
+                        </td>
+                      </tr>
+                    <?php endforeach; ?>
+                  <?php endif; ?>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  <?php endif; ?>
 </body>
 </html>
