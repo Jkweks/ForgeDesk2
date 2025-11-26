@@ -484,7 +484,8 @@ body.sidebar-open{overflow:hidden}
 .inventory-filters__group{display:flex;flex-direction:column;gap:6px;min-width:260px;max-width:420px;flex:1}
 .inventory-filters__label{font-weight:600;font-size:.9rem;color:var(--muted)}
 .inventory-filters .location-filter{width:100%}
-.inventory-table .filter-row .location-filter__toggle{width:100%;justify-content:space-between;white-space:nowrap}
+.inventory-table .filter-row .location-filter__toggle{width:100%;justify-content:space-between;white-space:nowrap;padding:8px 10px;gap:8px;line-height:1.2}
+.location-filter--detached{position:relative}
 .table-pagination{display:flex;justify-content:flex-end;margin-top:12px}
 .table-pagination .pagination-controls{display:flex;align-items:center;gap:10px}
 .table-pagination .pagination-status{font-size:.85rem;color:var(--muted)}

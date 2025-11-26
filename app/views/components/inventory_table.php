@@ -52,6 +52,29 @@ if (!function_exists('renderInventoryTable')) {
         if ($includeFilters) {
             $locationToggleId = ($tableId !== null ? $tableId . '-' : '') . 'location-filter';
 
+            echo '<div class="location-filter location-filter--detached" data-location-filter data-filter-target="locationIds" data-location-filter-id="' . e($locationToggleId) . '">';
+            echo '<input type="hidden" class="column-filter" data-key="locationIds" data-filter-type="tokens" />';
+            echo '<div class="location-filter__modal" data-location-filter-modal hidden>';
+            echo '<div class="modal-backdrop" data-location-filter-backdrop></div>';
+            echo '<div class="location-filter__dialog" role="dialog" aria-modal="true" aria-label="Select storage locations">';
+            echo '<div class="location-filter__dialog-header">';
+            echo '<h3>Select locations</h3>';
+            echo '<button type="button" class="button ghost icon-only" data-location-filter-close aria-label="Close location filter">&times;</button>';
+            echo '</div>';
+            echo '<div class="location-filter__dialog-body">';
+            if ($locationHierarchy === []) {
+                echo '<p class="small">No storage locations configured yet. Add them from the admin dashboard to filter inventory.</p>';
+            } else {
+                renderLocationHierarchy($locationHierarchy);
+            }
+            echo '</div>';
+            echo '<div class="location-filter__actions">';
+            echo '<button type="button" class="button ghost" data-location-filter-clear>Clear</button>';
+            echo '<button type="button" class="button primary" data-location-filter-apply>Apply</button>';
+            echo '</div>';
+            echo '</div>';
+            echo '</div>';
+            echo '</div>';
         }
 
         echo '<table class="table inventory-table"' . ($tableId !== null ? ' id="' . e($tableId) . '"' : '') . '>';
@@ -77,32 +100,10 @@ if (!function_exists('renderInventoryTable')) {
             echo '<th><input type="search" class="column-filter" data-key="item" placeholder="Search items" aria-label="Filter by item"></th>';
             echo '<th><input type="search" class="column-filter" data-key="sku" data-alt-keys="partNumber" placeholder="Search SKU or part #" aria-label="Filter by SKU"></th>';
             echo '<th>';
-            echo '<div class="location-filter" data-location-filter data-filter-target="locationIds" data-location-filter-id="' . e($locationToggleId) . '">';
-            echo '<input type="hidden" class="column-filter" data-key="locationIds" data-filter-type="tokens" />';
             echo '<button type="button" class="location-filter__toggle location-filter__toggle--inline" id="' . e($locationToggleId) . '" data-location-filter-toggle data-location-filter-id="' . e($locationToggleId) . '" aria-expanded="false">';
             echo '<span class="location-filter__label">All locations</span>';
             echo '<span class="location-filter__chevron" aria-hidden="true">▾</span>';
             echo '</button>';
-            echo '<div class="location-filter__modal" data-location-filter-modal hidden>';
-            echo '<div class="modal-backdrop" data-location-filter-backdrop></div>';
-            echo '<div class="location-filter__dialog" role="dialog" aria-modal="true" aria-label="Select storage locations">';
-            echo '<div class="location-filter__dialog-header">';
-            echo '<h3>Select locations</h3>';
-            echo '<button type="button" class="button ghost icon-only" data-location-filter-close aria-label="Close location filter">&times;</button>';
-            echo '</div>';
-            echo '<div class="location-filter__dialog-body">';
-            if ($locationHierarchy === []) {
-                echo '<p class="small">No storage locations configured yet. Add them from the admin dashboard to filter inventory.</p>';
-            } else {
-                renderLocationHierarchy($locationHierarchy);
-            }
-            echo '</div>';
-            echo '<div class="location-filter__actions">';
-            echo '<button type="button" class="button ghost" data-location-filter-clear>Clear</button>';
-            echo '<button type="button" class="button primary" data-location-filter-apply>Apply</button>';
-            echo '</div>';
-            echo '</div>';
-            echo '</div>';
             echo '</th>';
             echo '<th><input type="search" class="column-filter" data-key="stock" placeholder="Search stock" aria-label="Filter by stock" inputmode="numeric"></th>';
             echo '<th><input type="search" class="column-filter" data-key="committed" placeholder="Search committed" aria-label="Filter by committed" inputmode="numeric"></th>';

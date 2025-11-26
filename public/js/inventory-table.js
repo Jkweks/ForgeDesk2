@@ -138,9 +138,11 @@
       }
 
       function getLocationFilterToggles(filterContainer) {
+        const tableContainer = filterContainer.closest('[data-inventory-table]');
         const filterId = getLocationFilterId(filterContainer);
         if (filterId) {
-          const matches = Array.from(document.querySelectorAll(`[data-location-filter-toggle][data-location-filter-id="${filterId}"]`));
+          const scope = tableContainer instanceof HTMLElement ? tableContainer : document;
+          const matches = Array.from(scope.querySelectorAll(`[data-location-filter-toggle][data-location-filter-id="${filterId}"]`));
           if (matches.length > 0) {
             return matches;
           }
