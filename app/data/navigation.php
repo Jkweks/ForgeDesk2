@@ -2,7 +2,7 @@
 return [
     'Overview' => [
         ['icon' => 'grid', 'label' => 'Dashboard', 'href' => '/index.php', 'active' => true],
-        ['icon' => 'activity', 'label' => 'Alerts'],
+        // ['icon' => 'activity', 'label' => 'Alerts'],
     ],
     'Inventory' => [
         ['icon' => 'edit', 'label' => 'Manage Inventory', 'href' => '/inventory.php'],
@@ -14,8 +14,8 @@ return [
         ['icon' => 'truck', 'label' => 'Material Replenishment', 'href' => '/material-replenishment.php'],
         ['icon' => 'clipboard', 'label' => 'Purchase Orders', 'href' => '/purchase-orders.php'],
         ['icon' => 'inbox', 'label' => 'Receive Material', 'href' => '/receive-material.php'],
-        ['icon' => 'box', 'label' => 'Stock Levels', 'badge' => 'soon'],
-        ['icon' => 'layers', 'label' => 'Kitting', 'badge' => 'soon'],
+        // ['icon' => 'box', 'label' => 'Stock Levels', 'badge' => 'soon'],
+        // ['icon' => 'layers', 'label' => 'Kitting', 'badge' => 'soon'],
         ['icon' => 'tag', 'label' => 'Suppliers', 'href' => '/admin/suppliers.php'],
     ],
     'Maintenance' => [
@@ -27,6 +27,6 @@ return [
     ],
     'System' => [
         ['icon' => 'database', 'label' => 'Database Health', 'badge' => 'beta'],
-        ['icon' => 'upload', 'label' => 'Data Seeding', 'href' => '/admin/import.php'],
+        // ['icon' => 'upload', 'label' => 'Data Seeding', 'href' => '/admin/import.php'],
     ],
 ];
