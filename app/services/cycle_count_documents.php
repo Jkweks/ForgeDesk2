@@ -2,6 +2,11 @@
 
 declare(strict_types=1);
 
+$autoloadPath = __DIR__ . '/../../vendor/autoload.php';
+if (file_exists($autoloadPath)) {
+    require_once $autoloadPath;
+}
+
 use Dompdf\Dompdf;
 
 require_once __DIR__ . '/../data/cycle_counts.php';
@@ -131,6 +136,10 @@ if (!function_exists('generateCycleCountReportPdfFromData')) {
     function generateCycleCountReportPdfFromData(array $report): string
     {
         $html = cycleCountReportHtml($report);
+
+        if (!class_exists(Dompdf::class)) {
+            throw new \RuntimeException('PDF rendering is unavailable: install PHP dependencies with composer.');
+        }
 
         $dompdf = new Dompdf();
         $dompdf->loadHtml($html);
