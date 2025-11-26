@@ -139,11 +139,14 @@
         }
 
         const input = filterContainer.querySelector('.column-filter[data-filter-type="tokens"]');
+        const toggle = filterContainer.querySelector('[data-location-filter-toggle]');
+        const label = filterContainer.querySelector('.location-filter__label');
+        const modal = filterContainer.querySelector('[data-location-filter-modal]');
         const binCheckboxes = input
-          ? Array.from(filterContainer.querySelectorAll('input[type="checkbox"][data-location-node="bin"]'))
+          ? Array.from((modal || filterContainer).querySelectorAll('input[type="checkbox"][data-location-node="bin"]'))
           : [];
         const groupCheckboxes = input
-          ? Array.from(filterContainer.querySelectorAll('input[type="checkbox"][data-location-group]'))
+          ? Array.from((modal || filterContainer).querySelectorAll('input[type="checkbox"][data-location-group]'))
           : [];
 
         if (!(input instanceof HTMLInputElement)) {
@@ -183,13 +186,13 @@
         }
 
         function updateLabel() {
-          const toggle = filterContainer.querySelector('[data-location-filter-toggle]');
-          if (!(toggle instanceof HTMLButtonElement)) {
-            return;
-          }
-
           const active = binCheckboxes.filter((bin) => bin.checked).length;
-          toggle.textContent = active === 0 ? 'All locations' : `${active} selected`;
+          const text = active === 0 ? 'All locations' : `${active} selected`;
+          if (label instanceof HTMLElement) {
+            label.textContent = text;
+          } else if (toggle instanceof HTMLButtonElement) {
+            toggle.textContent = text;
+          }
         }
 
         updateGroupStates();
@@ -202,8 +205,12 @@
         }
 
         const toggle = filterContainer.querySelector('[data-location-filter-toggle]');
-        const menu = filterContainer.querySelector('[data-location-filter-menu]');
+        const label = filterContainer.querySelector('.location-filter__label');
+        const modal = filterContainer.querySelector('[data-location-filter-modal]');
+        const backdrop = filterContainer.querySelector('[data-location-filter-backdrop]');
         const closeButton = filterContainer.querySelector('[data-location-filter-close]');
+        const applyButton = filterContainer.querySelector('[data-location-filter-apply]');
+        const clearButton = filterContainer.querySelector('[data-location-filter-clear]');
         const input = filterContainer.querySelector('.column-filter[data-filter-type="tokens"]');
         const binCheckboxes = input
           ? Array.from(filterContainer.querySelectorAll('input[type="checkbox"][data-location-node="bin"]'))
@@ -212,7 +219,11 @@
           ? Array.from(filterContainer.querySelectorAll('input[type="checkbox"][data-location-group]'))
           : [];
 
-        if (!(toggle instanceof HTMLButtonElement) || !(menu instanceof HTMLElement) || !(input instanceof HTMLInputElement)) {
+        if (
+          !(toggle instanceof HTMLButtonElement)
+          || !(modal instanceof HTMLElement)
+          || !(input instanceof HTMLInputElement)
+        ) {
           return;
         }
 
@@ -241,7 +252,12 @@
 
         function updateLabel() {
           const active = binCheckboxes.filter((bin) => bin.checked).length;
-          toggle.textContent = active === 0 ? 'All locations' : `${active} selected`;
+          const text = active === 0 ? 'All locations' : `${active} selected`;
+          if (label instanceof HTMLElement) {
+            label.textContent = text;
+          } else {
+            toggle.textContent = text;
+          }
         }
 
         function syncInputFromSelection() {
@@ -257,34 +273,56 @@
           persistState();
         }
 
-        function setMenu(open) {
+        function setModal(open) {
           if (open) {
-            menu.removeAttribute('hidden');
+            modal.removeAttribute('hidden');
             toggle.setAttribute('aria-expanded', 'true');
           } else {
-            menu.setAttribute('hidden', 'hidden');
+            modal.setAttribute('hidden', 'hidden');
             toggle.setAttribute('aria-expanded', 'false');
           }
+        }
+
+        function clearSelections() {
+          binCheckboxes.forEach((bin) => {
+            bin.checked = false;
+          });
+          syncInputFromSelection();
         }
 
         toggle.addEventListener('click', (event) => {
           event.preventDefault();
           const isOpen = toggle.getAttribute('aria-expanded') === 'true';
-          setMenu(!isOpen);
+          setModal(!isOpen);
         });
 
         if (closeButton instanceof HTMLElement) {
           closeButton.addEventListener('click', (event) => {
             event.preventDefault();
-            setMenu(false);
+            setModal(false);
           });
         }
 
-        document.addEventListener('click', (event) => {
-          if (!filterContainer.contains(event.target)) {
-            setMenu(false);
-          }
-        });
+        if (backdrop instanceof HTMLElement) {
+          backdrop.addEventListener('click', () => {
+            setModal(false);
+          });
+        }
+
+        if (applyButton instanceof HTMLElement) {
+          applyButton.addEventListener('click', (event) => {
+            event.preventDefault();
+            setModal(false);
+            syncInputFromSelection();
+          });
+        }
+
+        if (clearButton instanceof HTMLElement) {
+          clearButton.addEventListener('click', (event) => {
+            event.preventDefault();
+            clearSelections();
+          });
+        }
 
         groupCheckboxes.forEach((group) => {
           group.addEventListener('change', (event) => {
@@ -302,13 +340,15 @@
               }
             });
 
-            syncInputFromSelection();
+            updateGroupStates();
+            updateLabel();
           });
         });
 
         binCheckboxes.forEach((bin) => {
           bin.addEventListener('change', () => {
-            syncInputFromSelection();
+            updateGroupStates();
+            updateLabel();
           });
         });
 

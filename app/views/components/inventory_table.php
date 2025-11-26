@@ -72,15 +72,30 @@ if (!function_exists('renderInventoryTable')) {
             echo '<th><input type="search" class="column-filter" data-key="sku" data-alt-keys="partNumber" placeholder="Search SKU or part #" aria-label="Filter by SKU"></th>';
             echo '<th>';
             echo '<div class="location-filter" data-location-filter data-filter-target="locationIds">';
-            echo '<button type="button" class="location-filter__toggle" data-location-filter-toggle aria-expanded="false">All locations</button>';
+            echo '<button type="button" class="location-filter__toggle" data-location-filter-toggle aria-expanded="false">';
+            echo '<span class="location-filter__label">All locations</span>';
+            echo '<span class="location-filter__chevron" aria-hidden="true">▾</span>';
+            echo '</button>';
             echo '<input type="hidden" class="column-filter" data-key="locationIds" data-filter-type="tokens" />';
-            echo '<div class="location-filter__menu" data-location-filter-menu hidden>';
+            echo '<div class="location-filter__modal" data-location-filter-modal hidden>';
+            echo '<div class="modal-backdrop" data-location-filter-backdrop></div>';
+            echo '<div class="location-filter__dialog" role="dialog" aria-modal="true" aria-label="Select storage locations">';
+            echo '<div class="location-filter__dialog-header">';
+            echo '<h3>Select locations</h3>';
+            echo '<button type="button" class="button ghost icon-only" data-location-filter-close aria-label="Close location filter">&times;</button>';
+            echo '</div>';
+            echo '<div class="location-filter__dialog-body">';
             if ($locationHierarchy === []) {
                 echo '<p class="small">No storage locations configured yet. Add them from the admin dashboard to filter inventory.</p>';
             } else {
                 renderLocationHierarchy($locationHierarchy);
             }
-            echo '<button type="button" class="button ghost" data-location-filter-close>Done</button>';
+            echo '</div>';
+            echo '<div class="location-filter__actions">';
+            echo '<button type="button" class="button ghost" data-location-filter-clear>Clear</button>';
+            echo '<button type="button" class="button primary" data-location-filter-apply>Apply</button>';
+            echo '</div>';
+            echo '</div>';
             echo '</div>';
             echo '</div>';
             echo '</th>';
