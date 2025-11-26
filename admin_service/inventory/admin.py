@@ -14,11 +14,32 @@ class InventoryItemLocationInline(admin.TabularInline):
 
 @admin.register(models.InventoryItem)
 class InventoryItemAdmin(admin.ModelAdmin):
-    list_display = ("item", "sku", "location", "stock", "status", "average_daily_use", "supplier")
-    list_filter = ("status", "supplier")
-    search_fields = ("item", "sku", "part_number", "location", "supplier")
+    list_display = (
+        "item",
+        "sku",
+        "location",
+        "stock",
+        "committed_qty",
+        "on_order_qty",
+        "reorder_point",
+        "safety_stock",
+        "status",
+        "average_daily_use",
+        "supplier",
+    )
+    list_filter = ("status", "supplier", "supplier_ref")
+    search_fields = (
+        "item",
+        "sku",
+        "part_number",
+        "location",
+        "supplier",
+        "supplier_ref__name",
+        "supplier_sku",
+    )
     ordering = ("item",)
     readonly_fields = ("average_daily_use",)
+    autocomplete_fields = ("supplier_ref",)
     inlines = [InventoryItemLocationInline]
 
 
@@ -70,8 +91,9 @@ class CycleCountLineAdmin(admin.ModelAdmin):
         "counted_qty",
         "variance",
         "counted_at",
+        "is_skipped",
     )
-    list_filter = ("session",)
+    list_filter = ("session", "is_skipped")
     search_fields = ("session__name", "inventory_item__item", "inventory_item__sku")
     raw_id_fields = ("session", "inventory_item")
 
@@ -204,13 +226,18 @@ class PurchaseOrderLineAdmin(admin.ModelAdmin):
         "quantity_ordered",
         "quantity_received",
         "quantity_cancelled",
+        "packs_ordered",
+        "pack_size",
         "unit_cost",
+        "purchase_uom",
+        "stock_uom",
     )
     search_fields = (
         "purchase_order__order_number",
         "purchase_order__id",
         "inventory_item__item",
         "inventory_item__sku",
+        "supplier_sku",
     )
     autocomplete_fields = ("purchase_order", "inventory_item")
     readonly_fields = ("created_at", "updated_at")
@@ -280,18 +307,51 @@ class MaintenanceMachineAdmin(admin.ModelAdmin):
 
 @admin.register(models.MaintenanceTask)
 class MaintenanceTaskAdmin(admin.ModelAdmin):
-    list_display = ("title", "machine", "frequency", "assigned_to", "updated_at")
-    search_fields = ("title", "machine__name", "assigned_to", "frequency")
-    list_filter = ("frequency",)
+    list_display = (
+        "title",
+        "machine",
+        "frequency",
+        "interval_count",
+        "interval_unit",
+        "assigned_to",
+        "status",
+        "priority",
+        "start_date",
+        "last_completed_at",
+        "updated_at",
+    )
+    search_fields = (
+        "title",
+        "machine__name",
+        "assigned_to",
+        "frequency",
+        "status",
+        "priority",
+    )
+    list_filter = ("frequency", "status", "priority")
     autocomplete_fields = ("machine",)
     ordering = ("machine", "title")
 
 
 @admin.register(models.MaintenanceRecord)
 class MaintenanceRecordAdmin(admin.ModelAdmin):
-    list_display = ("machine", "task", "performed_by", "performed_at", "created_at")
-    search_fields = ("machine__name", "task__title", "performed_by", "notes")
-    list_filter = ("performed_at",)
+    list_display = (
+        "machine",
+        "task",
+        "performed_by",
+        "performed_at",
+        "downtime_minutes",
+        "labor_hours",
+        "created_at",
+    )
+    search_fields = (
+        "machine__name",
+        "task__title",
+        "performed_by",
+        "notes",
+        "parts_used",
+    )
+    list_filter = ("performed_at", "downtime_minutes")
     autocomplete_fields = ("machine", "task")
     date_hierarchy = "performed_at"
     ordering = ("-performed_at", "-created_at")

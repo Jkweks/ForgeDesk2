@@ -15,9 +15,25 @@ class InventoryItem(models.Model):
     location = models.CharField(max_length=255)
     stock = models.IntegerField()
     committed_qty = models.IntegerField()
+    on_order_qty = models.DecimalField(max_digits=18, decimal_places=6, default=0)
+    safety_stock = models.DecimalField(max_digits=18, decimal_places=6, default=0)
+    min_order_qty = models.DecimalField(max_digits=18, decimal_places=6, default=0)
+    order_multiple = models.DecimalField(max_digits=18, decimal_places=6, default=0)
+    pack_size = models.DecimalField(max_digits=18, decimal_places=6, default=0)
+    purchase_uom = models.CharField(max_length=255, blank=True, null=True)
+    stock_uom = models.CharField(max_length=255, blank=True, null=True)
     status = models.CharField(max_length=255)
     supplier = models.CharField(max_length=255)
+    supplier_ref = models.ForeignKey(
+        "Supplier",
+        on_delete=models.SET_NULL,
+        db_column="supplier_id",
+        related_name="items",
+        blank=True,
+        null=True,
+    )
     supplier_contact = models.CharField(max_length=255, blank=True, null=True)
+    supplier_sku = models.CharField(max_length=255, blank=True, null=True)
     reorder_point = models.IntegerField()
     lead_time_days = models.IntegerField()
     average_daily_use = models.DecimalField(max_digits=12, decimal_places=4, blank=True, null=True)
@@ -217,6 +233,7 @@ class CycleCountLine(models.Model):
     variance = models.IntegerField(blank=True, null=True)
     counted_at = models.DateTimeField(blank=True, null=True)
     note = models.TextField(blank=True, null=True)
+    is_skipped = models.BooleanField(default=False)
 
     class Meta:
         managed = False
@@ -363,6 +380,10 @@ class PurchaseOrderLine(models.Model):
     quantity_received = models.DecimalField(max_digits=18, decimal_places=6)
     quantity_cancelled = models.DecimalField(max_digits=18, decimal_places=6)
     unit_cost = models.DecimalField(max_digits=18, decimal_places=6)
+    packs_ordered = models.DecimalField(max_digits=18, decimal_places=6, default=0)
+    pack_size = models.DecimalField(max_digits=18, decimal_places=6, default=0)
+    purchase_uom = models.CharField(max_length=255, blank=True, null=True)
+    stock_uom = models.CharField(max_length=255, blank=True, null=True)
     expected_date = models.DateField(blank=True, null=True)
     created_at = models.DateTimeField()
     updated_at = models.DateTimeField()
@@ -489,6 +510,12 @@ class MaintenanceTask(models.Model):
     description = models.TextField(blank=True, null=True)
     frequency = models.TextField(blank=True, null=True)
     assigned_to = models.TextField(blank=True, null=True)
+    interval_count = models.IntegerField(blank=True, null=True)
+    interval_unit = models.TextField(blank=True, null=True)
+    start_date = models.DateField(blank=True, null=True)
+    last_completed_at = models.DateField(blank=True, null=True)
+    status = models.TextField(default="active")
+    priority = models.TextField(default="medium")
     created_at = models.DateTimeField()
     updated_at = models.DateTimeField()
 
@@ -525,6 +552,9 @@ class MaintenanceRecord(models.Model):
     performed_at = models.DateField(blank=True, null=True)
     notes = models.TextField(blank=True, null=True)
     attachments = models.JSONField(default=list)
+    downtime_minutes = models.IntegerField(blank=True, null=True)
+    labor_hours = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    parts_used = models.JSONField(default=list)
     created_at = models.DateTimeField()
 
     class Meta:
