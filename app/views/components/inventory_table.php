@@ -55,9 +55,9 @@ if (!function_exists('renderInventoryTable')) {
             echo '<div class="inventory-filters">';
             echo '<div class="inventory-filters__group">';
             echo '<span class="inventory-filters__label">Storage locations</span>';
-            echo '<div class="location-filter" data-location-filter data-filter-target="locationIds">';
+            echo '<div class="location-filter" data-location-filter data-filter-target="locationIds" data-location-filter-id="' . e($locationToggleId) . '">';
             echo '<input type="hidden" class="column-filter" data-key="locationIds" data-filter-type="tokens" />';
-            echo '<button type="button" class="location-filter__toggle" id="' . e($locationToggleId) . '" data-location-filter-toggle aria-expanded="false">';
+            echo '<button type="button" class="location-filter__toggle" id="' . e($locationToggleId) . '" data-location-filter-toggle data-location-filter-id="' . e($locationToggleId) . '" aria-expanded="false">';
             echo '<span class="location-filter__label">All locations</span>';
             echo '<span class="location-filter__chevron" aria-hidden="true">▾</span>';
             echo '</button>';
@@ -107,7 +107,12 @@ if (!function_exists('renderInventoryTable')) {
             echo '<tr class="filter-row">';
             echo '<th><input type="search" class="column-filter" data-key="item" placeholder="Search items" aria-label="Filter by item"></th>';
             echo '<th><input type="search" class="column-filter" data-key="sku" data-alt-keys="partNumber" placeholder="Search SKU or part #" aria-label="Filter by SKU"></th>';
-            echo '<th><input type="search" class="column-filter" data-key="location" placeholder="Search locations" aria-label="Filter by location"></th>';
+            echo '<th>';
+            echo '<button type="button" class="location-filter__toggle location-filter__toggle--inline" data-location-filter-toggle data-location-filter-id="' . e($locationToggleId) . '" aria-expanded="false">';
+            echo '<span class="location-filter__label">All locations</span>';
+            echo '<span class="location-filter__chevron" aria-hidden="true">▾</span>';
+            echo '</button>';
+            echo '</th>';
             echo '<th><input type="search" class="column-filter" data-key="stock" placeholder="Search stock" aria-label="Filter by stock" inputmode="numeric"></th>';
             echo '<th><input type="search" class="column-filter" data-key="committed" placeholder="Search committed" aria-label="Filter by committed" inputmode="numeric"></th>';
             echo '<th><input type="search" class="column-filter" data-key="available" placeholder="Search available" aria-label="Filter by available" inputmode="numeric"></th>';

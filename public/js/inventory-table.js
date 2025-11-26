@@ -133,14 +133,38 @@
         });
       }
 
+      function getLocationFilterId(filterContainer) {
+        return filterContainer.dataset.locationFilterId || '';
+      }
+
+      function getLocationFilterToggles(filterContainer) {
+        const filterId = getLocationFilterId(filterContainer);
+        if (filterId) {
+          const matches = Array.from(document.querySelectorAll(`[data-location-filter-toggle][data-location-filter-id="${filterId}"]`));
+          if (matches.length > 0) {
+            return matches;
+          }
+        }
+
+        return Array.from(filterContainer.querySelectorAll('[data-location-filter-toggle]'));
+      }
+
+      function getLocationFilterLabels(toggles) {
+        const labels = [];
+        toggles.forEach((toggle) => {
+          labels.push(...Array.from(toggle.querySelectorAll('.location-filter__label')));
+        });
+        return labels;
+      }
+
       function syncLocationFilterFromInput(filterContainer) {
         if (!(filterContainer instanceof HTMLElement)) {
           return;
         }
 
+        const toggles = getLocationFilterToggles(filterContainer);
+        const labels = getLocationFilterLabels(toggles);
         const input = filterContainer.querySelector('.column-filter[data-filter-type="tokens"]');
-        const toggle = filterContainer.querySelector('[data-location-filter-toggle]');
-        const label = filterContainer.querySelector('.location-filter__label');
         const modal = filterContainer.querySelector('[data-location-filter-modal]');
         const binCheckboxes = input
           ? Array.from((modal || filterContainer).querySelectorAll('input[type="checkbox"][data-location-node="bin"]'))
@@ -188,10 +212,16 @@
         function updateLabel() {
           const active = binCheckboxes.filter((bin) => bin.checked).length;
           const text = active === 0 ? 'All locations' : `${active} selected`;
-          if (label instanceof HTMLElement) {
-            label.textContent = text;
-          } else if (toggle instanceof HTMLButtonElement) {
-            toggle.textContent = text;
+          if (labels.length > 0) {
+            labels.forEach((label) => {
+              label.textContent = text;
+            });
+          } else {
+            toggles.forEach((toggle) => {
+              if (toggle instanceof HTMLButtonElement) {
+                toggle.textContent = text;
+              }
+            });
           }
         }
 
@@ -204,8 +234,8 @@
           return;
         }
 
-        const toggle = filterContainer.querySelector('[data-location-filter-toggle]');
-        const label = filterContainer.querySelector('.location-filter__label');
+        const toggles = getLocationFilterToggles(filterContainer);
+        const labels = getLocationFilterLabels(toggles);
         const modal = filterContainer.querySelector('[data-location-filter-modal]');
         const backdrop = filterContainer.querySelector('[data-location-filter-backdrop]');
         const closeButton = filterContainer.querySelector('[data-location-filter-close]');
@@ -220,12 +250,14 @@
           : [];
 
         if (
-          !(toggle instanceof HTMLButtonElement)
+          toggles.length === 0
           || !(modal instanceof HTMLElement)
           || !(input instanceof HTMLInputElement)
         ) {
           return;
         }
+
+        const primaryToggle = toggles[0];
 
         function getChildIds(node) {
           const raw = node.dataset.childIds;
@@ -253,10 +285,16 @@
         function updateLabel() {
           const active = binCheckboxes.filter((bin) => bin.checked).length;
           const text = active === 0 ? 'All locations' : `${active} selected`;
-          if (label instanceof HTMLElement) {
-            label.textContent = text;
+          if (labels.length > 0) {
+            labels.forEach((label) => {
+              label.textContent = text;
+            });
           } else {
-            toggle.textContent = text;
+            toggles.forEach((toggle) => {
+              if (toggle instanceof HTMLButtonElement) {
+                toggle.textContent = text;
+              }
+            });
           }
         }
 
@@ -276,10 +314,14 @@
         function setModal(open) {
           if (open) {
             modal.removeAttribute('hidden');
-            toggle.setAttribute('aria-expanded', 'true');
+            toggles.forEach((toggle) => {
+              toggle.setAttribute('aria-expanded', 'true');
+            });
           } else {
             modal.setAttribute('hidden', 'hidden');
-            toggle.setAttribute('aria-expanded', 'false');
+            toggles.forEach((toggle) => {
+              toggle.setAttribute('aria-expanded', 'false');
+            });
           }
         }
 
@@ -290,10 +332,12 @@
           syncInputFromSelection();
         }
 
-        toggle.addEventListener('click', (event) => {
-          event.preventDefault();
-          const isOpen = toggle.getAttribute('aria-expanded') === 'true';
-          setModal(!isOpen);
+        toggles.forEach((toggle) => {
+          toggle.addEventListener('click', (event) => {
+            event.preventDefault();
+            const isOpen = primaryToggle.getAttribute('aria-expanded') === 'true';
+            setModal(!isOpen);
+          });
         });
 
         if (closeButton instanceof HTMLElement) {
