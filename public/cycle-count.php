@@ -10,6 +10,7 @@ require_once __DIR__ . '/../app/helpers/database.php';
 require_once __DIR__ . '/../app/helpers/view.php';
 require_once __DIR__ . '/../app/data/cycle_counts.php';
 require_once __DIR__ . '/../app/data/storage_locations.php';
+require_once __DIR__ . '/../app/services/cycle_count_documents.php';
 
 foreach ($nav as &$groupItems) {
     foreach ($groupItems as &$item) {
@@ -207,6 +208,16 @@ if ($dbError === null) {
             if ($report === null) {
                 $errors[] = 'Unable to load the requested session details.';
             } else {
+                if (isset($_GET['download_pdf']) && $_GET['download_pdf'] === '1') {
+                    $pdf = generateCycleCountReportPdfFromData($report);
+                    $filename = 'cycle-count-' . $reviewId . '.pdf';
+                    header('Content-Type: application/pdf');
+                    header('Content-Disposition: attachment; filename="' . $filename . '"');
+                    header('Content-Length: ' . strlen($pdf));
+                    echo $pdf;
+                    exit;
+                }
+
                 $reportSession = $report;
                 $reportCountedLines = array_values(array_filter(
                     $report['lines'],
@@ -224,6 +235,7 @@ if ($dbError === null) {
 }
 
 $modalOpen = $activeSession !== null && $lineView !== null && $activeSession['status'] === 'in_progress';
+$reportModalOpen = $reportSession !== null;
 ?>
 <!doctype html>
 <html lang="en">
@@ -235,8 +247,11 @@ $modalOpen = $activeSession !== null && $lineView !== null && $activeSession['st
 </head>
 <?php
 $bodyClasses = ['has-sidebar-toggle'];
-if ($modalOpen) {
+if ($modalOpen || $reportModalOpen) {
     $bodyClasses[] = 'modal-open';
+}
+if ($reportModalOpen) {
+    $bodyClasses[] = 'report-modal-open';
 }
 $bodyClassAttribute = ' class="' . implode(' ', $bodyClasses) . '"';
 ?>
@@ -415,17 +430,38 @@ $bodyClassAttribute = ' class="' . implode(' ', $bodyClasses) . '"';
         </div>
       </section>
 
-      <?php if ($reportSession !== null): ?>
-        <section class="panel" aria-labelledby="session-report-title" id="session-report">
+
+      <?php if ($activeSession !== null && $activeSession['status'] === 'completed'): ?>
+        <section class="panel" aria-labelledby="count-step-title">
           <header class="panel-header">
             <div>
-              <h2 id="session-report-title">Session report · <?= e($reportSession['name']) ?></h2>
-              <p class="small">
-                Counted items are listed first, followed by any skipped locations for this cycle count.
-              </p>
+              <h2 id="count-step-title">Cycle count complete</h2>
+              <p class="small">All items in this session have been counted.</p>
             </div>
-            <button type="button" class="button secondary" onclick="window.print()">Print PDF</button>
           </header>
+          <p>Your selected session has been completed. Review the history above or start a new cycle count.</p>
+        </section>
+      <?php endif; ?>
+    </main>
+    <?php if ($reportModalOpen): ?>
+      <div class="modal open" id="session-report-modal" role="dialog" aria-modal="true" aria-labelledby="session-report-title">
+        <div class="modal-dialog">
+          <header>
+            <div>
+              <h2 id="session-report-title">Session report · <?= e($reportSession['name']) ?></h2>
+              <p class="small">Counted items are listed first, followed by any skipped locations for this cycle count.</p>
+            </div>
+            <div class="modal-header-actions">
+              <a
+                class="button secondary"
+                href="cycle-count.php?review=<?= e((string) $reportSession['id']) ?>&download_pdf=1"
+              >
+                Download PDF
+              </a>
+              <a class="modal-close" href="cycle-count.php" aria-label="Close session report">&times;</a>
+            </div>
+          </header>
+
           <dl class="session-meta">
             <div>
               <dt>Started</dt>
@@ -519,21 +555,11 @@ $bodyClassAttribute = ' class="' . implode(' ', $bodyClasses) . '"';
               </table>
             </div>
           <?php endif; ?>
-        </section>
-      <?php endif; ?>
-
-      <?php if ($activeSession !== null && $activeSession['status'] === 'completed'): ?>
-        <section class="panel" aria-labelledby="count-step-title">
-          <header class="panel-header">
-            <div>
-              <h2 id="count-step-title">Cycle count complete</h2>
-              <p class="small">All items in this session have been counted.</p>
-            </div>
-          </header>
-          <p>Your selected session has been completed. Review the history above or start a new cycle count.</p>
-        </section>
-      <?php endif; ?>
-    </main>
+        </div>
+      </div>
+    <?php else: ?>
+      <div class="modal" id="session-report-modal" hidden></div>
+    <?php endif; ?>
     <?php if ($modalOpen): ?>
       <div class="modal open" id="count-modal" role="dialog" aria-modal="true" aria-labelledby="count-step-title">
         <div class="modal-dialog">
@@ -748,6 +774,7 @@ $bodyClassAttribute = ' class="' . implode(' ', $bodyClasses) . '"';
     updateGroupStates();
     updateLabel();
   })();
+
   </script>
   <script src="js/dashboard.js"></script>
 </body>

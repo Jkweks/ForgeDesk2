@@ -2,6 +2,11 @@
 
 declare(strict_types=1);
 
+$autoloadPath = __DIR__ . '/../../vendor/autoload.php';
+if (file_exists($autoloadPath)) {
+    require_once $autoloadPath;
+}
+
 use Dompdf\Dompdf;
 
 require_once __DIR__ . '/../helpers/xlsx.php';
@@ -458,9 +463,18 @@ if (!function_exists('purchaseOrderTubeliteCategory')) {
         return $html;
     }
 
+    function purchaseOrderEnsurePdfRenderer(): void
+    {
+        if (!class_exists(Dompdf::class)) {
+            throw new \RuntimeException('PDF rendering is unavailable: install PHP dependencies with composer.');
+        }
+    }
+
     function generatePurchaseOrderPdfContent(\PDO $db, int $purchaseOrderId): string
     {
         $html = generatePurchaseOrderHtml($db, $purchaseOrderId);
+
+        purchaseOrderEnsurePdfRenderer();
 
         $dompdf = new Dompdf();
         $dompdf->loadHtml($html);

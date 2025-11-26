@@ -1514,6 +1514,16 @@ a.link:focus{
 .modal-tabs [role="tab"]:focus{outline:2px solid var(--brand);outline-offset:2px}
 .tab-panel{display:flex;flex-direction:column;gap:var(--gap)}
 .tab-panel[hidden]{display:none}
+.maintenance-metrics .metric{min-height:160px;display:flex;flex-direction:column;gap:10px;justify-content:space-between}
+.maintenance-tabs__list{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px;align-items:center}
+.maintenance-tabs__list [role="tab"]{background:var(--panel-3);border:1px solid rgba(255,255,255,.08);color:var(--muted);padding:10px 14px;border-radius:10px;font:inherit;cursor:pointer}
+.maintenance-tabs__list [role="tab"][aria-selected="true"]{color:var(--text);border-color:rgba(255,255,255,.16);box-shadow:var(--shadow)}
+.maintenance-tabs__list [role="tab"]:focus{outline:2px solid var(--brand);outline-offset:3px}
+.tab-toolbar{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.tab-toolbar .button{min-width:150px}
+.tab-toolbar__filter{margin-left:auto}
+.maintenance-table thead th{padding-bottom:10px}
+.maintenance-table tbody td{padding:12px 8px;vertical-align:top}
 .report-tabs{display:flex;flex-direction:column;gap:16px;margin-top:var(--gap)}
 .report-tabs__list{display:flex;flex-wrap:wrap;gap:12px}
 .report-tabs__list [role="tab"]{
@@ -1628,6 +1638,14 @@ a.link:focus{
 .badge.link:hover,
 .badge.link:focus{
   background:rgba(255,255,255,.12);
+}
+.badge.warning{
+  background:rgba(255,179,71,.24);
+  color:var(--warning);
+}
+.badge.muted{
+  background:rgba(255,255,255,.08);
+  color:var(--muted);
 }
 
 .field-error{
@@ -1904,6 +1922,12 @@ body.modal-open{overflow:hidden}
 .replenishment-summary strong{display:block;font-size:.75rem;text-transform:uppercase;letter-spacing:.04em;color:#5b6472;margin-bottom:4px}
 .replenishment-summary span{font-size:1.1rem;font-weight:600;color:#1f2933}
 .replenishment-table td.numeric,.replenishment-table th.numeric{text-align:right}
-.replenishment-table tr.needs-action{background:rgba(250,219,127,.22)}
 .replenishment-table tr.is-invalid{background:rgba(217,70,70,.12)}
 .replenishment-table input[aria-invalid="true"]{border-color:#d94646;box-shadow:0 0 0 1px rgba(217,70,70,.35)}
+
+@media print{
+  body.report-modal-open *{visibility:hidden}
+  body.report-modal-open #session-report-modal,body.report-modal-open #session-report-modal *{visibility:visible}
+  body.report-modal-open #session-report-modal{position:static;display:block !important;padding:0;background:transparent}
+  body.report-modal-open #session-report-modal .modal-dialog{width:100%;box-shadow:none;border:none}
+}

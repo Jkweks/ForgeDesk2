@@ -187,6 +187,9 @@ $recordForm = [
     'parts_used_raw' => '',
     'attachments_raw' => '',
 ];
+$machineFormOpen = false;
+$taskFormOpen = false;
+$recordFormOpen = false;
 
 try {
     $db = db($databaseConfig);
@@ -260,6 +263,7 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
     if ($action === 'create_machine') {
+        $machineFormOpen = true;
         $machineForm = [
             'name' => trim((string) ($_POST['name'] ?? '')),
             'equipment_type' => trim((string) ($_POST['equipment_type'] ?? '')),
@@ -292,6 +296,7 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 ]);
                 $successMessage = 'Machine saved successfully.';
                 $shouldReload = true;
+                $machineFormOpen = false;
                 $machineForm = [
                     'name' => '',
                     'equipment_type' => 'CNC Machining Center',
@@ -353,6 +358,7 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     } elseif ($action === 'create_task') {
+        $taskFormOpen = true;
         $taskForm = [
             'machine_id' => trim((string) ($_POST['task_machine_id'] ?? '')),
             'title' => trim((string) ($_POST['task_title'] ?? '')),
@@ -433,6 +439,7 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 ]);
                 $successMessage = 'Maintenance task added.';
                 $shouldReload = true;
+                $taskFormOpen = false;
                 $taskForm = [
                     'machine_id' => '',
                     'title' => '',
@@ -450,6 +457,7 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     } elseif ($action === 'create_record') {
+        $recordFormOpen = true;
         $recordForm = [
             'machine_id' => trim((string) ($_POST['record_machine_id'] ?? '')),
             'task_id' => trim((string) ($_POST['record_task_id'] ?? '')),
@@ -524,6 +532,7 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 ]);
                 $successMessage = 'Maintenance activity logged.';
                 $shouldReload = true;
+                $recordFormOpen = false;
                 $recordForm = [
                     'machine_id' => '',
                     'task_id' => '',
@@ -652,7 +661,7 @@ if ($machineModal !== null && $machineEditForm === null) {
 
 $bodyClasses = ['has-sidebar-toggle'];
 
-if ($machineModalOpen) {
+if ($machineModalOpen || $machineFormOpen || $taskFormOpen || $recordFormOpen) {
     $bodyClasses[] = 'modal-open';
 }
 
@@ -687,7 +696,7 @@ $bodyClassString = implode(' ', $bodyClasses);
     </header>
 
     <main class="content">
-      <section class="metrics" aria-label="Maintenance summary">
+      <section class="metrics maintenance-metrics" aria-label="Maintenance summary">
         <article class="metric">
           <div class="metric-header">
             <span>Machines</span>
@@ -737,11 +746,11 @@ $bodyClassString = implode(' ', $bodyClasses);
         </article>
       </section>
 
-      <section class="panel" aria-labelledby="machine-title">
-        <header>
+      <section class="panel" aria-labelledby="maintenance-sections-title">
+        <header class="panel-header">
           <div>
-            <h2 id="machine-title">Equipment Library</h2>
-            <p class="small">Store specifications, manuals, and safety references for every asset.</p>
+            <h2 id="maintenance-sections-title">Maintenance workspace</h2>
+            <p class="small">Manage machines, preventative tasks, and service history from one view.</p>
           </div>
         </header>
         <?php if ($dbError !== null): ?>
@@ -753,61 +762,49 @@ $bodyClassString = implode(' ', $bodyClasses);
         <?php if ($successMessage !== null): ?>
           <div class="alert success" role="status"><?= e($successMessage) ?></div>
         <?php endif; ?>
-        <div class="panel-grid">
-          <div>
-            <h3>Add or update a machine</h3>
-            <form method="post" class="form-grid">
-              <input type="hidden" name="action" value="create_machine" />
-              <input type="hidden" name="show_retired" value="<?= $showRetired ? '1' : '0' ?>" />
-              <div class="field">
-                <label for="machine-name">Machine Name</label>
-                <input id="machine-name" name="name" type="text" value="<?= e($machineForm['name']) ?>" placeholder="C.R. Onsrud CNC" required />
-              </div>
-              <div class="field">
-                <label for="machine-type">Equipment Type</label>
-                <select id="machine-type" name="equipment_type" required>
-                  <?php
-                    $types = ['CNC Machining Center', 'Upcut Saw', 'Panel Saw', 'Press Brake', 'Welding Station', 'Custom Cell'];
-                    foreach ($types as $type):
-                        $selected = $machineForm['equipment_type'] === $type ? ' selected' : '';
-                  ?>
-                    <option value="<?= e($type) ?>"<?= $selected ?>><?= e($type) ?></option>
-                  <?php endforeach; ?>
-                </select>
-              </div>
-              <div class="field">
-                <label for="machine-manufacturer">Manufacturer</label>
-                <input id="machine-manufacturer" name="manufacturer" type="text" value="<?= e($machineForm['manufacturer']) ?>" placeholder="Biesse" />
-              </div>
-              <div class="field">
-                <label for="machine-model">Model</label>
-                <input id="machine-model" name="model" type="text" value="<?= e($machineForm['model']) ?>" placeholder="Rover A 2232" />
-              </div>
-              <div class="field">
-                <label for="machine-serial">Serial Number</label>
-                <input id="machine-serial" name="serial_number" type="text" value="<?= e($machineForm['serial_number']) ?>" placeholder="SN-45821" />
-              </div>
-              <div class="field">
-                <label for="machine-location">Bay or Cell</label>
-                <input id="machine-location" name="location" type="text" value="<?= e($machineForm['location']) ?>" placeholder="Fab Bay 3" />
-              </div>
-              <div class="field">
-                <label for="machine-docs">Documents (one per line, Label|URL)</label>
-                <textarea id="machine-docs" name="documents_raw" rows="3" placeholder="Safety manual|https://...&#10;Tooling list|https://..."><?= e($machineForm['documents_raw']) ?></textarea>
-              </div>
-              <div class="field full-width">
-                <label for="machine-notes">Notes</label>
-                <textarea id="machine-notes" name="notes" rows="3" placeholder="Electrical requirements, setup notes, etc."><?= e($machineForm['notes']) ?></textarea>
-              </div>
-              <div class="field full-width">
-                <button type="submit" class="button primary">Save Machine</button>
-              </div>
-            </form>
+
+        <div class="maintenance-tabs" data-maintenance-tabs>
+          <div class="maintenance-tabs__list" role="tablist" aria-label="Maintenance sections">
+            <button
+              type="button"
+              role="tab"
+              id="maintenance-tab-machines"
+              aria-controls="maintenance-machines"
+              aria-selected="true"
+              data-tab-target="maintenance-machines"
+            >
+              Machines
+            </button>
+            <button
+              type="button"
+              role="tab"
+              id="maintenance-tab-tasks"
+              aria-controls="maintenance-tasks"
+              aria-selected="false"
+              tabindex="-1"
+              data-tab-target="maintenance-tasks"
+            >
+              Tasks
+            </button>
+            <button
+              type="button"
+              role="tab"
+              id="maintenance-tab-records"
+              aria-controls="maintenance-records"
+              aria-selected="false"
+              tabindex="-1"
+              data-tab-target="maintenance-records"
+            >
+              Service Log
+            </button>
           </div>
-          <div>
-            <h3>Machine roster</h3>
+
+          <section class="tab-panel" id="maintenance-machines" role="tabpanel" aria-labelledby="maintenance-tab-machines">
+            <div class="tab-toolbar">
+              <button type="button" class="button primary" data-modal-open="machine-form-modal">+ Add machine</button>
+            </div>
             <div class="table-wrapper">
-              <table>
+              <table class="table maintenance-table">
                 <thead>
                   <tr>
                     <th>Asset</th>
@@ -881,110 +878,26 @@ $bodyClassString = implode(' ', $bodyClasses);
                 </tbody>
               </table>
             </div>
-          </div>
-        </div>
-      </section>
+          </section>
 
-      <section class="panel" aria-labelledby="task-title">
-        <header>
-          <h2 id="task-title">Preventative tasks</h2>
-          <p class="small">Assign recurring inspections, calibration, lubrication, and cleaning checkpoints.</p>
-        </header>
-        <div class="panel-grid">
-          <div>
-            <h3>Create task</h3>
-            <form method="post" class="form-grid">
-              <input type="hidden" name="action" value="create_task" />
-              <input type="hidden" name="show_retired" value="<?= $showRetired ? '1' : '0' ?>" />
-              <div class="field">
-                <label for="task-machine">Machine</label>
-                <select id="task-machine" name="task_machine_id" required>
-                  <option value="">Select machine</option>
-                  <?php foreach ($machines as $machine): ?>
-                    <option value="<?= e((string) $machine['id']) ?>"<?= $taskForm['machine_id'] === (string) $machine['id'] ? ' selected' : '' ?>><?= e($machine['name']) ?></option>
-                  <?php endforeach; ?>
-                </select>
-              </div>
-              <div class="field">
-                <label for="task-title-input">Task</label>
-                <input id="task-title-input" name="task_title" type="text" value="<?= e($taskForm['title']) ?>" placeholder="Lubricate rails" required />
-              </div>
-              <div class="field">
-                <label for="task-frequency">Frequency</label>
-                <input id="task-frequency" name="task_frequency" type="text" value="<?= e($taskForm['frequency']) ?>" placeholder="Monthly" />
-              </div>
-              <div class="field">
-                <label for="task-interval-count">Interval Amount</label>
-                <input
-                  id="task-interval-count"
-                  name="task_interval_count"
-                  type="number"
-                  min="1"
-                  value="<?= e($taskForm['interval_count']) ?>"
-                  placeholder="e.g. 1"
-                />
-              </div>
-              <div class="field">
-                <label for="task-interval-unit">Interval Unit</label>
-                <select id="task-interval-unit" name="task_interval_unit">
-                  <option value=""<?= $taskForm['interval_unit'] === '' ? ' selected' : '' ?>>No interval</option>
-                  <?php $units = ['day' => 'Day(s)', 'week' => 'Week(s)', 'month' => 'Month(s)', 'year' => 'Year(s)']; ?>
-                  <?php foreach ($units as $value => $label): ?>
-                    <option value="<?= e($value) ?>"<?= $taskForm['interval_unit'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
-                  <?php endforeach; ?>
-                </select>
-              </div>
-              <div class="field">
-                <label for="task-start-date">Start Date</label>
-                <input id="task-start-date" name="task_start_date" type="date" value="<?= e($taskForm['start_date']) ?>" />
-              </div>
-              <div class="field">
-                <label for="task-priority">Priority</label>
-                <select id="task-priority" name="task_priority">
-                  <?php $priorities = ['low' => 'Low', 'medium' => 'Medium', 'high' => 'High', 'critical' => 'Critical']; ?>
-                  <?php foreach ($priorities as $value => $label): ?>
-                    <option value="<?= e($value) ?>"<?= $taskForm['priority'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
-                  <?php endforeach; ?>
-                </select>
-              </div>
-              <div class="field">
-                <label for="task-status">Status</label>
-                <select id="task-status" name="task_status">
-                  <?php $statuses = ['active' => 'Active', 'paused' => 'Paused', 'retired' => 'Retired']; ?>
-                  <?php foreach ($statuses as $value => $label): ?>
-                    <option value="<?= e($value) ?>"<?= $taskForm['status'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
-                  <?php endforeach; ?>
-                </select>
-              </div>
-              <div class="field">
-                <label for="task-owner">Owner / Technician</label>
-                <input id="task-owner" name="task_assigned_to" type="text" value="<?= e($taskForm['assigned_to']) ?>" placeholder="Maintenance crew" />
-              </div>
-              <div class="field full-width">
-                <label for="task-notes">Description</label>
-                <textarea id="task-notes" name="task_description" rows="3" placeholder="Steps, tools, torque specs."><?= e($taskForm['description']) ?></textarea>
-              </div>
-              <div class="field full-width">
-                <button class="button primary" type="submit">Add Task</button>
-              </div>
-            </form>
-          </div>
-          <div>
-            <h3>Task list</h3>
-            <form method="get" class="inline-form" style="margin-bottom: 0.5rem;">
-              <label class="small">
-                <input
-                  type="checkbox"
-                  name="show_retired"
-                  value="1"
-                  <?= $showRetired ? 'checked' : '' ?>
-                  onchange="this.form.submit()"
-                />
-                Show retired tasks
-              </label>
-            </form>
+          <section class="tab-panel" id="maintenance-tasks" role="tabpanel" aria-labelledby="maintenance-tab-tasks" hidden>
+            <div class="tab-toolbar">
+              <button type="button" class="button primary" data-modal-open="task-form-modal">+ Add task</button>
+              <form method="get" class="inline-form tab-toolbar__filter">
+                <label class="small">
+                  <input
+                    type="checkbox"
+                    name="show_retired"
+                    value="1"
+                    <?= $showRetired ? 'checked' : '' ?>
+                    onchange="this.form.submit()"
+                  />
+                  Show retired tasks
+                </label>
+              </form>
+            </div>
             <div class="table-wrapper">
-              <table>
+              <table class="table maintenance-table">
                 <thead>
                   <tr>
                     <th>Machine</th>
@@ -1056,7 +969,7 @@ $bodyClassString = implode(' ', $bodyClasses);
                           <?php if ($task['assigned_to'] !== null): ?>
                             <?= e($task['assigned_to']) ?>
                           <?php else: ?>
-                            <span class="muted">Unassigned</span>
+                            <span class="muted">—</span>
                           <?php endif; ?>
                         </td>
                       </tr>
@@ -1065,98 +978,14 @@ $bodyClassString = implode(' ', $bodyClasses);
                 </tbody>
               </table>
             </div>
-          </div>
-        </div>
-      </section>
+          </section>
 
-      <section class="panel" aria-labelledby="record-title">
-        <header>
-          <h2 id="record-title">Service log</h2>
-          <p class="small">Capture when work was performed, who touched the machine, and supporting attachments.</p>
-        </header>
-        <div class="panel-grid">
-          <div>
-            <h3>Log maintenance</h3>
-            <form method="post" class="form-grid">
-              <input type="hidden" name="action" value="create_record" />
-              <input type="hidden" name="show_retired" value="<?= $showRetired ? '1' : '0' ?>" />
-              <div class="field">
-                <label for="record-machine">Machine</label>
-                <select id="record-machine" name="record_machine_id" required>
-                  <option value="">Select machine</option>
-                  <?php foreach ($machines as $machine): ?>
-                    <option value="<?= e((string) $machine['id']) ?>"<?= $recordForm['machine_id'] === (string) $machine['id'] ? ' selected' : '' ?>><?= e($machine['name']) ?></option>
-                  <?php endforeach; ?>
-                </select>
-              </div>
-              <div class="field">
-                <label for="record-task">Related Task</label>
-                <select id="record-task" name="record_task_id">
-                  <option value="">Optional</option>
-                  <?php foreach ($tasks as $task): ?>
-                    <option value="<?= e((string) $task['id']) ?>"<?= $recordForm['task_id'] === (string) $task['id'] ? ' selected' : '' ?>><?= e($task['machine_name'] . ' – ' . $task['title']) ?></option>
-                  <?php endforeach; ?>
-                </select>
-              </div>
-              <div class="field">
-                <label for="record-owner">Performed By</label>
-                <input id="record-owner" name="performed_by" type="text" value="<?= e($recordForm['performed_by']) ?>" placeholder="Tech name" />
-              </div>
-              <div class="field">
-                <label for="record-date">Date</label>
-                <input id="record-date" name="performed_at" type="date" value="<?= e($recordForm['performed_at']) ?>" />
-              </div>
-              <div class="field">
-                <label for="record-downtime">Downtime (minutes)</label>
-                <input
-                  id="record-downtime"
-                  name="downtime_minutes"
-                  type="number"
-                  min="0"
-                  inputmode="numeric"
-                  value="<?= e($recordForm['downtime_minutes']) ?>"
-                  placeholder="e.g. 30"
-                />
-              </div>
-              <div class="field">
-                <label for="record-labor">Labor Hours</label>
-                <input
-                  id="record-labor"
-                  name="labor_hours"
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  inputmode="decimal"
-                  value="<?= e($recordForm['labor_hours']) ?>"
-                  placeholder="e.g. 1.5"
-                />
-              </div>
-              <div class="field">
-                <label for="record-parts">Parts / Consumables (one per line)</label>
-                <textarea
-                  id="record-parts"
-                  name="parts_used"
-                  rows="3"
-                  placeholder="Coolant top-off 1 qt&#10;Linear bearing grease"
-                ><?= e($recordForm['parts_used_raw']) ?></textarea>
-              </div>
-              <div class="field">
-                <label for="record-attachments">Attachments (Label|URL)</label>
-                <textarea id="record-attachments" name="record_attachments" rows="3" placeholder="Inspection photos|https://..."><?= e($recordForm['attachments_raw']) ?></textarea>
-              </div>
-              <div class="field full-width">
-                <label for="record-notes">Notes</label>
-                <textarea id="record-notes" name="record_notes" rows="3" placeholder="Observations, part replacements, corrective action."><?= e($recordForm['notes']) ?></textarea>
-              </div>
-              <div class="field full-width">
-                <button class="button primary" type="submit">Log Service</button>
-              </div>
-            </form>
-          </div>
-          <div>
-            <h3>Recent activity</h3>
+          <section class="tab-panel" id="maintenance-records" role="tabpanel" aria-labelledby="maintenance-tab-records" hidden>
+            <div class="tab-toolbar">
+              <button type="button" class="button primary" data-modal-open="record-form-modal">+ Log service</button>
+            </div>
             <div class="table-wrapper">
-              <table>
+              <table class="table maintenance-table">
                 <thead>
                   <tr>
                     <th>Date</th>
@@ -1234,10 +1063,269 @@ $bodyClassString = implode(' ', $bodyClasses);
                 </tbody>
               </table>
             </div>
-          </div>
+          </section>
         </div>
       </section>
     </main>
+  </div>
+
+  <?php
+    $machineFormClasses = 'modal' . ($machineFormOpen ? ' open' : '');
+    $taskFormClasses = 'modal' . ($taskFormOpen ? ' open' : '');
+    $recordFormClasses = 'modal' . ($recordFormOpen ? ' open' : '');
+  ?>
+
+  <div
+    id="machine-form-modal"
+    class="<?= e($machineFormClasses) ?>"
+    data-maintenance-modal
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="machine-form-title"
+    aria-hidden="<?= $machineFormOpen ? 'false' : 'true' ?>"
+    <?= $machineFormOpen ? '' : 'hidden' ?>
+  >
+    <div class="modal-dialog">
+      <header>
+        <div>
+          <h2 id="machine-form-title">Add machine</h2>
+          <p class="small">Store specifications, manuals, and safety references for every asset.</p>
+        </div>
+        <button class="modal-close" type="button" data-modal-close aria-label="Close machine form">&times;</button>
+      </header>
+      <form method="post" class="form-grid">
+        <input type="hidden" name="action" value="create_machine" />
+        <input type="hidden" name="show_retired" value="<?= $showRetired ? '1' : '0' ?>" />
+        <div class="field">
+          <label for="machine-name">Machine Name</label>
+          <input id="machine-name" name="name" type="text" value="<?= e($machineForm['name']) ?>" placeholder="C.R. Onsrud CNC" required />
+        </div>
+        <div class="field">
+          <label for="machine-type">Equipment Type</label>
+          <select id="machine-type" name="equipment_type" required>
+            <?php
+              $types = ['CNC Machining Center', 'Upcut Saw', 'Panel Saw', 'Press Brake', 'Welding Station', 'Custom Cell'];
+              foreach ($types as $type):
+                  $selected = $machineForm['equipment_type'] === $type ? ' selected' : '';
+            ?>
+              <option value="<?= e($type) ?>"<?= $selected ?>><?= e($type) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <div class="field">
+          <label for="machine-manufacturer">Manufacturer</label>
+          <input id="machine-manufacturer" name="manufacturer" type="text" value="<?= e($machineForm['manufacturer']) ?>" placeholder="Biesse" />
+        </div>
+        <div class="field">
+          <label for="machine-model">Model</label>
+          <input id="machine-model" name="model" type="text" value="<?= e($machineForm['model']) ?>" placeholder="Rover A2232" />
+        </div>
+        <div class="field">
+          <label for="machine-serial">Serial Number</label>
+          <input id="machine-serial" name="serial_number" type="text" value="<?= e($machineForm['serial_number']) ?>" placeholder="SN-45821" />
+        </div>
+        <div class="field">
+          <label for="machine-location">Bay or Cell</label>
+          <input id="machine-location" name="location" type="text" value="<?= e($machineForm['location']) ?>" placeholder="Fab Bay 3" />
+        </div>
+        <div class="field">
+          <label for="machine-docs">Documents (one per line, Label|URL)</label>
+          <textarea id="machine-docs" name="documents_raw" rows="3" placeholder="Safety manual|https://...&#10;Tooling list|https://..."><?= e($machineForm['documents_raw']) ?></textarea>
+        </div>
+        <div class="field full-width">
+          <label for="machine-notes">Notes</label>
+          <textarea id="machine-notes" name="notes" rows="3" placeholder="Electrical requirements, setup notes, etc."><?= e($machineForm['notes']) ?></textarea>
+        </div>
+        <div class="field full-width">
+          <button type="submit" class="button primary">Save Machine</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div
+    id="task-form-modal"
+    class="<?= e($taskFormClasses) ?>"
+    data-maintenance-modal
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="task-form-title"
+    aria-hidden="<?= $taskFormOpen ? 'false' : 'true' ?>"
+    <?= $taskFormOpen ? '' : 'hidden' ?>
+  >
+    <div class="modal-dialog">
+      <header>
+        <div>
+          <h2 id="task-form-title">Add preventative task</h2>
+          <p class="small">Assign recurring inspections, calibration, lubrication, and cleaning checkpoints.</p>
+        </div>
+        <button class="modal-close" type="button" data-modal-close aria-label="Close task form">&times;</button>
+      </header>
+      <form method="post" class="form-grid">
+        <input type="hidden" name="action" value="create_task" />
+        <input type="hidden" name="show_retired" value="<?= $showRetired ? '1' : '0' ?>" />
+        <div class="field">
+          <label for="task-machine">Machine</label>
+          <select id="task-machine" name="task_machine_id" required>
+            <option value="">Select machine</option>
+            <?php foreach ($machines as $machine): ?>
+              <option value="<?= e((string) $machine['id']) ?>"<?= $taskForm['machine_id'] === (string) $machine['id'] ? ' selected' : '' ?>><?= e($machine['name']) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <div class="field">
+          <label for="task-title-input">Task</label>
+          <input id="task-title-input" name="task_title" type="text" value="<?= e($taskForm['title']) ?>" placeholder="Lubricate rails" required />
+        </div>
+        <div class="field">
+          <label for="task-frequency">Frequency</label>
+          <input id="task-frequency" name="task_frequency" type="text" value="<?= e($taskForm['frequency']) ?>" placeholder="Monthly" />
+        </div>
+        <div class="field">
+          <label for="task-interval-count">Interval Amount</label>
+          <input id="task-interval-count" name="task_interval_count" type="number" min="1" inputmode="numeric" value="<?= e($taskForm['interval_count']) ?>" />
+        </div>
+        <div class="field">
+          <label for="task-interval-unit">Interval Unit</label>
+          <select id="task-interval-unit" name="task_interval_unit">
+            <option value=""<?= $taskForm['interval_unit'] === '' ? ' selected' : '' ?>>No interval</option>
+            <?php $units = ['day' => 'Day(s)', 'week' => 'Week(s)', 'month' => 'Month(s)', 'year' => 'Year(s)']; ?>
+            <?php foreach ($units as $value => $label): ?>
+              <option value="<?= e($value) ?>"<?= $taskForm['interval_unit'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <div class="field">
+          <label for="task-start-date">Start Date</label>
+          <input id="task-start-date" name="task_start_date" type="date" value="<?= e($taskForm['start_date']) ?>" />
+        </div>
+        <div class="field">
+          <label for="task-priority">Priority</label>
+          <select id="task-priority" name="task_priority">
+            <?php $priorities = ['low' => 'Low', 'medium' => 'Medium', 'high' => 'High', 'critical' => 'Critical']; ?>
+            <?php foreach ($priorities as $value => $label): ?>
+              <option value="<?= e($value) ?>"<?= $taskForm['priority'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <div class="field">
+          <label for="task-status">Status</label>
+          <select id="task-status" name="task_status">
+            <?php $statuses = ['active' => 'Active', 'paused' => 'Paused', 'retired' => 'Retired']; ?>
+            <?php foreach ($statuses as $value => $label): ?>
+              <option value="<?= e($value) ?>"<?= $taskForm['status'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <div class="field">
+          <label for="task-owner">Owner / Technician</label>
+          <input id="task-owner" name="task_assigned_to" type="text" value="<?= e($taskForm['assigned_to']) ?>" placeholder="Maintenance crew" />
+        </div>
+        <div class="field full-width">
+          <label for="task-notes">Description</label>
+          <textarea id="task-notes" name="task_description" rows="3" placeholder="Steps, tools, torque specs."><?= e($taskForm['description']) ?></textarea>
+        </div>
+        <div class="field full-width">
+          <button class="button primary" type="submit">Add Task</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div
+    id="record-form-modal"
+    class="<?= e($recordFormClasses) ?>"
+    data-maintenance-modal
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="record-form-title"
+    aria-hidden="<?= $recordFormOpen ? 'false' : 'true' ?>"
+    <?= $recordFormOpen ? '' : 'hidden' ?>
+  >
+    <div class="modal-dialog">
+      <header>
+        <div>
+          <h2 id="record-form-title">Log service</h2>
+          <p class="small">Capture downtime, parts, and technician notes for maintenance events.</p>
+        </div>
+        <button class="modal-close" type="button" data-modal-close aria-label="Close service form">&times;</button>
+      </header>
+      <form method="post" class="form-grid">
+        <input type="hidden" name="action" value="create_record" />
+        <input type="hidden" name="show_retired" value="<?= $showRetired ? '1' : '0' ?>" />
+        <div class="field">
+          <label for="record-machine">Machine</label>
+          <select id="record-machine" name="record_machine_id" required>
+            <option value="">Select machine</option>
+            <?php foreach ($machines as $machine): ?>
+              <option value="<?= e((string) $machine['id']) ?>"<?= $recordForm['machine_id'] === (string) $machine['id'] ? ' selected' : '' ?>><?= e($machine['name']) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <div class="field">
+          <label for="record-task">Related Task</label>
+          <select id="record-task" name="record_task_id">
+            <option value="">Optional</option>
+            <?php foreach ($tasks as $task): ?>
+              <option value="<?= e((string) $task['id']) ?>"<?= $recordForm['task_id'] === (string) $task['id'] ? ' selected' : '' ?>><?= e($task['machine_name'] . ' – ' . $task['title']) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <div class="field">
+          <label for="record-owner">Performed By</label>
+          <input id="record-owner" name="performed_by" type="text" value="<?= e($recordForm['performed_by']) ?>" placeholder="Tech name" />
+        </div>
+        <div class="field">
+          <label for="record-date">Date</label>
+          <input id="record-date" name="performed_at" type="date" value="<?= e($recordForm['performed_at']) ?>" />
+        </div>
+        <div class="field">
+          <label for="record-downtime">Downtime (minutes)</label>
+          <input
+            id="record-downtime"
+            name="downtime_minutes"
+            type="number"
+            min="0"
+            inputmode="numeric"
+            value="<?= e($recordForm['downtime_minutes']) ?>"
+            placeholder="e.g. 30"
+          />
+        </div>
+        <div class="field">
+          <label for="record-labor">Labor Hours</label>
+          <input
+            id="record-labor"
+            name="labor_hours"
+            type="number"
+            min="0"
+            step="0.1"
+            inputmode="decimal"
+            value="<?= e($recordForm['labor_hours']) ?>"
+            placeholder="e.g. 1.5"
+          />
+        </div>
+        <div class="field">
+          <label for="record-parts">Parts / Consumables (one per line)</label>
+          <textarea
+            id="record-parts"
+            name="parts_used"
+            rows="3"
+            placeholder="Coolant top-off 1 qt&#10;Linear bearing grease"
+          ><?= e($recordForm['parts_used_raw']) ?></textarea>
+        </div>
+        <div class="field">
+          <label for="record-attachments">Attachments (Label|URL)</label>
+          <textarea id="record-attachments" name="record_attachments" rows="3" placeholder="Inspection photos|https://..."><?= e($recordForm['attachments_raw']) ?></textarea>
+        </div>
+        <div class="field full-width">
+          <label for="record-notes">Notes</label>
+          <textarea id="record-notes" name="record_notes" rows="3" placeholder="Observations, part replacements, corrective action."><?= e($recordForm['notes']) ?></textarea>
+        </div>
+        <div class="field full-width">
+          <button class="button primary" type="submit">Log Service</button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <?php if ($machineModal !== null): ?>
@@ -1696,6 +1784,119 @@ $bodyClassString = implode(' ', $bodyClasses);
   <?php endif; ?>
 
   <script>
+    (function () {
+      const tabsContainer = document.querySelector('[data-maintenance-tabs]');
+      if (!tabsContainer) {
+        return;
+      }
+
+      const tabs = Array.from(tabsContainer.querySelectorAll('[role="tab"]'));
+      const panelMap = new Map();
+
+      tabs.forEach((tab) => {
+        const targetId = tab.getAttribute('data-tab-target');
+        if (!targetId) {
+          return;
+        }
+
+        const panel = document.getElementById(targetId);
+        if (panel instanceof HTMLElement) {
+          panelMap.set(tab, panel);
+        }
+      });
+
+      function activateTab(target) {
+        tabs.forEach((tab) => {
+          const panel = panelMap.get(tab);
+          const isActive = tab === target;
+          tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+          tab.setAttribute('tabindex', isActive ? '0' : '-1');
+
+          if (panel) {
+            if (isActive) {
+              panel.removeAttribute('hidden');
+            } else {
+              panel.setAttribute('hidden', 'hidden');
+            }
+          }
+        });
+      }
+
+      const initialTab = tabs.find((tab) => tab.getAttribute('aria-selected') === 'true') ?? tabs[0];
+      if (initialTab) {
+        activateTab(initialTab);
+      }
+
+      tabs.forEach((tab, index) => {
+        tab.addEventListener('click', () => activateTab(tab));
+        tab.addEventListener('keydown', (event) => {
+          if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') {
+            return;
+          }
+
+          event.preventDefault();
+          const direction = event.key === 'ArrowLeft' ? -1 : 1;
+          const nextIndex = (index + direction + tabs.length) % tabs.length;
+          activateTab(tabs[nextIndex]);
+          tabs[nextIndex].focus();
+        });
+      });
+    })();
+
+    (function () {
+      const modals = Array.from(document.querySelectorAll('[data-maintenance-modal]'));
+      if (modals.length === 0) {
+        return;
+      }
+
+      const modalMap = new Map();
+      modals.forEach((modal) => {
+        if (modal.id) {
+          modalMap.set(modal.id, modal);
+        }
+      });
+
+      function openModal(modal) {
+        modal.classList.add('open');
+        modal.removeAttribute('hidden');
+        modal.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('modal-open');
+      }
+
+      function closeModal(modal) {
+        modal.classList.remove('open');
+        modal.setAttribute('hidden', 'hidden');
+        modal.setAttribute('aria-hidden', 'true');
+        if (!document.querySelector('.modal.open')) {
+          document.body.classList.remove('modal-open');
+        }
+      }
+
+      document.querySelectorAll('[data-modal-open]').forEach((trigger) => {
+        trigger.addEventListener('click', () => {
+          const target = trigger.getAttribute('data-modal-open');
+          if (!target) {
+            return;
+          }
+
+          const modal = modalMap.get(target);
+          if (modal) {
+            openModal(modal);
+          }
+        });
+      });
+
+      document.querySelectorAll('[data-maintenance-modal] [data-modal-close]').forEach((button) => {
+        button.addEventListener('click', (event) => {
+          event.preventDefault();
+          const modal = button.closest('[data-maintenance-modal]');
+          if (modal) {
+            closeModal(modal);
+          }
+        });
+      });
+    })();
+
     (function () {
       const modal = document.getElementById('machine-modal');
       if (!modal) {
