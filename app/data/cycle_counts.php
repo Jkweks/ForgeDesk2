@@ -36,10 +36,15 @@ if (!function_exists('ensureCycleCountSchema')) {
                 expected_qty INTEGER NOT NULL DEFAULT 0,
                 counted_qty INTEGER NULL,
                 variance INTEGER NULL,
+                is_skipped BOOLEAN NOT NULL DEFAULT FALSE,
                 counted_at TIMESTAMP NULL,
                 note TEXT NULL,
                 UNIQUE(session_id, sequence)
             )'
+        );
+
+        $db->exec(
+            'ALTER TABLE cycle_count_lines ADD COLUMN IF NOT EXISTS is_skipped BOOLEAN NOT NULL DEFAULT FALSE'
         );
 
         $db->exec(
@@ -231,6 +236,7 @@ if (!function_exists('ensureCycleCountSchema')) {
                 l.expected_qty,
                 l.counted_qty,
                 l.variance,
+                l.is_skipped,
                 l.counted_at,
                 l.note,
                 i.id AS item_id,
@@ -269,6 +275,7 @@ if (!function_exists('ensureCycleCountSchema')) {
                 'expected_qty' => (int) $row['expected_qty'],
                 'counted_qty' => $row['counted_qty'] !== null ? (int) $row['counted_qty'] : null,
                 'variance' => $row['variance'] !== null ? (int) $row['variance'] : null,
+                'is_skipped' => (bool) $row['is_skipped'],
                 'counted_at' => $row['counted_at'] !== null ? (string) $row['counted_at'] : null,
                 'note' => $row['note'] !== null ? (string) $row['note'] : null,
             ],
@@ -315,6 +322,7 @@ if (!function_exists('ensureCycleCountSchema')) {
                 'UPDATE cycle_count_lines
                  SET counted_qty = :counted_qty,
                      variance = :variance,
+                     is_skipped = FALSE,
                      counted_at = CURRENT_TIMESTAMP,
                      note = :note
                  WHERE id = :line_id'
@@ -387,7 +395,8 @@ if (!function_exists('ensureCycleCountSchema')) {
                 'UPDATE cycle_count_lines
                  SET counted_qty = :qty,
                      variance = 0,
-                     counted_at = CURRENT_TIMESTAMP
+                     is_skipped = TRUE,
+                     counted_at = COALESCE(counted_at, CURRENT_TIMESTAMP)
                  WHERE id = :line_id'
             );
 
@@ -421,5 +430,72 @@ if (!function_exists('ensureCycleCountSchema')) {
             $db->rollBack();
             throw $exception;
         }
+    }
+
+    /**
+     * @return array{id:int,name:string,status:string,started_at:string,completed_at:?string,location_filter:?string,lines:array<int,array{id:int,sequence:int,location:string,sku:string,item:string,expected_qty:int,counted_qty:?int,variance:?int,is_skipped:bool,note:?string,counted_at:?string}>}|null
+     */
+    function loadCycleCountSessionReport(\PDO $db, int $sessionId): ?array
+    {
+        ensureCycleCountSchema($db);
+
+        $sessionStmt = $db->prepare(
+            'SELECT id, name, status, started_at, completed_at, location_filter
+             FROM cycle_count_sessions
+             WHERE id = :id'
+        );
+        $sessionStmt->execute([':id' => $sessionId]);
+        $session = $sessionStmt->fetch();
+
+        if ($session === false) {
+            return null;
+        }
+
+        $linesStmt = $db->prepare(
+            'SELECT
+                l.id,
+                l.sequence,
+                l.expected_qty,
+                l.counted_qty,
+                l.variance,
+                l.is_skipped,
+                l.counted_at,
+                l.note,
+                i.location,
+                i.sku,
+                i.item
+             FROM cycle_count_lines l
+             INNER JOIN inventory_items i ON i.id = l.inventory_item_id
+             WHERE l.session_id = :session_id
+             ORDER BY l.is_skipped ASC, (l.counted_at IS NULL) ASC, l.counted_at ASC NULLS LAST, l.sequence ASC'
+        );
+        $linesStmt->execute([':session_id' => $sessionId]);
+
+        $lines = array_map(
+            static fn (array $row): array => [
+                'id' => (int) $row['id'],
+                'sequence' => (int) $row['sequence'],
+                'location' => (string) $row['location'],
+                'sku' => (string) $row['sku'],
+                'item' => (string) $row['item'],
+                'expected_qty' => (int) $row['expected_qty'],
+                'counted_qty' => $row['counted_qty'] !== null ? (int) $row['counted_qty'] : null,
+                'variance' => $row['variance'] !== null ? (int) $row['variance'] : null,
+                'is_skipped' => (bool) $row['is_skipped'],
+                'note' => $row['note'] !== null ? (string) $row['note'] : null,
+                'counted_at' => $row['counted_at'] !== null ? (string) $row['counted_at'] : null,
+            ],
+            $linesStmt->fetchAll()
+        );
+
+        return [
+            'id' => (int) $session['id'],
+            'name' => (string) $session['name'],
+            'status' => (string) $session['status'],
+            'started_at' => (string) $session['started_at'],
+            'completed_at' => $session['completed_at'] !== null ? (string) $session['completed_at'] : null,
+            'location_filter' => $session['location_filter'] !== null ? (string) $session['location_filter'] : null,
+            'lines' => $lines,
+        ];
     }
 }

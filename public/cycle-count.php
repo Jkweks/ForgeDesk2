@@ -31,6 +31,9 @@ $lineView = null;
 $storageLocations = [];
 $locationHierarchy = [];
 $selectedLocationIds = [];
+$reportSession = null;
+$reportCountedLines = [];
+$reportSkippedLines = [];
 
 try {
     $db = db($databaseConfig);
@@ -194,6 +197,28 @@ if ($dbError === null) {
             $successMessage = 'Count saved successfully.';
         } elseif ($notice === 'completed') {
             $successMessage = 'Cycle count session marked as completed.';
+        }
+    }
+
+    if (isset($_GET['review']) && ctype_digit((string) $_GET['review'])) {
+        $reviewId = (int) $_GET['review'];
+        try {
+            $report = loadCycleCountSessionReport($db, $reviewId);
+            if ($report === null) {
+                $errors[] = 'Unable to load the requested session details.';
+            } else {
+                $reportSession = $report;
+                $reportCountedLines = array_values(array_filter(
+                    $report['lines'],
+                    static fn (array $line): bool => $line['is_skipped'] === false && $line['counted_qty'] !== null
+                ));
+                $reportSkippedLines = array_values(array_filter(
+                    $report['lines'],
+                    static fn (array $line): bool => $line['is_skipped'] === true || $line['counted_qty'] === null
+                ));
+            }
+        } catch (\Throwable $exception) {
+            $errors[] = 'Unable to load the session report: ' . $exception->getMessage();
         }
     }
 }
@@ -369,14 +394,15 @@ $bodyClassAttribute = ' class="' . implode(' ', $bodyClasses) . '"';
                     <div class="progress">
                       <span style="width: <?= (int) $progress ?>%"></span>
                     </div>
-                    <div class="session-actions">
-                      <?php if ($session['status'] === 'completed'): ?>
-                        <span class="small">Finished <?= $session['completed_at'] !== null ? e(date('M j, Y g:ia', strtotime($session['completed_at']))) : '' ?></span>
-                      <?php else: ?>
-                        <a class="button secondary" href="cycle-count.php?session=<?= e((string) $session['id']) ?>&step=1">Resume count</a>
-                        <form method="post">
-                          <input type="hidden" name="action" value="complete" />
-                          <input type="hidden" name="session_id" value="<?= e((string) $session['id']) ?>" />
+                  <div class="session-actions">
+                    <?php if ($session['status'] === 'completed'): ?>
+                      <span class="small">Finished <?= $session['completed_at'] !== null ? e(date('M j, Y g:ia', strtotime($session['completed_at']))) : '' ?></span>
+                      <a class="button secondary" href="cycle-count.php?review=<?= e((string) $session['id']) ?>">Review results</a>
+                    <?php else: ?>
+                      <a class="button secondary" href="cycle-count.php?session=<?= e((string) $session['id']) ?>&step=1">Resume count</a>
+                      <form method="post">
+                        <input type="hidden" name="action" value="complete" />
+                        <input type="hidden" name="session_id" value="<?= e((string) $session['id']) ?>" />
                           <button type="submit" class="button ghost">Complete session</button>
                         </form>
                       <?php endif; ?>
@@ -388,6 +414,113 @@ $bodyClassAttribute = ' class="' . implode(' ', $bodyClasses) . '"';
           </section>
         </div>
       </section>
+
+      <?php if ($reportSession !== null): ?>
+        <section class="panel" aria-labelledby="session-report-title" id="session-report">
+          <header class="panel-header">
+            <div>
+              <h2 id="session-report-title">Session report · <?= e($reportSession['name']) ?></h2>
+              <p class="small">
+                Counted items are listed first, followed by any skipped locations for this cycle count.
+              </p>
+            </div>
+            <button type="button" class="button secondary" onclick="window.print()">Print PDF</button>
+          </header>
+          <dl class="session-meta">
+            <div>
+              <dt>Started</dt>
+              <dd><?= e(date('M j, Y g:ia', strtotime($reportSession['started_at']))) ?></dd>
+            </div>
+            <div>
+              <dt>Completed</dt>
+              <dd>
+                <?php if ($reportSession['completed_at'] !== null): ?>
+                  <?= e(date('M j, Y g:ia', strtotime($reportSession['completed_at']))) ?>
+                <?php else: ?>
+                  <span class="muted">In progress</span>
+                <?php endif; ?>
+              </dd>
+            </div>
+            <div>
+              <dt>Locations</dt>
+              <dd><?= $reportSession['location_filter'] !== null ? e($reportSession['location_filter']) : 'All' ?></dd>
+            </div>
+          </dl>
+
+          <?php if ($reportCountedLines === [] && $reportSkippedLines === []): ?>
+            <p class="small">No line items to display yet.</p>
+          <?php else: ?>
+            <?php if ($reportCountedLines !== []): ?>
+              <h3>Counted items</h3>
+              <div class="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Location</th>
+                      <th>SKU</th>
+                      <th>Item</th>
+                      <th>Counted</th>
+                      <th>Expected</th>
+                      <th>Variance</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <?php foreach ($reportCountedLines as $line): ?>
+                      <?php $variance = $line['variance'] ?? ($line['counted_qty'] !== null ? $line['counted_qty'] - $line['expected_qty'] : 0); ?>
+                      <tr>
+                        <td><?= e($line['location']) ?></td>
+                        <td><?= e($line['sku']) ?></td>
+                        <td><?= e($line['item']) ?></td>
+                        <td><?= e((string) $line['counted_qty']) ?></td>
+                        <td><?= e((string) $line['expected_qty']) ?></td>
+                        <td><?= e((string) $variance) ?></td>
+                      </tr>
+                    <?php endforeach; ?>
+                  </tbody>
+                </table>
+              </div>
+            <?php endif; ?>
+
+            <h3>Skipped items</h3>
+            <div class="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Location</th>
+                    <th>SKU</th>
+                    <th>Item</th>
+                    <th>Counted</th>
+                    <th>Expected</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <?php if ($reportSkippedLines === []): ?>
+                    <tr><td colspan="6">Nothing was skipped in this session.</td></tr>
+                  <?php else: ?>
+                    <?php foreach ($reportSkippedLines as $line): ?>
+                      <tr>
+                        <td><?= e($line['location']) ?></td>
+                        <td><?= e($line['sku']) ?></td>
+                        <td><?= e($line['item']) ?></td>
+                        <td>
+                          <?php if ($line['counted_qty'] !== null): ?>
+                            <?= e((string) $line['counted_qty']) ?>
+                          <?php else: ?>
+                            <span class="muted">Not counted</span>
+                          <?php endif; ?>
+                        </td>
+                        <td><?= e((string) $line['expected_qty']) ?></td>
+                        <td><span class="badge muted">Skipped</span></td>
+                      </tr>
+                    <?php endforeach; ?>
+                  <?php endif; ?>
+                </tbody>
+              </table>
+            </div>
+          <?php endif; ?>
+        </section>
+      <?php endif; ?>
 
       <?php if ($activeSession !== null && $activeSession['status'] === 'completed'): ?>
         <section class="panel" aria-labelledby="count-step-title">
