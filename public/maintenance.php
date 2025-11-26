@@ -55,6 +55,32 @@ if (!function_exists('maintenanceParseDocumentInput')) {
     }
 }
 
+if (!function_exists('maintenanceDocumentsToRaw')) {
+    /**
+     * @param array<int,array{label:string,url:string}> $documents
+     */
+    function maintenanceDocumentsToRaw(array $documents): string
+    {
+        if ($documents === []) {
+            return '';
+        }
+
+        $lines = [];
+        foreach ($documents as $document) {
+            $label = trim($document['label']);
+            $url = trim($document['url']);
+
+            if ($url !== '') {
+                $lines[] = ($label !== '' ? $label : 'Document') . '|' . $url;
+            } elseif ($label !== '') {
+                $lines[] = $label;
+            }
+        }
+
+        return implode("\n", $lines);
+    }
+}
+
 if (!function_exists('maintenanceParsePartsInput')) {
     /**
      * @return array<int,string>
@@ -137,6 +163,7 @@ $machineForm = [
     'documents_raw' => '',
     'notes' => '',
 ];
+$machineEditForm = null;
 $taskForm = [
     'machine_id' => '',
     'title' => '',
@@ -211,6 +238,17 @@ if ($dbError === null) {
             if (isset($machineMap[$machineModalId])) {
                 $machineModal = $machineMap[$machineModalId];
                 $machineModalOpen = true;
+                $machineEditForm = [
+                    'id' => $machineModal['id'],
+                    'name' => $machineModal['name'],
+                    'equipment_type' => $machineModal['equipment_type'],
+                    'manufacturer' => $machineModal['manufacturer'] ?? '',
+                    'model' => $machineModal['model'] ?? '',
+                    'serial_number' => $machineModal['serial_number'] ?? '',
+                    'location' => $machineModal['location'] ?? '',
+                    'documents_raw' => maintenanceDocumentsToRaw($machineModal['documents'] ?? []),
+                    'notes' => $machineModal['notes'] ?? '',
+                ];
             }
         }
     } catch (\Throwable $exception) {
@@ -266,6 +304,52 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 ];
             } catch (\Throwable $exception) {
                 $errors[] = 'Unable to save machine: ' . $exception->getMessage();
+            }
+        }
+    } elseif ($action === 'update_machine') {
+        $machineIdRaw = $_POST['machine_id'] ?? '';
+        $machineEditForm = [
+            'id' => $machineIdRaw,
+            'name' => trim((string) ($_POST['name'] ?? '')),
+            'equipment_type' => trim((string) ($_POST['equipment_type'] ?? '')),
+            'manufacturer' => trim((string) ($_POST['manufacturer'] ?? '')),
+            'model' => trim((string) ($_POST['model'] ?? '')),
+            'serial_number' => trim((string) ($_POST['serial_number'] ?? '')),
+            'location' => trim((string) ($_POST['location'] ?? '')),
+            'documents_raw' => trim((string) ($_POST['documents_raw'] ?? '')),
+            'notes' => trim((string) ($_POST['notes'] ?? '')),
+        ];
+
+        $machineId = ctype_digit((string) $machineIdRaw) ? (int) $machineIdRaw : null;
+
+        if ($machineId === null || !isset($machineMap[$machineId])) {
+            $errors[] = 'Unable to update machine: invalid reference.';
+        }
+
+        if ($machineEditForm['name'] === '') {
+            $errors[] = 'Machine name is required.';
+        }
+        if ($machineEditForm['equipment_type'] === '') {
+            $errors[] = 'Select an equipment type.';
+        }
+
+        if (empty($errors) && $machineId !== null) {
+            try {
+                maintenanceMachineUpdate($db, $machineId, [
+                    'name' => $machineEditForm['name'],
+                    'equipment_type' => $machineEditForm['equipment_type'],
+                    'manufacturer' => $machineEditForm['manufacturer'] !== '' ? $machineEditForm['manufacturer'] : null,
+                    'model' => $machineEditForm['model'] !== '' ? $machineEditForm['model'] : null,
+                    'serial_number' => $machineEditForm['serial_number'] !== '' ? $machineEditForm['serial_number'] : null,
+                    'location' => $machineEditForm['location'] !== '' ? $machineEditForm['location'] : null,
+                    'documents' => maintenanceParseDocumentInput($machineEditForm['documents_raw']),
+                    'notes' => $machineEditForm['notes'] !== '' ? $machineEditForm['notes'] : null,
+                ]);
+                $successMessage = 'Machine updated successfully.';
+                $shouldReload = true;
+                $machineModalId = $machineId;
+            } catch (\Throwable $exception) {
+                $errors[] = 'Unable to update machine: ' . $exception->getMessage();
             }
         }
     } elseif ($action === 'create_task') {
@@ -481,6 +565,22 @@ if ($dbError === null && $shouldReload) {
         foreach ($records as $record) {
             $recordsByMachine[$record['machine_id']][] = $record;
         }
+
+        if ($machineModalId !== null && isset($machineMap[$machineModalId])) {
+            $machineModal = $machineMap[$machineModalId];
+            $machineModalOpen = true;
+            $machineEditForm = [
+                'id' => $machineModal['id'],
+                'name' => $machineModal['name'],
+                'equipment_type' => $machineModal['equipment_type'],
+                'manufacturer' => $machineModal['manufacturer'] ?? '',
+                'model' => $machineModal['model'] ?? '',
+                'serial_number' => $machineModal['serial_number'] ?? '',
+                'location' => $machineModal['location'] ?? '',
+                'documents_raw' => maintenanceDocumentsToRaw($machineModal['documents'] ?? []),
+                'notes' => $machineModal['notes'] ?? '',
+            ];
+        }
     } catch (\Throwable $exception) {
         $errors[] = 'Unable to refresh maintenance data: ' . $exception->getMessage();
     }
@@ -535,6 +635,20 @@ foreach ($visibleTasks as $task) {
 
 $dueSoonTaskIds = array_column($dueSoonTasks, 'id');
 $overdueTaskIds = array_column($overdueTasks, 'id');
+
+if ($machineModal !== null && $machineEditForm === null) {
+    $machineEditForm = [
+        'id' => $machineModal['id'],
+        'name' => $machineModal['name'],
+        'equipment_type' => $machineModal['equipment_type'],
+        'manufacturer' => $machineModal['manufacturer'] ?? '',
+        'model' => $machineModal['model'] ?? '',
+        'serial_number' => $machineModal['serial_number'] ?? '',
+        'location' => $machineModal['location'] ?? '',
+        'documents_raw' => maintenanceDocumentsToRaw($machineModal['documents'] ?? []),
+        'notes' => $machineModal['notes'] ?? '',
+    ];
+}
 
 $bodyClasses = ['has-sidebar-toggle'];
 
@@ -1234,6 +1348,73 @@ $bodyClassString = implode(' ', $bodyClasses);
             <?php if (!empty($machineModal['notes'])): ?>
               <p class="small" style="margin-top: 0.5rem;">Notes: <?= e($machineModal['notes']) ?></p>
             <?php endif; ?>
+
+            <h3 style="margin-top: 1.5rem;">Edit machine</h3>
+            <form method="post" class="form-grid" style="margin-bottom: 0;">
+              <input type="hidden" name="action" value="update_machine" />
+              <input type="hidden" name="machine_id" value="<?= e((string) ($machineEditForm['id'] ?? $machineModal['id'])) ?>" />
+              <input type="hidden" name="machine_modal" value="<?= e((string) $machineModal['id']) ?>" />
+              <input type="hidden" name="show_retired" value="<?= $showRetired ? '1' : '0' ?>" />
+              <div class="field">
+                <label for="machine-name-edit">Machine Name</label>
+                <input
+                  id="machine-name-edit"
+                  name="name"
+                  type="text"
+                  value="<?= e((string) ($machineEditForm['name'] ?? $machineModal['name'])) ?>"
+                  required
+                />
+              </div>
+              <div class="field">
+                <label for="machine-type-edit">Equipment Type</label>
+                <select id="machine-type-edit" name="equipment_type" required>
+                  <?php
+                    $types = ['CNC Machining Center', 'Upcut Saw', 'Panel Saw', 'Press Brake', 'Welding Station', 'Custom Cell'];
+                    foreach ($types as $type):
+                        $selected = ($machineEditForm['equipment_type'] ?? $machineModal['equipment_type']) === $type ? ' selected' : '';
+                  ?>
+                    <option value="<?= e($type) ?>"<?= $selected ?>><?= e($type) ?></option>
+                  <?php endforeach; ?>
+                </select>
+              </div>
+              <div class="field">
+                <label for="machine-manufacturer-edit">Manufacturer</label>
+                <input
+                  id="machine-manufacturer-edit"
+                  name="manufacturer"
+                  type="text"
+                  value="<?= e((string) ($machineEditForm['manufacturer'] ?? '')) ?>"
+                />
+              </div>
+              <div class="field">
+                <label for="machine-model-edit">Model</label>
+                <input id="machine-model-edit" name="model" type="text" value="<?= e((string) ($machineEditForm['model'] ?? '')) ?>" />
+              </div>
+              <div class="field">
+                <label for="machine-serial-edit">Serial Number</label>
+                <input
+                  id="machine-serial-edit"
+                  name="serial_number"
+                  type="text"
+                  value="<?= e((string) ($machineEditForm['serial_number'] ?? '')) ?>"
+                />
+              </div>
+              <div class="field">
+                <label for="machine-location-edit">Bay or Cell</label>
+                <input id="machine-location-edit" name="location" type="text" value="<?= e((string) ($machineEditForm['location'] ?? '')) ?>" />
+              </div>
+              <div class="field full-width">
+                <label for="machine-docs-edit">Documents (one per line, Label|URL)</label>
+                <textarea id="machine-docs-edit" name="documents_raw" rows="3"><?= e((string) ($machineEditForm['documents_raw'] ?? '')) ?></textarea>
+              </div>
+              <div class="field full-width">
+                <label for="machine-notes-edit">Notes</label>
+                <textarea id="machine-notes-edit" name="notes" rows="3"><?= e((string) ($machineEditForm['notes'] ?? '')) ?></textarea>
+              </div>
+              <div class="field full-width">
+                <button type="submit" class="button primary">Save changes</button>
+              </div>
+            </form>
           </section>
 
           <section class="tab-panel" id="machine-panel-tasks" role="tabpanel" aria-labelledby="machine-tab-tasks" hidden>
