@@ -156,6 +156,7 @@ $successMessage = null;
 $machineForm = [
     'name' => '',
     'equipment_type' => 'CNC Machining Center',
+    'machine_type_id' => '',
     'manufacturer' => '',
     'model' => '',
     'serial_number' => '',
@@ -179,6 +180,7 @@ $taskForm = [
 $recordForm = [
     'machine_id' => '',
     'task_id' => '',
+    'asset_id' => '',
     'performed_by' => '',
     'performed_at' => date('Y-m-d'),
     'notes' => '',
@@ -187,9 +189,18 @@ $recordForm = [
     'parts_used_raw' => '',
     'attachments_raw' => '',
 ];
+$assetForm = [
+    'id' => '',
+    'name' => '',
+    'description' => '',
+    'machine_ids' => [],
+    'documents_raw' => '',
+    'notes' => '',
+];
 $machineFormOpen = false;
 $taskFormOpen = false;
 $recordFormOpen = false;
+$assetFormOpen = false;
 
 try {
     $db = db($databaseConfig);
@@ -199,8 +210,12 @@ try {
 
 $machines = [];
 $machineMap = [];
+$machineTypes = [];
+$machineTypeMap = [];
 $tasks = [];
 $taskMap = [];
+$assets = [];
+$assetMap = [];
 $records = [];
 $tasksByMachine = [];
 $recordsByMachine = [];
@@ -217,6 +232,10 @@ $shouldReload = false;
 
 if ($dbError === null) {
     try {
+        $machineTypes = maintenanceMachineTypesList($db);
+        foreach ($machineTypes as $type) {
+            $machineTypeMap[$type['id']] = $type;
+        }
         $machines = maintenanceMachineList($db);
         foreach ($machines as $machine) {
             $machineMap[$machine['id']] = $machine;
@@ -224,6 +243,10 @@ if ($dbError === null) {
         $tasks = maintenanceTasksList($db, $showRetired);
         foreach ($tasks as $task) {
             $taskMap[$task['id']] = $task;
+        }
+        $assets = maintenanceAssetsList($db);
+        foreach ($assets as $asset) {
+            $assetMap[$asset['id']] = $asset;
         }
         $records = maintenanceRecordsList($db);
 
@@ -245,6 +268,7 @@ if ($dbError === null) {
                     'id' => $machineModal['id'],
                     'name' => $machineModal['name'],
                     'equipment_type' => $machineModal['equipment_type'],
+                    'machine_type_id' => $machineModal['machine_type_id'] ?? null,
                     'manufacturer' => $machineModal['manufacturer'] ?? '',
                     'model' => $machineModal['model'] ?? '',
                     'serial_number' => $machineModal['serial_number'] ?? '',
@@ -253,6 +277,19 @@ if ($dbError === null) {
                     'notes' => $machineModal['notes'] ?? '',
                 ];
             }
+        }
+        $assetEditRequest = $_GET['asset_edit'] ?? null;
+        if ($assetEditRequest !== null && ctype_digit((string) $assetEditRequest) && isset($assetMap[(int) $assetEditRequest])) {
+            $asset = $assetMap[(int) $assetEditRequest];
+            $assetFormOpen = true;
+            $assetForm = [
+                'id' => (string) $asset['id'],
+                'name' => $asset['name'],
+                'description' => $asset['description'] ?? '',
+                'machine_ids' => $asset['machine_ids'] ?? [],
+                'documents_raw' => maintenanceDocumentsToRaw($asset['documents'] ?? []),
+                'notes' => $asset['notes'] ?? '',
+            ];
         }
     } catch (\Throwable $exception) {
         $errors[] = 'Unable to load maintenance data: ' . $exception->getMessage();
@@ -267,6 +304,7 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $machineForm = [
             'name' => trim((string) ($_POST['name'] ?? '')),
             'equipment_type' => trim((string) ($_POST['equipment_type'] ?? '')),
+            'machine_type_id' => trim((string) ($_POST['machine_type_id'] ?? '')),
             'manufacturer' => trim((string) ($_POST['manufacturer'] ?? '')),
             'model' => trim((string) ($_POST['model'] ?? '')),
             'serial_number' => trim((string) ($_POST['serial_number'] ?? '')),
@@ -284,9 +322,13 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if (empty($errors)) {
             try {
+                $machineTypeId = $machineForm['equipment_type'] !== ''
+                    ? maintenanceMachineTypeEnsure($db, $machineForm['equipment_type'])
+                    : null;
                 maintenanceMachineCreate($db, [
                     'name' => $machineForm['name'],
                     'equipment_type' => $machineForm['equipment_type'],
+                    'machine_type_id' => $machineTypeId,
                     'manufacturer' => $machineForm['manufacturer'] !== '' ? $machineForm['manufacturer'] : null,
                     'model' => $machineForm['model'] !== '' ? $machineForm['model'] : null,
                     'serial_number' => $machineForm['serial_number'] !== '' ? $machineForm['serial_number'] : null,
@@ -300,6 +342,7 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 $machineForm = [
                     'name' => '',
                     'equipment_type' => 'CNC Machining Center',
+                    'machine_type_id' => '',
                     'manufacturer' => '',
                     'model' => '',
                     'serial_number' => '',
@@ -317,6 +360,7 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
             'id' => $machineIdRaw,
             'name' => trim((string) ($_POST['name'] ?? '')),
             'equipment_type' => trim((string) ($_POST['equipment_type'] ?? '')),
+            'machine_type_id' => trim((string) ($_POST['machine_type_id'] ?? '')),
             'manufacturer' => trim((string) ($_POST['manufacturer'] ?? '')),
             'model' => trim((string) ($_POST['model'] ?? '')),
             'serial_number' => trim((string) ($_POST['serial_number'] ?? '')),
@@ -340,9 +384,13 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if (empty($errors) && $machineId !== null) {
             try {
+                $machineTypeId = $machineEditForm['equipment_type'] !== ''
+                    ? maintenanceMachineTypeEnsure($db, $machineEditForm['equipment_type'])
+                    : null;
                 maintenanceMachineUpdate($db, $machineId, [
                     'name' => $machineEditForm['name'],
                     'equipment_type' => $machineEditForm['equipment_type'],
+                    'machine_type_id' => $machineTypeId,
                     'manufacturer' => $machineEditForm['manufacturer'] !== '' ? $machineEditForm['manufacturer'] : null,
                     'model' => $machineEditForm['model'] !== '' ? $machineEditForm['model'] : null,
                     'serial_number' => $machineEditForm['serial_number'] !== '' ? $machineEditForm['serial_number'] : null,
@@ -355,6 +403,110 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 $machineModalId = $machineId;
             } catch (\Throwable $exception) {
                 $errors[] = 'Unable to update machine: ' . $exception->getMessage();
+            }
+        }
+    } elseif ($action === 'create_asset') {
+        $assetFormOpen = true;
+        $assetForm = [
+            'name' => trim((string) ($_POST['asset_name'] ?? '')),
+            'description' => trim((string) ($_POST['asset_description'] ?? '')),
+            'machine_ids' => isset($_POST['asset_machine_ids']) && is_array($_POST['asset_machine_ids']) ? $_POST['asset_machine_ids'] : [],
+            'documents_raw' => trim((string) ($_POST['asset_documents_raw'] ?? '')),
+            'notes' => trim((string) ($_POST['asset_notes'] ?? '')),
+            'id' => '',
+        ];
+
+        $machineIds = [];
+        foreach ($assetForm['machine_ids'] as $machineIdValue) {
+            if (ctype_digit((string) $machineIdValue)) {
+                $machineId = (int) $machineIdValue;
+                if (isset($machineMap[$machineId])) {
+                    $machineIds[] = $machineId;
+                }
+            }
+        }
+
+        if ($assetForm['name'] === '') {
+            $errors[] = 'Asset name is required.';
+        }
+
+        if ($machineIds === []) {
+            $errors[] = 'Select at least one compatible machine for the asset.';
+        }
+
+        if ($errors === []) {
+            try {
+                maintenanceAssetCreate($db, [
+                    'name' => $assetForm['name'],
+                    'description' => $assetForm['description'] !== '' ? $assetForm['description'] : null,
+                    'documents' => maintenanceParseDocumentInput($assetForm['documents_raw']),
+                    'notes' => $assetForm['notes'] !== '' ? $assetForm['notes'] : null,
+                    'machine_ids' => $machineIds,
+                ]);
+                $successMessage = 'Asset saved successfully.';
+                $assetFormOpen = false;
+                $shouldReload = true;
+                $assetForm = [
+                    'id' => '',
+                    'name' => '',
+                    'description' => '',
+                    'machine_ids' => [],
+                    'documents_raw' => '',
+                    'notes' => '',
+                ];
+            } catch (\Throwable $exception) {
+                $errors[] = 'Unable to save asset: ' . $exception->getMessage();
+            }
+        }
+    } elseif ($action === 'update_asset') {
+        $assetFormOpen = true;
+        $assetIdRaw = $_POST['asset_id'] ?? '';
+        $assetForm = [
+            'id' => $assetIdRaw,
+            'name' => trim((string) ($_POST['asset_name'] ?? '')),
+            'description' => trim((string) ($_POST['asset_description'] ?? '')),
+            'machine_ids' => isset($_POST['asset_machine_ids']) && is_array($_POST['asset_machine_ids']) ? $_POST['asset_machine_ids'] : [],
+            'documents_raw' => trim((string) ($_POST['asset_documents_raw'] ?? '')),
+            'notes' => trim((string) ($_POST['asset_notes'] ?? '')),
+        ];
+
+        $assetId = ctype_digit((string) $assetIdRaw) ? (int) $assetIdRaw : null;
+        $machineIds = [];
+        foreach ($assetForm['machine_ids'] as $machineIdValue) {
+            if (ctype_digit((string) $machineIdValue)) {
+                $machineId = (int) $machineIdValue;
+                if (isset($machineMap[$machineId])) {
+                    $machineIds[] = $machineId;
+                }
+            }
+        }
+
+        if ($assetId === null || !isset($assetMap[$assetId])) {
+            $errors[] = 'Select a valid asset to update.';
+        }
+
+        if ($assetForm['name'] === '') {
+            $errors[] = 'Asset name is required.';
+        }
+
+        if ($machineIds === []) {
+            $errors[] = 'Select at least one compatible machine for the asset.';
+        }
+
+        if ($errors === [] && $assetId !== null) {
+            try {
+                maintenanceAssetUpdate($db, $assetId, [
+                    'name' => $assetForm['name'],
+                    'description' => $assetForm['description'] !== '' ? $assetForm['description'] : null,
+                    'documents' => maintenanceParseDocumentInput($assetForm['documents_raw']),
+                    'notes' => $assetForm['notes'] !== '' ? $assetForm['notes'] : null,
+                    'machine_ids' => $machineIds,
+                ]);
+                $successMessage = 'Asset updated successfully.';
+                $assetFormOpen = false;
+                $shouldReload = true;
+            } catch (\Throwable $exception) {
+                $errors[] = 'Unable to update asset: ' . $exception->getMessage();
             }
         }
     } elseif ($action === 'create_task') {
@@ -461,6 +613,7 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $recordForm = [
             'machine_id' => trim((string) ($_POST['record_machine_id'] ?? '')),
             'task_id' => trim((string) ($_POST['record_task_id'] ?? '')),
+            'asset_id' => trim((string) ($_POST['record_asset_id'] ?? '')),
             'performed_by' => trim((string) ($_POST['performed_by'] ?? '')),
             'performed_at' => trim((string) ($_POST['performed_at'] ?? date('Y-m-d'))),
             'notes' => trim((string) ($_POST['record_notes'] ?? '')),
@@ -475,6 +628,9 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
             : null;
         $recordTaskId = $recordForm['task_id'] !== '' && ctype_digit($recordForm['task_id'])
             ? (int) $recordForm['task_id']
+            : null;
+        $recordAssetId = $recordForm['asset_id'] !== '' && ctype_digit($recordForm['asset_id'])
+            ? (int) $recordForm['asset_id']
             : null;
 
         $downtimeMinutes = null;
@@ -517,11 +673,23 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors[] = 'Select a valid task, or leave it blank.';
         }
 
+        if ($recordAssetId !== null && !isset($assetMap[$recordAssetId])) {
+            $errors[] = 'Select a valid asset, or leave it blank.';
+        }
+
+        if ($recordAssetId !== null && $recordMachineId !== null) {
+            $assetMachines = $assetMap[$recordAssetId]['machine_ids'] ?? [];
+            if (!in_array($recordMachineId, $assetMachines, true)) {
+                $errors[] = 'Selected asset is not linked to the chosen machine.';
+            }
+        }
+
         if (empty($errors) && $recordMachineId !== null) {
             try {
                 maintenanceRecordCreate($db, [
                     'machine_id' => $recordMachineId,
                     'task_id' => $recordTaskId,
+                    'asset_id' => $recordAssetId,
                     'performed_by' => $recordForm['performed_by'] !== '' ? $recordForm['performed_by'] : null,
                     'performed_at' => $recordForm['performed_at'] !== '' ? $recordForm['performed_at'] : null,
                     'notes' => $recordForm['notes'] !== '' ? $recordForm['notes'] : null,
@@ -536,6 +704,7 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 $recordForm = [
                     'machine_id' => '',
                     'task_id' => '',
+                    'asset_id' => '',
                     'performed_by' => '',
                     'performed_at' => date('Y-m-d'),
                     'notes' => '',
@@ -553,10 +722,20 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
 if ($dbError === null && $shouldReload) {
     try {
+        $machineTypes = maintenanceMachineTypesList($db);
+        $machineTypeMap = [];
+        foreach ($machineTypes as $type) {
+            $machineTypeMap[$type['id']] = $type;
+        }
         $machines = maintenanceMachineList($db);
         $machineMap = [];
         foreach ($machines as $machine) {
             $machineMap[$machine['id']] = $machine;
+        }
+        $assets = maintenanceAssetsList($db);
+        $assetMap = [];
+        foreach ($assets as $asset) {
+            $assetMap[$asset['id']] = $asset;
         }
         $tasks = maintenanceTasksList($db, $showRetired);
         $taskMap = [];
@@ -650,6 +829,7 @@ if ($machineModal !== null && $machineEditForm === null) {
         'id' => $machineModal['id'],
         'name' => $machineModal['name'],
         'equipment_type' => $machineModal['equipment_type'],
+        'machine_type_id' => $machineModal['machine_type_id'] ?? '',
         'manufacturer' => $machineModal['manufacturer'] ?? '',
         'model' => $machineModal['model'] ?? '',
         'serial_number' => $machineModal['serial_number'] ?? '',
@@ -661,7 +841,7 @@ if ($machineModal !== null && $machineEditForm === null) {
 
 $bodyClasses = ['has-sidebar-toggle'];
 
-if ($machineModalOpen || $machineFormOpen || $taskFormOpen || $recordFormOpen) {
+if ($machineModalOpen || $machineFormOpen || $taskFormOpen || $recordFormOpen || $assetFormOpen) {
     $bodyClasses[] = 'modal-open';
 }
 
@@ -778,6 +958,17 @@ $bodyClassString = implode(' ', $bodyClasses);
             <button
               type="button"
               role="tab"
+              id="maintenance-tab-assets"
+              aria-controls="maintenance-assets"
+              aria-selected="false"
+              tabindex="-1"
+              data-tab-target="maintenance-assets"
+            >
+              Assets
+            </button>
+            <button
+              type="button"
+              role="tab"
               id="maintenance-tab-tasks"
               aria-controls="maintenance-tasks"
               aria-selected="false"
@@ -871,6 +1062,69 @@ $bodyClassString = implode(' ', $bodyClasses);
                             }
                           ?>
                           <a class="button secondary" href="<?= e($modalUrl) ?>">Manage</a>
+                        </td>
+                      </tr>
+                    <?php endforeach; ?>
+                  <?php endif; ?>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="tab-panel" id="maintenance-assets" role="tabpanel" aria-labelledby="maintenance-tab-assets" hidden>
+            <div class="tab-toolbar">
+              <button type="button" class="button primary" data-modal-open="asset-form-modal">+ Add asset</button>
+            </div>
+            <div class="table-wrapper">
+              <table class="table maintenance-table">
+                <thead>
+                  <tr>
+                    <th>Asset</th>
+                    <th>Compatible machines</th>
+                    <th>Notes</th>
+                    <th>Documents</th>
+                    <th>Manage</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <?php if (empty($assets)): ?>
+                    <tr><td colspan="5">No shared assets recorded yet.</td></tr>
+                  <?php else: ?>
+                    <?php foreach ($assets as $asset): ?>
+                      <tr>
+                        <td>
+                          <strong><?= e($asset['name']) ?></strong>
+                          <?php if (!empty($asset['description'])): ?>
+                            <div class="small"><?= e($asset['description']) ?></div>
+                          <?php endif; ?>
+                        </td>
+                        <td><?= $asset['machine_names'] !== '' ? e($asset['machine_names']) : '<span class="muted">Assign machines</span>' ?></td>
+                        <td><?= $asset['notes'] !== null ? e($asset['notes']) : '<span class="muted">—</span>' ?></td>
+                        <td>
+                          <?php if (empty($asset['documents'])): ?>
+                            <span class="muted">None</span>
+                          <?php else: ?>
+                            <ul class="document-list">
+                              <?php foreach ($asset['documents'] as $doc): ?>
+                                <li>
+                                  <?php if ($doc['url'] !== ''): ?>
+                                    <a href="<?= e($doc['url']) ?>" target="_blank" rel="noreferrer"><?= e($doc['label']) ?></a>
+                                  <?php else: ?>
+                                    <?= e($doc['label']) ?>
+                                  <?php endif; ?>
+                                </li>
+                              <?php endforeach; ?>
+                            </ul>
+                          <?php endif; ?>
+                        </td>
+                        <td>
+                          <?php
+                            $assetUrl = 'maintenance.php?asset_edit=' . $asset['id'];
+                            if ($showRetired) {
+                                $assetUrl .= '&show_retired=1';
+                            }
+                          ?>
+                          <a class="button secondary" href="<?= e($assetUrl) ?>">Edit</a>
                         </td>
                       </tr>
                     <?php endforeach; ?>
@@ -990,6 +1244,7 @@ $bodyClassString = implode(' ', $bodyClasses);
                   <tr>
                     <th>Date</th>
                     <th>Machine</th>
+                    <th>Asset</th>
                     <th>Task</th>
                     <th>Technician</th>
                     <th>Downtime</th>
@@ -1000,7 +1255,7 @@ $bodyClassString = implode(' ', $bodyClasses);
                 </thead>
                 <tbody>
                   <?php if (empty($records)): ?>
-                    <tr><td colspan="8">No maintenance records yet.</td></tr>
+                  <tr><td colspan="9">No maintenance records yet.</td></tr>
                   <?php else: ?>
                     <?php foreach ($records as $record): ?>
                       <tr>
@@ -1012,6 +1267,13 @@ $bodyClassString = implode(' ', $bodyClasses);
                           <?php endif; ?>
                         </td>
                         <td><?= e($record['machine_name']) ?></td>
+                        <td>
+                          <?php if ($record['asset_name'] !== null): ?>
+                            <?= e($record['asset_name']) ?>
+                          <?php else: ?>
+                            <span class="muted">—</span>
+                          <?php endif; ?>
+                        </td>
                         <td>
                           <?php if ($record['task_title'] !== null): ?>
                             <?= e($record['task_title']) ?>
@@ -1071,6 +1333,7 @@ $bodyClassString = implode(' ', $bodyClasses);
 
   <?php
     $machineFormClasses = 'modal' . ($machineFormOpen ? ' open' : '');
+    $assetFormClasses = 'modal' . ($assetFormOpen ? ' open' : '');
     $taskFormClasses = 'modal' . ($taskFormOpen ? ' open' : '');
     $recordFormClasses = 'modal' . ($recordFormOpen ? ' open' : '');
   ?>
@@ -1102,15 +1365,12 @@ $bodyClassString = implode(' ', $bodyClasses);
         </div>
         <div class="field">
           <label for="machine-type">Equipment Type</label>
-          <select id="machine-type" name="equipment_type" required>
-            <?php
-              $types = ['CNC Machining Center', 'Upcut Saw', 'Panel Saw', 'Press Brake', 'Welding Station', 'Custom Cell'];
-              foreach ($types as $type):
-                  $selected = $machineForm['equipment_type'] === $type ? ' selected' : '';
-            ?>
-              <option value="<?= e($type) ?>"<?= $selected ?>><?= e($type) ?></option>
+          <input id="machine-type" list="machine-type-options" name="equipment_type" value="<?= e($machineForm['equipment_type']) ?>" required />
+          <datalist id="machine-type-options">
+            <?php foreach ($machineTypes as $type): ?>
+              <option value="<?= e($type['name']) ?>"></option>
             <?php endforeach; ?>
-          </select>
+          </datalist>
         </div>
         <div class="field">
           <label for="machine-manufacturer">Manufacturer</label>
@@ -1138,6 +1398,67 @@ $bodyClassString = implode(' ', $bodyClasses);
         </div>
         <div class="field full-width">
           <button type="submit" class="button primary">Save Machine</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div
+    id="asset-form-modal"
+    class="<?= e($assetFormClasses) ?>"
+    data-maintenance-modal
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="asset-form-title"
+    aria-hidden="<?= $assetFormOpen ? 'false' : 'true' ?>"
+    <?= $assetFormOpen ? '' : 'hidden' ?>
+  >
+    <div class="modal-dialog">
+      <header>
+        <div>
+          <h2 id="asset-form-title"><?= $assetForm['id'] !== '' ? 'Edit asset' : 'Add asset' ?></h2>
+          <p class="small">Assign shared tooling, dies, or fixtures to multiple machines.</p>
+        </div>
+        <button class="modal-close" type="button" data-modal-close aria-label="Close asset form">&times;</button>
+      </header>
+      <form method="post" class="form-grid">
+        <input type="hidden" name="action" value="<?= $assetForm['id'] !== '' ? 'update_asset' : 'create_asset' ?>" />
+        <?php if ($assetForm['id'] !== ''): ?>
+          <input type="hidden" name="asset_id" value="<?= e($assetForm['id']) ?>" />
+        <?php endif; ?>
+        <input type="hidden" name="show_retired" value="<?= $showRetired ? '1' : '0' ?>" />
+        <div class="field">
+          <label for="asset-name">Asset name</label>
+          <input id="asset-name" name="asset_name" type="text" value="<?= e($assetForm['name']) ?>" placeholder="Punch die set" required />
+        </div>
+        <div class="field">
+          <label for="asset-description">Description</label>
+          <input id="asset-description" name="asset_description" type="text" value="<?= e($assetForm['description']) ?>" placeholder="Compatible with punch A and B" />
+        </div>
+        <div class="field full-width">
+          <fieldset>
+            <legend>Compatible machines</legend>
+            <div class="checkbox-grid">
+              <?php foreach ($machines as $machine): ?>
+                <?php $checked = in_array($machine['id'], $assetForm['machine_ids'], true) ? ' checked' : ''; ?>
+                <label>
+                  <input type="checkbox" name="asset_machine_ids[]" value="<?= e((string) $machine['id']) ?>"<?= $checked ?> />
+                  <?= e($machine['name']) ?> (<?= e($machine['equipment_type']) ?>)
+                </label>
+              <?php endforeach; ?>
+            </div>
+          </fieldset>
+        </div>
+        <div class="field">
+          <label for="asset-docs">Documents (one per line, Label|URL)</label>
+          <textarea id="asset-docs" name="asset_documents_raw" rows="3" placeholder="Setup sheet|https://...&#10;Cut list|https://..."><?= e($assetForm['documents_raw']) ?></textarea>
+        </div>
+        <div class="field">
+          <label for="asset-notes">Notes</label>
+          <textarea id="asset-notes" name="asset_notes" rows="3" placeholder="Storage location, inspection notes."><?= e($assetForm['notes']) ?></textarea>
+        </div>
+        <div class="field full-width">
+          <button type="submit" class="button primary">Save Asset</button>
         </div>
       </form>
     </div>
@@ -1259,6 +1580,15 @@ $bodyClassString = implode(' ', $bodyClasses);
             <option value="">Select machine</option>
             <?php foreach ($machines as $machine): ?>
               <option value="<?= e((string) $machine['id']) ?>"<?= $recordForm['machine_id'] === (string) $machine['id'] ? ' selected' : '' ?>><?= e($machine['name']) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <div class="field">
+          <label for="record-asset">Asset</label>
+          <select id="record-asset" name="record_asset_id">
+            <option value="">No linked asset</option>
+            <?php foreach ($assets as $asset): ?>
+              <option value="<?= e((string) $asset['id']) ?>"<?= $recordForm['asset_id'] === (string) $asset['id'] ? ' selected' : '' ?>><?= e($asset['name']) ?><?= $asset['machine_names'] !== '' ? ' – ' . e($asset['machine_names']) : '' ?></option>
             <?php endforeach; ?>
           </select>
         </div>

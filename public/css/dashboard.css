@@ -1524,6 +1524,8 @@ a.link:focus{
 .tab-toolbar__filter{margin-left:auto}
 .maintenance-table thead th{padding-bottom:10px}
 .maintenance-table tbody td{padding:12px 8px;vertical-align:top}
+.checkbox-grid{display:grid;gap:8px 12px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+.report-form .reservation-actions{margin:0 0 12px}
 .report-tabs{display:flex;flex-direction:column;gap:16px;margin-top:var(--gap)}
 .report-tabs__list{display:flex;flex-wrap:wrap;gap:12px}
 .report-tabs__list [role="tab"]{

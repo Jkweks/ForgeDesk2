@@ -441,7 +441,18 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
           if ($messagesJson === false) {
               $messagesJson = '[]';
           }
+          $analysisJson = json_encode($analysis, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+          if ($analysisJson === false) {
+              $analysisJson = '{}';
+          }
           ?>
+          <form method="post" action="/admin/estimate-report.php" target="_blank" class="form report-form" novalidate>
+            <input type="hidden" name="analysis" value='<?= e($analysisJson) ?>' />
+            <input type="hidden" name="title" value="<?= e(($uploadedName ?? 'EZ Estimate') . ' comparison') ?>" />
+            <div class="reservation-actions">
+              <button type="submit" class="button secondary">Download PDF report</button>
+            </div>
+          </form>
           <form method="post" class="form commit-form" id="commit-form" novalidate>
             <input type="hidden" name="action" value="commit" />
             <input type="hidden" name="uploaded_name" value="<?= e((string) ($uploadedName ?? '')) ?>" />
