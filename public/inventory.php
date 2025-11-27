@@ -47,6 +47,7 @@ $formData = [
     'stock_uom' => '',
     'category' => '',
     'subcategories' => [],
+    'systems' => [],
     'discontinued' => false,
     'locations' => [],
     'configurator_enabled' => false,
@@ -64,6 +65,8 @@ $configuratorUseMap = [];
 $configuratorUsePaths = [];
 $configuratorRequirementOptions = [];
 $configuratorRequirementMap = [];
+$systemOptions = [];
+$systemMap = [];
 
 /**
  * Build representative use paths from selected use IDs.
@@ -178,6 +181,17 @@ if ($dbError === null) {
     }
 
     try {
+        $systemOptions = inventoryListSystems($db);
+        foreach ($systemOptions as $system) {
+            $systemMap[$system['id']] = $system;
+        }
+    } catch (\Throwable $exception) {
+        $errors[] = 'Unable to load inventory systems: ' . $exception->getMessage();
+        $systemOptions = [];
+        $systemMap = [];
+    }
+
+    try {
         $configuratorUseOptions = configuratorListUseOptions($db);
         foreach ($configuratorUseOptions as $option) {
             $configuratorUseMap[$option['id']] = $option;
@@ -219,7 +233,9 @@ if ($dbError === null) {
         $purchaseUomRaw = strtolower(trim((string) ($_POST['purchase_uom'] ?? '')));
         $stockUomRaw = trim((string) ($_POST['stock_uom'] ?? ''));
         $configuratorEnabled = isset($_POST['configurator_enabled']) && (string) $_POST['configurator_enabled'] === '1';
-        $configuratorPartTypeRaw = strtolower(trim((string) ($_POST['configurator_part_type'] ?? '')));
+        $systemSelections = isset($_POST['systems']) && is_array($_POST['systems'])
+            ? array_values(array_map('intval', $_POST['systems']))
+            : [];
         $formData = [
             'item' => $payload['item'],
             'part_number' => $payload['part_number'],
@@ -237,9 +253,10 @@ if ($dbError === null) {
             'stock_uom' => $stockUomRaw,
             'category' => trim((string) ($_POST['category'] ?? '')),
             'subcategories' => [],
+            'systems' => [],
             'discontinued' => $isDiscontinued,
             'configurator_enabled' => $configuratorEnabled,
-            'configurator_part_type' => $configuratorPartTypeRaw,
+            'configurator_part_type' => '',
             'configurator_uses' => [],
             'configurator_requires' => [],
         ];
@@ -428,6 +445,12 @@ if ($dbError === null) {
         $locationAssignmentsList = array_values($locationAssignmentsList);
         $payload['location'] = inventoryFormatLocationSummary($locationAssignmentsList);
 
+        $validSystems = array_values(array_filter(
+            $systemSelections,
+            static fn (int $id): bool => isset($systemMap[$id])
+        ));
+        $formData['systems'] = $validSystems;
+
         if ($formData['category'] !== '' && !isset($categoryOptions[$formData['category']])) {
             $errors['category'] = 'Select a valid category.';
             $formData['category'] = '';
@@ -440,17 +463,23 @@ if ($dbError === null) {
         }
 
         if (!$configuratorEnabled) {
-            $configuratorPartTypeRaw = '';
             $validConfiguratorUses = [];
             $validConfiguratorRequires = [];
             $formData['configurator_uses'] = [];
             $configuratorUsePaths = [];
             $formData['configurator_requires'] = [];
+            $formData['configurator_part_type'] = '';
         } else {
-            if (!in_array($configuratorPartTypeRaw, configuratorAllowedPartTypes(), true)) {
-                $errors['configurator_part_type'] = 'Choose door, frame, hardware, or accessory.';
-                $formData['configurator_part_type'] = '';
+            if ($validConfiguratorUses === []) {
+                $errors['configurator_uses'] = 'Select at least one configurator type/use.';
             }
+
+            $derivedPartType = configuratorInferPartType($validConfiguratorUses, $configuratorUseMap);
+            if ($derivedPartType === null && $validConfiguratorUses !== []) {
+                $errors['configurator_uses'] = 'Pick uses under a single part type (door, frame, hardware, or accessory).';
+            }
+
+            $formData['configurator_part_type'] = $derivedPartType ?? '';
 
             if ($formData['configurator_requires'] === []) {
                 $formData['configurator_requires'][] = ['item_id' => '', 'label' => '', 'quantity' => '1'];
@@ -584,7 +613,9 @@ if ($dbError === null) {
             $existingItem = null;
         }
 
-        $configuratorPartType = $configuratorPartTypeRaw !== '' ? $configuratorPartTypeRaw : null;
+        $configuratorPartType = $formData['configurator_part_type'] !== ''
+            ? $formData['configurator_part_type']
+            : null;
 
         if ($errors === []) {
             $committedQty = $existingItem['committed_qty'] ?? 0;
@@ -597,6 +628,7 @@ if ($dbError === null) {
                 if ($action === 'update' && $editingId !== null) {
                     updateInventoryItem($db, $editingId, $payload);
                     inventorySyncLocationAssignments($db, $editingId, $locationAssignmentsList);
+                    inventorySyncItemSystems($db, $editingId, $validSystems);
                     configuratorSyncPartProfile(
                         $db,
                         $editingId,
@@ -609,6 +641,7 @@ if ($dbError === null) {
                 } else {
                     $newItemId = createInventoryItem($db, $payload);
                     inventorySyncLocationAssignments($db, $newItemId, $locationAssignmentsList);
+                    inventorySyncItemSystems($db, $newItemId, $validSystems);
                     configuratorSyncPartProfile(
                         $db,
                         $newItemId,
@@ -682,13 +715,18 @@ if ($dbError === null) {
                     );
                 }
 
+                $formData['systems'] = inventoryLoadItemSystems($db, $editingId);
+
                 $configuratorProfile = configuratorLoadPartProfile($db, $editingId);
                 $formData['configurator_enabled'] = $configuratorProfile['enabled'];
-                $formData['configurator_part_type'] = $configuratorProfile['part_type'] ?? '';
                 $formData['configurator_uses'] = array_values(array_filter(
                     $configuratorProfile['use_ids'],
                     static fn (int $id): bool => isset($configuratorUseMap[$id])
                 ));
+                $formData['configurator_part_type'] = configuratorInferPartType(
+                    $formData['configurator_uses'],
+                    $configuratorUseMap
+                ) ?? ($configuratorProfile['part_type'] ?? '');
                 $formData['configurator_requires'] = [];
 
                 foreach ($configuratorProfile['requirements'] as $requirement) {
@@ -760,7 +798,7 @@ if ($formData['sku'] === '' && $formData['part_number'] !== '') {
 }
 
 $activeModalTab = !empty($errors['category']) ? 'categories' : 'details';
-if (!empty($errors['configurator_part_type']) || !empty($errors['configurator_requires'])) {
+if (!empty($errors['configurator_uses']) || !empty($errors['configurator_requires'])) {
     $activeModalTab = 'configurator';
 }
 if (isset($_GET['tab']) && in_array($_GET['tab'], ['details', 'categories', 'configurator', 'activity'], true)) {
@@ -1194,6 +1232,18 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
             </div>
             <p class="field-help">Select all applicable specialty groupings. These selections are informational today and will be stored in a future project.</p>
           </div>
+
+          <div class="field">
+            <label for="systems">Systems</label>
+            <select id="systems" name="systems[]" multiple size="4">
+              <?php foreach ($systemOptions as $system): ?>
+                <option value="<?= e((string) $system['id']) ?>"<?= in_array((int) $system['id'], $formData['systems'], true) ? ' selected' : '' ?>>
+                  <?= e($system['name']) ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+            <p class="field-help">Choose all systems that apply to this inventory item.</p>
+          </div>
         </div>
 
         <div id="inventory-panel-configurator" class="tab-panel" role="tabpanel" aria-labelledby="inventory-tab-configurator"<?= $configuratorActive ? '' : ' hidden' ?>>
@@ -1207,35 +1257,24 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
 
           <fieldset class="field-group" data-configurator-fields>
             <legend class="sr-only">Configurator details</legend>
-            <div class="field-grid">
-              <div class="field">
-                <label for="configurator_part_type">Configurator part type<span aria-hidden="true">*</span></label>
-                <select id="configurator_part_type" name="configurator_part_type" data-configurator-toggle>
-                  <option value="">Select type</option>
-                  <?php foreach (configuratorAllowedPartTypes() as $type): ?>
-                    <?php $typeLabel = ucfirst($type); ?>
-                    <option value="<?= e($type) ?>"<?= $formData['configurator_part_type'] === $type ? ' selected' : '' ?>><?= e($typeLabel) ?></option>
-                  <?php endforeach; ?>
-                </select>
-                <p class="field-help">Categorize the component for configurator filtering.</p>
-                <?php if (!empty($errors['configurator_part_type'])): ?>
-                  <p class="field-error"><?= e($errors['configurator_part_type']) ?></p>
-                <?php endif; ?>
-              </div>
-
-              <div class="field">
-                <label for="configurator_use_paths">Part uses</label>
-                <div
-                  id="configurator_use_paths"
-                  class="stacked gap-sm"
-                  data-use-path-list
-                  data-configurator-toggle
-                  data-use-options='<?= e($configuratorUseOptionsJson) ?>'
-                  data-initial-paths='<?= e($configuratorUsePathsJson) ?>'
-                ></div>
-                <button type="button" class="button ghost" data-add-use-path data-configurator-toggle>Add use path</button>
-                <p class="field-help">Select cascading use details (for example: Door Hardware → Hinge → Butt Hinge → Heavy Duty).</p>
-              </div>
+            <div class="field">
+              <label for="configurator_use_paths">Configurator type and uses<span aria-hidden="true">*</span></label>
+              <div
+                id="configurator_use_paths"
+                class="stacked gap-sm"
+                data-use-path-list
+                data-configurator-toggle
+                data-use-options='<?= e($configuratorUseOptionsJson) ?>'
+                data-initial-paths='<?= e($configuratorUsePathsJson) ?>'
+              ></div>
+              <button type="button" class="button ghost" data-add-use-path data-configurator-toggle>Add use path</button>
+              <?php if ($formData['configurator_part_type'] !== ''): ?>
+                <p class="field-help"><strong>Detected part type:</strong> <?= e(ucfirst($formData['configurator_part_type'])) ?></p>
+              <?php endif; ?>
+              <p class="field-help">Select cascading type and use details (for example: Hardware → Door Hardware → Hinge → Butt Hinge → Heavy Duty).</p>
+              <?php if (!empty($errors['configurator_uses'])): ?>
+                <p class="field-error"><?= e($errors['configurator_uses']) ?></p>
+              <?php endif; ?>
             </div>
 
             <div class="field">

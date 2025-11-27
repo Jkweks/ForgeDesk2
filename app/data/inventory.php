@@ -63,6 +63,72 @@ if (!function_exists('loadInventory')) {
     }
 
     /**
+     * Seed and list supported fabrication systems for inventory classification.
+     *
+     * @return list<array{id:int,name:string}>
+     */
+    function inventoryListSystems(\PDO $db): array
+    {
+        inventoryEnsureSystemSchema($db);
+
+        $statement = $db->query('SELECT id, name FROM inventory_systems ORDER BY name ASC');
+        if ($statement === false) {
+            return [];
+        }
+
+        return array_map(
+            static fn (array $row): array => [
+                'id' => (int) $row['id'],
+                'name' => (string) $row['name'],
+            ],
+            $statement->fetchAll()
+        );
+    }
+
+    /**
+     * @return list<int>
+     */
+    function inventoryLoadItemSystems(\PDO $db, int $inventoryItemId): array
+    {
+        inventoryEnsureSystemSchema($db);
+
+        $statement = $db->prepare(
+            'SELECT system_id FROM inventory_item_systems WHERE inventory_item_id = :id ORDER BY system_id ASC'
+        );
+        $statement->execute([':id' => $inventoryItemId]);
+
+        return array_map('intval', $statement->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    /**
+     * @param list<int> $systemIds
+     */
+    function inventorySyncItemSystems(\PDO $db, int $inventoryItemId, array $systemIds): void
+    {
+        inventoryEnsureSystemSchema($db);
+
+        $db->prepare('DELETE FROM inventory_item_systems WHERE inventory_item_id = :id')
+            ->execute([':id' => $inventoryItemId]);
+
+        if ($systemIds === []) {
+            return;
+        }
+
+        $insert = $db->prepare(
+            'INSERT INTO inventory_item_systems (inventory_item_id, system_id) VALUES (:inventory_item_id, :system_id)'
+        );
+
+        $uniqueIds = array_values(array_unique(array_map('intval', $systemIds)));
+
+        foreach ($uniqueIds as $systemId) {
+            $insert->execute([
+                ':inventory_item_id' => $inventoryItemId,
+                ':system_id' => $systemId,
+            ]);
+        }
+    }
+
+    /**
      * Parse a SKU into its base part number and optional finish code.
      *
      * @return array{part_number:string,finish:?string}
@@ -739,11 +805,61 @@ if (!function_exists('loadInventory')) {
             $ensuredItems = true;
         }
 
+        inventoryEnsureSystemSchema($db);
+
         inventoryEnsureTransactionsSchema($db);
 
         if (inventorySupportsReservations($db)) {
             inventoryEnsureCommitmentView($db);
         }
+    }
+
+    /**
+     * Ensure system reference tables exist for inventory classification.
+     */
+    function inventoryEnsureSystemSchema(\PDO $db): void
+    {
+        static $ensured = false;
+
+        if ($ensured) {
+            return;
+        }
+
+        $db->exec(
+            'CREATE TABLE IF NOT EXISTS inventory_systems (
+                id BIGSERIAL PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )'
+        );
+
+        $db->exec(
+            'CREATE TABLE IF NOT EXISTS inventory_item_systems (
+                inventory_item_id BIGINT NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
+                system_id BIGINT NOT NULL REFERENCES inventory_systems(id) ON DELETE CASCADE,
+                PRIMARY KEY (inventory_item_id, system_id)
+            )'
+        );
+
+        $db->exec(
+            'CREATE INDEX IF NOT EXISTS idx_inventory_item_systems_system_id
+                ON inventory_item_systems(system_id)'
+        );
+
+        $seed = $db->prepare(
+            'INSERT INTO inventory_systems (name) VALUES (:name) ON CONFLICT (name) DO NOTHING'
+        );
+
+        foreach ([
+            'Tubelite E4500',
+            'Tubelite E14000',
+            'Tubelite E14000 I/O',
+            'Tubelite E24650',
+        ] as $systemName) {
+            $seed->execute([':name' => $systemName]);
+        }
+
+        $ensured = true;
     }
 
     /**

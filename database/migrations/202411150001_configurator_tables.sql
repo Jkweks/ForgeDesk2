@@ -108,19 +108,36 @@ CREATE TABLE IF NOT EXISTS configurator_configuration_doors (
 
 DO $$
 DECLARE
+    door_id BIGINT;
+    frame_id BIGINT;
+    hardware_id BIGINT;
+    accessory_id BIGINT;
     door_hardware_id BIGINT;
     hinge_id BIGINT;
     butt_hinge_id BIGINT;
 BEGIN
     INSERT INTO configurator_part_use_options (name, parent_id)
     VALUES
-        ('Interior Opening', NULL),
-        ('Exterior Opening', NULL),
-        ('Fire Rated', NULL),
-        ('Pair Door', NULL),
-        ('Single Door', NULL),
-        ('Hardware Set', NULL),
-        ('Door Hardware', NULL)
+        ('Door', NULL),
+        ('Frame', NULL),
+        ('Hardware', NULL),
+        ('Accessory', NULL)
+    ON CONFLICT (name) DO NOTHING;
+
+    SELECT id INTO door_id FROM configurator_part_use_options WHERE name = 'Door';
+    SELECT id INTO frame_id FROM configurator_part_use_options WHERE name = 'Frame';
+    SELECT id INTO hardware_id FROM configurator_part_use_options WHERE name = 'Hardware';
+    SELECT id INTO accessory_id FROM configurator_part_use_options WHERE name = 'Accessory';
+
+    INSERT INTO configurator_part_use_options (name, parent_id)
+    VALUES
+        ('Interior Opening', door_id),
+        ('Exterior Opening', door_id),
+        ('Fire Rated', door_id),
+        ('Pair Door', door_id),
+        ('Single Door', door_id),
+        ('Hardware Set', hardware_id),
+        ('Door Hardware', hardware_id)
     ON CONFLICT (name) DO NOTHING;
 
     SELECT id INTO door_hardware_id FROM configurator_part_use_options WHERE name = 'Door Hardware';
@@ -143,5 +160,7 @@ BEGIN
     VALUES ('Heavy Duty', butt_hinge_id)
     ON CONFLICT (name) DO NOTHING;
 
+    UPDATE configurator_part_use_options SET parent_id = door_id WHERE name IN ('Interior Opening', 'Exterior Opening', 'Fire Rated', 'Pair Door', 'Single Door');
+    UPDATE configurator_part_use_options SET parent_id = hardware_id WHERE name IN ('Hardware Set', 'Door Hardware');
     UPDATE configurator_part_use_options SET parent_id = butt_hinge_id WHERE name = 'Heavy Duty';
 END$$;

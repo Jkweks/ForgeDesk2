@@ -187,13 +187,17 @@ if (!function_exists('configuratorEnsureSchema')) {
         );
 
         $seedOptions = [
-            ['name' => 'Interior Opening', 'parent' => null],
-            ['name' => 'Exterior Opening', 'parent' => null],
-            ['name' => 'Fire Rated', 'parent' => null],
-            ['name' => 'Pair Door', 'parent' => null],
-            ['name' => 'Single Door', 'parent' => null],
-            ['name' => 'Hardware Set', 'parent' => null],
-            ['name' => 'Door Hardware', 'parent' => null],
+            ['name' => 'Door', 'parent' => null],
+            ['name' => 'Frame', 'parent' => null],
+            ['name' => 'Hardware', 'parent' => null],
+            ['name' => 'Accessory', 'parent' => null],
+            ['name' => 'Interior Opening', 'parent' => 'Door'],
+            ['name' => 'Exterior Opening', 'parent' => 'Door'],
+            ['name' => 'Fire Rated', 'parent' => 'Door'],
+            ['name' => 'Pair Door', 'parent' => 'Door'],
+            ['name' => 'Single Door', 'parent' => 'Door'],
+            ['name' => 'Hardware Set', 'parent' => 'Hardware'],
+            ['name' => 'Door Hardware', 'parent' => 'Hardware'],
             ['name' => 'Hinge', 'parent' => 'Door Hardware'],
             ['name' => 'Butt Hinge', 'parent' => 'Hinge'],
             ['name' => 'Heavy Duty', 'parent' => 'Butt Hinge'],
@@ -261,6 +265,42 @@ if (!function_exists('configuratorEnsureSchema')) {
         }
 
         return $map;
+    }
+
+    /**
+     * Infer the configurator part type from the selected use IDs.
+     *
+     * @param list<int> $useIds
+     * @param array<int,array{id:int,name:string,parent_id:int|null}> $useMap
+     */
+    function configuratorInferPartType(array $useIds, array $useMap): ?string
+    {
+        $allowed = configuratorAllowedPartTypes();
+        $detected = [];
+
+        foreach ($useIds as $useId) {
+            if (!isset($useMap[$useId])) {
+                continue;
+            }
+
+            $current = $useMap[$useId];
+            while ($current['parent_id'] !== null && isset($useMap[$current['parent_id']])) {
+                $current = $useMap[$current['parent_id']];
+            }
+
+            $rootName = strtolower(trim((string) $current['name']));
+            foreach ($allowed as $type) {
+                if ($rootName === $type) {
+                    $detected[$type] = true;
+                }
+            }
+        }
+
+        if (count($detected) !== 1) {
+            return null;
+        }
+
+        return array_keys($detected)[0];
     }
 
     /**
