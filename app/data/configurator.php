@@ -46,9 +46,15 @@ if (!function_exists('configuratorEnsureSchema')) {
                 inventory_item_id BIGINT PRIMARY KEY REFERENCES inventory_items(id) ON DELETE CASCADE,
                 is_enabled BOOLEAN NOT NULL DEFAULT FALSE,
                 part_type TEXT NULL,
+                height_lz NUMERIC(12,4) NULL,
+                depth_ly NUMERIC(12,4) NULL,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 CONSTRAINT configurator_part_profiles_part_type_check
-                    CHECK (part_type IS NULL OR part_type IN ('door', 'frame', 'hardware', 'accessory'))
+                    CHECK (part_type IS NULL OR part_type IN ('door', 'frame', 'hardware', 'accessory')),
+                CONSTRAINT configurator_part_profiles_height_lz_check
+                    CHECK (height_lz IS NULL OR height_lz > 0),
+                CONSTRAINT configurator_part_profiles_depth_ly_check
+                    CHECK (depth_ly IS NULL OR depth_ly > 0)
             )"
         );
 
@@ -130,6 +136,16 @@ if (!function_exists('configuratorEnsureSchema')) {
         );
 
         $db->exec(
+            "ALTER TABLE configurator_part_profiles
+                ADD COLUMN IF NOT EXISTS height_lz NUMERIC(12,4) NULL"
+        );
+
+        $db->exec(
+            "ALTER TABLE configurator_part_profiles
+                ADD COLUMN IF NOT EXISTS depth_ly NUMERIC(12,4) NULL"
+        );
+
+        $db->exec(
             "ALTER TABLE configurator_configurations
                 ADD COLUMN IF NOT EXISTS quantity INTEGER NOT NULL DEFAULT 1"
         );
@@ -142,6 +158,24 @@ if (!function_exists('configuratorEnsureSchema')) {
                 ) THEN
                     ALTER TABLE configurator_configurations
                         ADD CONSTRAINT configurator_configurations_quantity_check CHECK (quantity > 0);
+                END IF;
+            END$$;"
+        );
+
+        $db->exec(
+            "DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint WHERE conname = 'configurator_part_profiles_height_lz_check'
+                ) THEN
+                    ALTER TABLE configurator_part_profiles
+                        ADD CONSTRAINT configurator_part_profiles_height_lz_check CHECK (height_lz IS NULL OR height_lz > 0);
+                END IF;
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint WHERE conname = 'configurator_part_profiles_depth_ly_check'
+                ) THEN
+                    ALTER TABLE configurator_part_profiles
+                        ADD CONSTRAINT configurator_part_profiles_depth_ly_check CHECK (depth_ly IS NULL OR depth_ly > 0);
                 END IF;
             END$$;"
         );
@@ -339,14 +373,14 @@ if (!function_exists('configuratorEnsureSchema')) {
     }
 
     /**
-     * @return array{enabled:bool,part_type:?string,use_ids:list<int>,requirements:list<array{item_id:int,quantity:int}>}
+     * @return array{enabled:bool,part_type:?string,height_lz:?float,depth_ly:?float,use_ids:list<int>,requirements:list<array{item_id:int,quantity:int}>}
      */
     function configuratorLoadPartProfile(\PDO $db, int $inventoryItemId): array
     {
         configuratorEnsureSchema($db);
 
         $profileStatement = $db->prepare(
-            'SELECT is_enabled, part_type FROM configurator_part_profiles WHERE inventory_item_id = :item_id'
+            'SELECT is_enabled, part_type, height_lz, depth_ly FROM configurator_part_profiles WHERE inventory_item_id = :item_id'
         );
         $profileStatement->execute([':item_id' => $inventoryItemId]);
         $profile = $profileStatement->fetch();
@@ -376,6 +410,12 @@ if (!function_exists('configuratorEnsureSchema')) {
             'part_type' => $profile !== false && $profile['part_type'] !== null
                 ? (string) $profile['part_type']
                 : null,
+            'height_lz' => $profile !== false && $profile['height_lz'] !== null
+                ? (float) $profile['height_lz']
+                : null,
+            'depth_ly' => $profile !== false && $profile['depth_ly'] !== null
+                ? (float) $profile['depth_ly']
+                : null,
             'use_ids' => $useIds,
             'requirements' => $requiredParts,
         ];
@@ -393,7 +433,9 @@ if (!function_exists('configuratorEnsureSchema')) {
         bool $enabled,
         ?string $partType,
         array $useIds,
-        array $requiredItems
+        array $requiredItems,
+        ?float $heightLz = null,
+        ?float $depthLy = null
     ): void {
         configuratorEnsureSchema($db);
 
@@ -404,15 +446,17 @@ if (!function_exists('configuratorEnsureSchema')) {
         $db->beginTransaction();
         try {
             $profileStatement = $db->prepare(
-                'INSERT INTO configurator_part_profiles (inventory_item_id, is_enabled, part_type)
-                 VALUES (:id, :enabled, :type)
+                'INSERT INTO configurator_part_profiles (inventory_item_id, is_enabled, part_type, height_lz, depth_ly)
+                 VALUES (:id, :enabled, :type, :height_lz, :depth_ly)
                  ON CONFLICT (inventory_item_id)
-                 DO UPDATE SET is_enabled = EXCLUDED.is_enabled, part_type = EXCLUDED.part_type'
+                 DO UPDATE SET is_enabled = EXCLUDED.is_enabled, part_type = EXCLUDED.part_type, height_lz = EXCLUDED.height_lz, depth_ly = EXCLUDED.depth_ly'
             );
             $profileStatement->execute([
                 ':id' => $inventoryItemId,
                 ':enabled' => $enabled,
                 ':type' => $enabled ? $normalizedType : null,
+                ':height_lz' => $enabled ? $heightLz : null,
+                ':depth_ly' => $enabled ? $depthLy : null,
             ]);
 
             $db->prepare('DELETE FROM configurator_part_use_links WHERE inventory_item_id = :id')

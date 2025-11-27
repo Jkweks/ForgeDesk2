@@ -9,9 +9,15 @@ CREATE TABLE IF NOT EXISTS configurator_part_profiles (
     inventory_item_id BIGINT PRIMARY KEY REFERENCES inventory_items(id) ON DELETE CASCADE,
     is_enabled BOOLEAN NOT NULL DEFAULT FALSE,
     part_type TEXT NULL,
+    height_lz NUMERIC(12,4) NULL,
+    depth_ly NUMERIC(12,4) NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT configurator_part_profiles_part_type_check
-        CHECK (part_type IS NULL OR part_type IN ('door', 'frame', 'hardware', 'accessory'))
+        CHECK (part_type IS NULL OR part_type IN ('door', 'frame', 'hardware', 'accessory')),
+    CONSTRAINT configurator_part_profiles_height_lz_check
+        CHECK (height_lz IS NULL OR height_lz > 0),
+    CONSTRAINT configurator_part_profiles_depth_ly_check
+        CHECK (depth_ly IS NULL OR depth_ly > 0)
 );
 
 CREATE TABLE IF NOT EXISTS configurator_part_use_links (
@@ -33,6 +39,12 @@ ALTER TABLE configurator_part_requirements
 ALTER TABLE configurator_part_use_options
     ADD COLUMN IF NOT EXISTS parent_id BIGINT NULL REFERENCES configurator_part_use_options(id) ON DELETE SET NULL;
 
+ALTER TABLE configurator_part_profiles
+    ADD COLUMN IF NOT EXISTS height_lz NUMERIC(12,4) NULL;
+
+ALTER TABLE configurator_part_profiles
+    ADD COLUMN IF NOT EXISTS depth_ly NUMERIC(12,4) NULL;
+
 CREATE INDEX IF NOT EXISTS idx_configurator_part_use_options_parent_id
     ON configurator_part_use_options(parent_id);
 
@@ -43,6 +55,22 @@ BEGIN
     ) THEN
         ALTER TABLE configurator_part_requirements
             ADD CONSTRAINT configurator_part_requirements_quantity_check CHECK (quantity > 0);
+    END IF;
+END$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'configurator_part_profiles_height_lz_check'
+    ) THEN
+        ALTER TABLE configurator_part_profiles
+            ADD CONSTRAINT configurator_part_profiles_height_lz_check CHECK (height_lz IS NULL OR height_lz > 0);
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'configurator_part_profiles_depth_ly_check'
+    ) THEN
+        ALTER TABLE configurator_part_profiles
+            ADD CONSTRAINT configurator_part_profiles_depth_ly_check CHECK (depth_ly IS NULL OR depth_ly > 0);
     END IF;
 END$$;
 

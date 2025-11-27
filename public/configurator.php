@@ -27,6 +27,42 @@ $configFormData = [
     'notes' => '',
     'door_tags' => [],
 ];
+$entryFormData = [
+    'opening_type' => 'single',
+    'hand_single' => 'LH - Inswing',
+    'hand_pair' => 'RHRA',
+    'door_glazing' => '1/4”',
+    'transom' => 'no',
+    'transom_glazing' => '1/4”',
+    'elevation' => '',
+    'opening' => '',
+    'notes' => '',
+];
+$openingTypeOptions = [
+    'single' => 'Single',
+    'pair' => 'Pair',
+];
+$handOptionsPair = [
+    'RHRA' => 'RHRA',
+    'LHRA' => 'LHRA',
+];
+$handOptionsSingle = [
+    'LH - Inswing' => 'LH - Inswing',
+    'LHR - RH Outswing' => 'LHR - RH Outswing',
+    'RH - Inswing' => 'RH - Inswing',
+    'RHR - LH Outswing' => 'RHR - LH Outswing',
+];
+$glazingOptions = [
+    '1/4”',
+    '3/8”',
+    '1/2”',
+    '9/16”',
+    '1”',
+];
+$transomOptions = [
+    'yes' => 'Yes',
+    'no' => 'No',
+];
 $editingConfigId = null;
 $builderSteps = [
     ['id' => 'configuration', 'label' => 'Configuration data', 'description' => 'Name, job, scope, and lifecycle status'],
@@ -105,6 +141,40 @@ if ($dbError === null) {
         if (isset($_POST['builder_step']) && in_array($_POST['builder_step'], $stepIds, true)) {
             $currentStep = (string) $_POST['builder_step'];
         }
+
+        $openingTypeRaw = $_POST['entry_opening_type'] ?? null;
+        if ($openingTypeRaw !== null && isset($openingTypeOptions[$openingTypeRaw])) {
+            $entryFormData['opening_type'] = (string) $openingTypeRaw;
+        }
+
+        $handSingleRaw = $_POST['entry_hand_single'] ?? null;
+        if ($handSingleRaw !== null && isset($handOptionsSingle[$handSingleRaw])) {
+            $entryFormData['hand_single'] = (string) $handSingleRaw;
+        }
+
+        $handPairRaw = $_POST['entry_hand_pair'] ?? null;
+        if ($handPairRaw !== null && isset($handOptionsPair[$handPairRaw])) {
+            $entryFormData['hand_pair'] = (string) $handPairRaw;
+        }
+        $entryFormData['door_glazing'] = in_array($_POST['entry_door_glazing'] ?? '', $glazingOptions, true)
+            ? (string) $_POST['entry_door_glazing']
+            : $entryFormData['door_glazing'];
+        $transomRaw = $_POST['entry_transom'] ?? null;
+        if ($transomRaw !== null && isset($transomOptions[$transomRaw])) {
+            $entryFormData['transom'] = (string) $transomRaw;
+        }
+        $entryFormData['transom_glazing'] = in_array($_POST['entry_transom_glazing'] ?? '', $glazingOptions, true)
+            ? (string) $_POST['entry_transom_glazing']
+            : $entryFormData['transom_glazing'];
+        $entryFormData['elevation'] = isset($_POST['entry_elevation'])
+            ? trim((string) $_POST['entry_elevation'])
+            : $entryFormData['elevation'];
+        $entryFormData['opening'] = isset($_POST['entry_opening'])
+            ? trim((string) $_POST['entry_opening'])
+            : $entryFormData['opening'];
+        $entryFormData['notes'] = isset($_POST['entry_notes'])
+            ? trim((string) $_POST['entry_notes'])
+            : $entryFormData['notes'];
 
         if ($action === 'create_job') {
             $jobNumber = trim((string) ($_POST['job_number'] ?? ''));
@@ -496,19 +566,70 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
               <div class="card">
                 <div class="field-grid two-column">
                   <div class="field">
+                    <label for="entry_opening_type">Opening type</label>
+                    <select id="entry_opening_type" name="entry_opening_type" data-opening-type>
+                      <?php foreach ($openingTypeOptions as $value => $label): ?>
+                        <option value="<?= e($value) ?>"<?= $entryFormData['opening_type'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </div>
+                  <div class="field" data-hand="single">
+                    <label for="entry_hand_single">Hand (single)</label>
+                    <select id="entry_hand_single" name="entry_hand_single">
+                      <?php foreach ($handOptionsSingle as $value => $label): ?>
+                        <option value="<?= e($value) ?>"<?= $entryFormData['hand_single'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </div>
+                  <div class="field" data-hand="pair">
+                    <label for="entry_hand_pair">Hand (pair)</label>
+                    <select id="entry_hand_pair" name="entry_hand_pair">
+                      <?php foreach ($handOptionsPair as $value => $label): ?>
+                        <option value="<?= e($value) ?>"<?= $entryFormData['hand_pair'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="entry_door_glazing">Door glazing</label>
+                    <select id="entry_door_glazing" name="entry_door_glazing">
+                      <?php foreach ($glazingOptions as $option): ?>
+                        <option value="<?= e($option) ?>"<?= $entryFormData['door_glazing'] === $option ? ' selected' : '' ?>><?= e($option) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="entry_transom">Transom</label>
+                    <select id="entry_transom" name="entry_transom" data-transom>
+                      <?php foreach ($transomOptions as $value => $label): ?>
+                        <option value="<?= e($value) ?>"<?= $entryFormData['transom'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </div>
+                  <div class="field" data-transom-glazing>
+                    <label for="entry_transom_glazing">Transom glazing</label>
+                    <select id="entry_transom_glazing" name="entry_transom_glazing">
+                      <?php foreach ($glazingOptions as $option): ?>
+                        <option value="<?= e($option) ?>"<?= $entryFormData['transom_glazing'] === $option ? ' selected' : '' ?>><?= e($option) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="field-grid two-column">
+                  <div class="field">
                     <label for="entry_elevation">Elevation / Mark</label>
-                    <input type="text" id="entry_elevation" name="entry_elevation" placeholder="Example: Elevation A" />
+                    <input type="text" id="entry_elevation" name="entry_elevation" placeholder="Example: Elevation A" value="<?= e($entryFormData['elevation']) ?>" />
                   </div>
                   <div class="field">
                     <label for="entry_opening">Opening location</label>
-                    <input type="text" id="entry_opening" name="entry_opening" placeholder="Floor, room, or grid reference" />
+                    <input type="text" id="entry_opening" name="entry_opening" placeholder="Floor, room, or grid reference" value="<?= e($entryFormData['opening']) ?>" />
                   </div>
                 </div>
                 <div class="field">
                   <label for="entry_notes">Elevation notes</label>
-                  <textarea id="entry_notes" name="entry_notes" rows="3" placeholder="List elevation details, head heights, and any unique conditions."></textarea>
+                  <textarea id="entry_notes" name="entry_notes" rows="3" placeholder="List elevation details, head heights, and any unique conditions."><?= e($entryFormData['notes']) ?></textarea>
                 </div>
-                <p class="small muted">Elevation inputs are captured here for planning; persistence hooks will be added in a later step.</p>
+                <p class="small muted">These entry details are staged for the workflow and will be wired into persistence and calculations in a follow-up update.</p>
               </div>
             <?php else: ?>
               <div class="card muted">
@@ -690,6 +811,10 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
       const doorTagsContainer = document.getElementById('door-tags-container');
       const templateSelect = document.getElementById('template_door_select');
       const templateButton = document.getElementById('template-door-start');
+      const openingTypeSelect = document.querySelector('[data-opening-type]');
+      const handFields = document.querySelectorAll('[data-hand]');
+      const transomSelect = document.querySelector('[data-transom]');
+      const transomGlazingField = document.querySelector('[data-transom-glazing]');
 
       function syncDoorTags() {
         if (!quantityInput || !doorTagsContainer) {
@@ -738,6 +863,44 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
           window.location.href = url.toString();
         });
       }
+
+      function syncHands() {
+        const type = (openingTypeSelect instanceof HTMLSelectElement ? openingTypeSelect.value : 'single') === 'pair'
+          ? 'pair'
+          : 'single';
+
+        handFields.forEach((field) => {
+          if (!(field instanceof HTMLElement)) {
+            return;
+          }
+
+          const handType = field.getAttribute('data-hand');
+          const isMatch = handType === type;
+          field.hidden = !isMatch;
+
+          const select = field.querySelector('select');
+          if (select instanceof HTMLSelectElement) {
+            select.disabled = !isMatch;
+          }
+        });
+      }
+
+      function syncTransomGlazing() {
+        const hasTransom = (transomSelect instanceof HTMLSelectElement ? transomSelect.value : 'no') === 'yes';
+        if (transomGlazingField instanceof HTMLElement) {
+          transomGlazingField.hidden = !hasTransom;
+
+          const select = transomGlazingField.querySelector('select');
+          if (select instanceof HTMLSelectElement) {
+            select.disabled = !hasTransom;
+          }
+        }
+      }
+
+      openingTypeSelect?.addEventListener('change', syncHands);
+      transomSelect?.addEventListener('change', syncTransomGlazing);
+      syncHands();
+      syncTransomGlazing();
     })();
   </script>
 

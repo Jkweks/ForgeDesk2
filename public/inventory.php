@@ -54,6 +54,8 @@ $formData = [
     'configurator_part_type' => '',
     'configurator_uses' => [],
     'configurator_requires' => [],
+    'configurator_height_lz' => '',
+    'configurator_depth_ly' => '',
 ];
 $storageLocations = [];
 $storageLocationMap = [];
@@ -233,6 +235,8 @@ if ($dbError === null) {
         $purchaseUomRaw = strtolower(trim((string) ($_POST['purchase_uom'] ?? '')));
         $stockUomRaw = trim((string) ($_POST['stock_uom'] ?? ''));
         $configuratorEnabled = isset($_POST['configurator_enabled']) && (string) $_POST['configurator_enabled'] === '1';
+        $configuratorHeightRaw = trim((string) ($_POST['configurator_height_lz'] ?? ''));
+        $configuratorDepthRaw = trim((string) ($_POST['configurator_depth_ly'] ?? ''));
         $systemSelections = isset($_POST['systems']) && is_array($_POST['systems'])
             ? array_values(array_map('intval', $_POST['systems']))
             : [];
@@ -259,6 +263,8 @@ if ($dbError === null) {
             'configurator_part_type' => '',
             'configurator_uses' => [],
             'configurator_requires' => [],
+            'configurator_height_lz' => $configuratorHeightRaw,
+            'configurator_depth_ly' => $configuratorDepthRaw,
         ];
 
         $submittedConfiguratorUsePaths = isset($_POST['configurator_use_paths']) && is_array($_POST['configurator_use_paths'])
@@ -469,6 +475,8 @@ if ($dbError === null) {
             $configuratorUsePaths = [];
             $formData['configurator_requires'] = [];
             $formData['configurator_part_type'] = '';
+            $formData['configurator_height_lz'] = '';
+            $formData['configurator_depth_ly'] = '';
         } else {
             if ($validConfiguratorUses === []) {
                 $errors['configurator_uses'] = 'Select at least one configurator type/use.';
@@ -480,6 +488,22 @@ if ($dbError === null) {
             }
 
             $formData['configurator_part_type'] = $derivedPartType ?? '';
+
+            if ($formData['configurator_height_lz'] !== '') {
+                if (!is_numeric($formData['configurator_height_lz'])) {
+                    $errors['configurator_height_lz'] = 'Enter a numeric height (lz) or leave blank.';
+                } elseif ((float) $formData['configurator_height_lz'] <= 0) {
+                    $errors['configurator_height_lz'] = 'Height (lz) must be greater than zero if provided.';
+                }
+            }
+
+            if ($formData['configurator_depth_ly'] !== '') {
+                if (!is_numeric($formData['configurator_depth_ly'])) {
+                    $errors['configurator_depth_ly'] = 'Enter a numeric depth (ly) or leave blank.';
+                } elseif ((float) $formData['configurator_depth_ly'] <= 0) {
+                    $errors['configurator_depth_ly'] = 'Depth (ly) must be greater than zero if provided.';
+                }
+            }
 
             if ($formData['configurator_requires'] === []) {
                 $formData['configurator_requires'][] = ['item_id' => '', 'label' => '', 'quantity' => '1'];
@@ -616,6 +640,12 @@ if ($dbError === null) {
         $configuratorPartType = $formData['configurator_part_type'] !== ''
             ? $formData['configurator_part_type']
             : null;
+        $configuratorHeight = $formData['configurator_height_lz'] !== '' && !isset($errors['configurator_height_lz'])
+            ? round((float) $formData['configurator_height_lz'], 4)
+            : null;
+        $configuratorDepth = $formData['configurator_depth_ly'] !== '' && !isset($errors['configurator_depth_ly'])
+            ? round((float) $formData['configurator_depth_ly'], 4)
+            : null;
 
         if ($errors === []) {
             $committedQty = $existingItem['committed_qty'] ?? 0;
@@ -635,7 +665,9 @@ if ($dbError === null) {
                         $configuratorEnabled,
                         $configuratorPartType,
                         $validConfiguratorUses,
-                        $validConfiguratorRequires
+                        $validConfiguratorRequires,
+                        $configuratorHeight,
+                        $configuratorDepth
                     );
                     header('Location: inventory.php?success=updated');
                 } else {
@@ -648,7 +680,9 @@ if ($dbError === null) {
                         $configuratorEnabled,
                         $configuratorPartType,
                         $validConfiguratorUses,
-                        $validConfiguratorRequires
+                        $validConfiguratorRequires,
+                        $configuratorHeight,
+                        $configuratorDepth
                     );
                     header('Location: inventory.php?success=created');
                 }
@@ -727,6 +761,12 @@ if ($dbError === null) {
                     $formData['configurator_uses'],
                     $configuratorUseMap
                 ) ?? ($configuratorProfile['part_type'] ?? '');
+                $formData['configurator_height_lz'] = $configuratorProfile['height_lz'] !== null
+                    ? rtrim(rtrim(number_format((float) $configuratorProfile['height_lz'], 4, '.', ''), '0'), '.')
+                    : '';
+                $formData['configurator_depth_ly'] = $configuratorProfile['depth_ly'] !== null
+                    ? rtrim(rtrim(number_format((float) $configuratorProfile['depth_ly'], 4, '.', ''), '0'), '.')
+                    : '';
                 $formData['configurator_requires'] = [];
 
                 foreach ($configuratorProfile['requirements'] as $requirement) {
@@ -1275,6 +1315,43 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
               <?php if (!empty($errors['configurator_uses'])): ?>
                 <p class="field-error"><?= e($errors['configurator_uses']) ?></p>
               <?php endif; ?>
+            </div>
+
+            <div class="field-grid two-column">
+              <div class="field">
+                <label for="configurator_height_lz">Part height (lz)</label>
+                <input
+                  type="text"
+                  id="configurator_height_lz"
+                  name="configurator_height_lz"
+                  value="<?= e($formData['configurator_height_lz']) ?>"
+                  inputmode="decimal"
+                  autocomplete="off"
+                  placeholder="Example: 2.375"
+                  data-configurator-toggle
+                />
+                <p class="field-help">Captured for configurator math; leave blank if not applicable.</p>
+                <?php if (!empty($errors['configurator_height_lz'])): ?>
+                  <p class="field-error"><?= e($errors['configurator_height_lz']) ?></p>
+                <?php endif; ?>
+              </div>
+              <div class="field">
+                <label for="configurator_depth_ly">Part depth (ly)</label>
+                <input
+                  type="text"
+                  id="configurator_depth_ly"
+                  name="configurator_depth_ly"
+                  value="<?= e($formData['configurator_depth_ly']) ?>"
+                  inputmode="decimal"
+                  autocomplete="off"
+                  placeholder="Example: 1.125"
+                  data-configurator-toggle
+                />
+                <p class="field-help">Stored for future frame and door calculations.</p>
+                <?php if (!empty($errors['configurator_depth_ly'])): ?>
+                  <p class="field-error"><?= e($errors['configurator_depth_ly']) ?></p>
+                <?php endif; ?>
+              </div>
             </div>
 
             <div class="field">
