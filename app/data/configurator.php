@@ -74,9 +74,15 @@ if (!function_exists('configuratorEnsureSchema')) {
         );
 
         $db->exec(
-            "ALTER TABLE configurator_part_requirements
-                ADD CONSTRAINT IF NOT EXISTS configurator_part_requirements_quantity_check
-                CHECK (quantity > 0)"
+            "DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint WHERE conname = 'configurator_part_requirements_quantity_check'
+                ) THEN
+                    ALTER TABLE configurator_part_requirements
+                        ADD CONSTRAINT configurator_part_requirements_quantity_check CHECK (quantity > 0);
+                END IF;
+            END$$;"
         );
 
         $db->exec(
@@ -118,15 +124,28 @@ if (!function_exists('configuratorEnsureSchema')) {
         );
 
         $db->exec(
-            "ALTER TABLE configurator_configurations
-                ADD CONSTRAINT IF NOT EXISTS configurator_configurations_quantity_check
-                CHECK (quantity > 0)"
+            "DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint WHERE conname = 'configurator_configurations_quantity_check'
+                ) THEN
+                    ALTER TABLE configurator_configurations
+                        ADD CONSTRAINT configurator_configurations_quantity_check CHECK (quantity > 0);
+                END IF;
+            END$$;"
         );
 
         $db->exec(
-            "ALTER TABLE configurator_configurations
-                ADD CONSTRAINT IF NOT EXISTS configurator_configurations_job_scope_check
-                CHECK (job_scope IN ('door_and_frame', 'frame_only', 'door_only'))"
+            "DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint WHERE conname = 'configurator_configurations_job_scope_check'
+                ) THEN
+                    ALTER TABLE configurator_configurations
+                        ADD CONSTRAINT configurator_configurations_job_scope_check
+                        CHECK (job_scope IN ('door_and_frame', 'frame_only', 'door_only'));
+                END IF;
+            END$$;"
         );
 
         $db->exec(

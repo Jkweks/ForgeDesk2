@@ -29,9 +29,15 @@ CREATE TABLE IF NOT EXISTS configurator_part_requirements (
 ALTER TABLE configurator_part_requirements
     ADD COLUMN IF NOT EXISTS quantity INTEGER NOT NULL DEFAULT 1;
 
-ALTER TABLE configurator_part_requirements
-    ADD CONSTRAINT IF NOT EXISTS configurator_part_requirements_quantity_check
-    CHECK (quantity > 0);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'configurator_part_requirements_quantity_check'
+    ) THEN
+        ALTER TABLE configurator_part_requirements
+            ADD CONSTRAINT configurator_part_requirements_quantity_check CHECK (quantity > 0);
+    END IF;
+END$$;
 
 CREATE INDEX IF NOT EXISTS idx_configurator_part_requirements_required
     ON configurator_part_requirements(required_inventory_item_id);
@@ -61,13 +67,26 @@ ALTER TABLE configurator_configurations
 ALTER TABLE configurator_configurations
     ADD COLUMN IF NOT EXISTS quantity INTEGER NOT NULL DEFAULT 1;
 
-ALTER TABLE configurator_configurations
-    ADD CONSTRAINT IF NOT EXISTS configurator_configurations_quantity_check
-    CHECK (quantity > 0);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'configurator_configurations_quantity_check'
+    ) THEN
+        ALTER TABLE configurator_configurations
+            ADD CONSTRAINT configurator_configurations_quantity_check CHECK (quantity > 0);
+    END IF;
+END$$;
 
-ALTER TABLE configurator_configurations
-    ADD CONSTRAINT IF NOT EXISTS configurator_configurations_job_scope_check
-    CHECK (job_scope IN ('door_and_frame', 'frame_only', 'door_only'));
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'configurator_configurations_job_scope_check'
+    ) THEN
+        ALTER TABLE configurator_configurations
+            ADD CONSTRAINT configurator_configurations_job_scope_check
+            CHECK (job_scope IN ('door_and_frame', 'frame_only', 'door_only'));
+    END IF;
+END$$;
 
 CREATE INDEX IF NOT EXISTS idx_configurator_configurations_job_id
     ON configurator_configurations(job_id);
