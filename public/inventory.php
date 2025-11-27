@@ -61,8 +61,73 @@ $suppliers = [];
 $supplierMap = [];
 $configuratorUseOptions = [];
 $configuratorUseMap = [];
+$configuratorUsePaths = [];
 $configuratorRequirementOptions = [];
 $configuratorRequirementMap = [];
+
+/**
+ * Build representative use paths from selected use IDs.
+ *
+ * @param list<int> $selectedUseIds
+ * @param array<int,array{id:int,name:string,parent_id:int|null}> $useMap
+ * @return list<list<int>>
+ */
+function configuratorSelectedUsePaths(array $selectedUseIds, array $useMap): array
+{
+    $selected = [];
+    foreach ($selectedUseIds as $id) {
+        if (isset($useMap[$id])) {
+            $selected[$id] = true;
+        }
+    }
+
+    if ($selected === []) {
+        return [];
+    }
+
+    $hasSelectedDescendant = [];
+
+    foreach (array_keys($selected) as $selectedId) {
+        $current = $useMap[$selectedId]['parent_id'] ?? null;
+        while ($current !== null) {
+            if (!isset($useMap[$current])) {
+                break;
+            }
+
+            if (isset($selected[$current])) {
+                $hasSelectedDescendant[$current] = true;
+            }
+
+            $current = $useMap[$current]['parent_id'] ?? null;
+        }
+    }
+
+    $paths = [];
+
+    foreach (array_keys($selected) as $selectedId) {
+        if (isset($hasSelectedDescendant[$selectedId])) {
+            continue;
+        }
+
+        $path = [];
+        $cursor = $selectedId;
+
+        while (isset($useMap[$cursor])) {
+            array_unshift($path, (int) $cursor);
+            $parentId = $useMap[$cursor]['parent_id'] ?? null;
+            if ($parentId === null || !isset($useMap[$parentId])) {
+                break;
+            }
+            $cursor = $parentId;
+        }
+
+        if ($path !== []) {
+            $paths[] = $path;
+        }
+    }
+
+    return $paths;
+}
 
 foreach ($nav as &$groupItems) {
     foreach ($groupItems as &$item) {
@@ -179,6 +244,9 @@ if ($dbError === null) {
             'configurator_requires' => [],
         ];
 
+        $submittedConfiguratorUsePaths = isset($_POST['configurator_use_paths']) && is_array($_POST['configurator_use_paths'])
+            ? $_POST['configurator_use_paths']
+            : [];
         $submittedConfiguratorUses = isset($_POST['configurator_uses']) && is_array($_POST['configurator_uses'])
             ? array_values(array_unique(array_map('intval', $_POST['configurator_uses'])))
             : [];
@@ -186,10 +254,50 @@ if ($dbError === null) {
             ? $_POST['configurator_requires']
             : [];
 
-        $validConfiguratorUses = array_values(array_filter(
-            $submittedConfiguratorUses,
-            static fn (int $id): bool => isset($configuratorUseMap[$id])
-        ));
+        $validConfiguratorUsePaths = [];
+        if ($submittedConfiguratorUsePaths !== []) {
+            foreach ($submittedConfiguratorUsePaths as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+
+                $path = [];
+                foreach ($row as $value) {
+                    $candidate = trim((string) $value);
+                    if ($candidate === '' || !ctype_digit($candidate)) {
+                        continue;
+                    }
+
+                    $candidateId = (int) $candidate;
+                    if (!isset($configuratorUseMap[$candidateId])) {
+                        continue;
+                    }
+
+                    $path[] = $candidateId;
+                }
+
+                if ($path !== []) {
+                    $validConfiguratorUsePaths[] = $path;
+                }
+            }
+        }
+
+        $validConfiguratorUses = [];
+
+        foreach ($validConfiguratorUsePaths as $path) {
+            foreach ($path as $id) {
+                $validConfiguratorUses[$id] = $id;
+            }
+        }
+
+        if ($validConfiguratorUses === []) {
+            $validConfiguratorUses = array_values(array_filter(
+                $submittedConfiguratorUses,
+                static fn (int $id): bool => isset($configuratorUseMap[$id])
+            ));
+        } else {
+            $validConfiguratorUses = array_values($validConfiguratorUses);
+        }
 
         $validConfiguratorRequires = [];
         $requirementRows = [];
@@ -243,6 +351,9 @@ if ($dbError === null) {
         }
 
         $formData['configurator_uses'] = $validConfiguratorUses;
+        $configuratorUsePaths = $validConfiguratorUsePaths !== []
+            ? $validConfiguratorUsePaths
+            : configuratorSelectedUsePaths($validConfiguratorUses, $configuratorUseMap);
         $formData['configurator_requires'] = $requirementRows;
 
         $submittedSubcategories = isset($_POST['subcategories']) && is_array($_POST['subcategories'])
@@ -333,6 +444,7 @@ if ($dbError === null) {
             $validConfiguratorUses = [];
             $validConfiguratorRequires = [];
             $formData['configurator_uses'] = [];
+            $configuratorUsePaths = [];
             $formData['configurator_requires'] = [];
         } else {
             if (!in_array($configuratorPartTypeRaw, configuratorAllowedPartTypes(), true)) {
@@ -592,6 +704,11 @@ if ($dbError === null) {
                     ];
                 }
 
+                $configuratorUsePaths = configuratorSelectedUsePaths(
+                    $formData['configurator_uses'],
+                    $configuratorUseMap
+                );
+
                 $itemActivity = inventoryLoadItemActivity($db, $editingId, 50);
             } else {
                 $successMessage = null;
@@ -611,6 +728,20 @@ if ($formData['locations'] === []) {
 
 if ($formData['configurator_requires'] === []) {
     $formData['configurator_requires'][] = ['item_id' => '', 'label' => '', 'quantity' => '1'];
+}
+
+if ($configuratorUsePaths === []) {
+    $configuratorUsePaths = configuratorSelectedUsePaths($formData['configurator_uses'], $configuratorUseMap);
+}
+
+$configuratorUseOptionsJson = json_encode($configuratorUseOptions, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+if ($configuratorUseOptionsJson === false) {
+    $configuratorUseOptionsJson = '[]';
+}
+
+$configuratorUsePathsJson = json_encode($configuratorUsePaths, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+if ($configuratorUsePathsJson === false) {
+    $configuratorUsePathsJson = '[]';
 }
 
 if (isset($_GET['success'])) {
@@ -1093,13 +1224,17 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
               </div>
 
               <div class="field">
-                <label for="configurator_uses">Part uses</label>
-                <select id="configurator_uses" name="configurator_uses[]" multiple data-configurator-toggle>
-                  <?php foreach ($configuratorUseOptions as $option): ?>
-                    <option value="<?= e((string) $option['id']) ?>"<?= in_array((int) $option['id'], $formData['configurator_uses'], true) ? ' selected' : '' ?>><?= e($option['name']) ?></option>
-                  <?php endforeach; ?>
-                </select>
-                <p class="field-help">Select all applicable opening types or prep scenarios.</p>
+                <label for="configurator_use_paths">Part uses</label>
+                <div
+                  id="configurator_use_paths"
+                  class="stacked gap-sm"
+                  data-use-path-list
+                  data-configurator-toggle
+                  data-use-options='<?= e($configuratorUseOptionsJson) ?>'
+                  data-initial-paths='<?= e($configuratorUsePathsJson) ?>'
+                ></div>
+                <button type="button" class="button ghost" data-add-use-path data-configurator-toggle>Add use path</button>
+                <p class="field-help">Select cascading use details (for example: Door Hardware → Hinge → Butt Hinge → Heavy Duty).</p>
               </div>
             </div>
 
@@ -1262,6 +1397,12 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
           <button type="button" class="button ghost icon-only" data-remove-location aria-label="Remove location">&times;</button>
         </div>
       </template>
+      <template id="use-path-template">
+        <div class="use-path-row" data-use-path-row>
+          <div class="stacked gap-xs" data-use-levels></div>
+          <button type="button" class="button ghost icon-only" aria-label="Remove use path" data-remove-use-path>&times;</button>
+        </div>
+      </template>
       <template id="requirement-row-template">
         <div class="requirement-row" data-requirement-row>
           <div class="field">
@@ -1306,10 +1447,11 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
 
     const configuratorCheckbox = modal.querySelector('#configurator_enabled');
     const configuratorFieldset = modal.querySelector('[data-configurator-fields]');
-    const configuratorInputs = Array.from(modal.querySelectorAll('[data-configurator-toggle]'));
 
     function syncConfiguratorControls() {
       const isEnabled = configuratorCheckbox instanceof HTMLInputElement && configuratorCheckbox.checked;
+
+      const configuratorInputs = Array.from(modal.querySelectorAll('[data-configurator-toggle]'));
 
       configuratorInputs.forEach((input) => {
         if (input instanceof HTMLInputElement || input instanceof HTMLSelectElement) {
@@ -1618,6 +1760,196 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
 
     if (addButton instanceof HTMLButtonElement) {
       addButton.addEventListener('click', function (event) {
+        event.preventDefault();
+        addRow();
+      });
+    }
+  })();
+
+  (function () {
+    const modal = document.getElementById('inventory-modal');
+    if (!modal) {
+      return;
+    }
+
+    const list = modal.querySelector('[data-use-path-list]');
+    const addButton = modal.querySelector('[data-add-use-path]');
+    const template = document.getElementById('use-path-template');
+
+    if (!(list instanceof HTMLElement) || !(template instanceof HTMLTemplateElement)) {
+      return;
+    }
+
+    const optionsRaw = list.getAttribute('data-use-options') || '[]';
+    const initialPathsRaw = list.getAttribute('data-initial-paths') || '[]';
+
+    let useOptions = [];
+    let initialPaths = [];
+
+    try {
+      useOptions = JSON.parse(optionsRaw);
+    } catch (error) {
+      console.error('Unable to parse configurator use options', error);
+    }
+
+    try {
+      initialPaths = JSON.parse(initialPathsRaw);
+    } catch (error) {
+      console.error('Unable to parse configurator use paths', error);
+    }
+
+    const optionsByParent = new Map();
+
+    useOptions.forEach((option) => {
+      const key = option.parent_id === null ? 'root' : String(option.parent_id);
+      if (!optionsByParent.has(key)) {
+        optionsByParent.set(key, []);
+      }
+      optionsByParent.get(key).push(option);
+    });
+
+    optionsByParent.forEach((options) => {
+      options.sort((a, b) => a.name.localeCompare(b.name));
+    });
+
+    function availableChildren(parentId) {
+      const key = parentId === null ? 'root' : String(parentId);
+      return optionsByParent.get(key) || [];
+    }
+
+    function getRows() {
+      return Array.from(list.querySelectorAll('[data-use-path-row]'));
+    }
+
+    function syncNames() {
+      getRows().forEach((row, rowIndex) => {
+        const selects = Array.from(row.querySelectorAll('select[data-use-level]'));
+        selects.forEach((select) => {
+          select.name = 'configurator_use_paths[' + rowIndex + '][]';
+        });
+      });
+    }
+
+    function appendLevel(levelsContainer, parentId, presetId = null) {
+      const options = availableChildren(parentId);
+      if (options.length === 0) {
+        return null;
+      }
+
+      const select = document.createElement('select');
+      select.setAttribute('data-use-level', '1');
+      select.setAttribute('data-configurator-toggle', 'true');
+
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = parentId === null ? 'Select use' : 'Select detail';
+      select.appendChild(placeholder);
+
+      options.forEach((option) => {
+        const optionNode = document.createElement('option');
+        optionNode.value = String(option.id);
+        optionNode.textContent = option.name;
+        if (presetId !== null && String(option.id) === String(presetId)) {
+          optionNode.selected = true;
+        }
+        select.appendChild(optionNode);
+      });
+
+      select.addEventListener('change', () => {
+        const siblingSelects = Array.from(levelsContainer.querySelectorAll('select[data-use-level]'));
+        const index = siblingSelects.indexOf(select);
+        if (index >= 0) {
+          siblingSelects.slice(index + 1).forEach((node) => node.remove());
+        }
+
+        const chosenId = select.value === '' ? null : parseInt(select.value, 10);
+        if (Number.isFinite(chosenId)) {
+          const children = availableChildren(chosenId);
+          if (children.length > 0) {
+            appendLevel(levelsContainer, chosenId);
+          }
+        }
+
+        syncNames();
+      });
+
+      levelsContainer.appendChild(select);
+      return select;
+    }
+
+    function attachRow(row) {
+      const removeButton = row.querySelector('[data-remove-use-path]');
+      if (removeButton instanceof HTMLButtonElement) {
+        removeButton.addEventListener('click', (event) => {
+          event.preventDefault();
+          const rows = getRows();
+          if (rows.length <= 1) {
+            row.querySelectorAll('select[data-use-level]').forEach((select) => {
+              if (select instanceof HTMLSelectElement) {
+                select.selectedIndex = 0;
+              }
+            });
+            return;
+          }
+
+          row.remove();
+          syncNames();
+        });
+      }
+    }
+
+    function addRow(path = []) {
+      const fragment = template.content.cloneNode(true);
+      list.appendChild(fragment);
+      const rows = getRows();
+      const row = rows[rows.length - 1];
+      if (!row) {
+        return;
+      }
+
+      const levelsContainer = row.querySelector('[data-use-levels]');
+      if (!(levelsContainer instanceof HTMLElement)) {
+        row.remove();
+        return;
+      }
+
+      let currentParent = null;
+
+      if (Array.isArray(path)) {
+        path.forEach((id) => {
+          const selectedId = typeof id === 'number' ? id : parseInt(String(id), 10);
+          const select = appendLevel(levelsContainer, currentParent, Number.isFinite(selectedId) ? selectedId : null);
+          if (select && select.value !== '') {
+            currentParent = parseInt(select.value, 10);
+          }
+        });
+      }
+
+      if (levelsContainer.querySelectorAll('select').length === 0) {
+        appendLevel(levelsContainer, null);
+      } else {
+        const children = availableChildren(currentParent);
+        if (children.length > 0) {
+          appendLevel(levelsContainer, currentParent);
+        }
+      }
+
+      attachRow(row);
+      syncNames();
+    }
+
+    const normalizedPaths = Array.isArray(initialPaths)
+      ? initialPaths.filter((path) => Array.isArray(path) && path.length > 0)
+      : [];
+
+    if (normalizedPaths.length === 0) {
+      addRow();
+    } else {
+      normalizedPaths.forEach((path) => addRow(path));
+    }
+
+    if (addButton instanceof HTMLButtonElement) {
+      addButton.addEventListener('click', (event) => {
         event.preventDefault();
         addRow();
       });

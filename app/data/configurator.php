@@ -36,7 +36,8 @@ if (!function_exists('configuratorEnsureSchema')) {
         $db->exec(
             'CREATE TABLE IF NOT EXISTS configurator_part_use_options (
                 id BIGSERIAL PRIMARY KEY,
-                name TEXT NOT NULL UNIQUE
+                name TEXT NOT NULL UNIQUE,
+                parent_id BIGINT NULL REFERENCES configurator_part_use_options(id) ON DELETE SET NULL
             )'
         );
 
@@ -71,6 +72,16 @@ if (!function_exists('configuratorEnsureSchema')) {
         $db->exec(
             "ALTER TABLE configurator_part_requirements
                 ADD COLUMN IF NOT EXISTS quantity INTEGER NOT NULL DEFAULT 1"
+        );
+
+        $db->exec(
+            "ALTER TABLE configurator_part_use_options
+                ADD COLUMN IF NOT EXISTS parent_id BIGINT NULL REFERENCES configurator_part_use_options(id) ON DELETE SET NULL"
+        );
+
+        $db->exec(
+            "CREATE INDEX IF NOT EXISTS idx_configurator_part_use_options_parent_id
+                ON configurator_part_use_options(parent_id)"
         );
 
         $db->exec(
@@ -163,22 +174,66 @@ if (!function_exists('configuratorEnsureSchema')) {
             )'
         );
 
-        $seed = $db->prepare('INSERT INTO configurator_part_use_options (name) VALUES (:name) ON CONFLICT (name) DO NOTHING');
-        foreach (['Interior Opening', 'Exterior Opening', 'Fire Rated', 'Pair Door', 'Single Door', 'Hardware Set'] as $name) {
-            $seed->execute([':name' => $name]);
+        $seed = $db->prepare(
+            'INSERT INTO configurator_part_use_options (name, parent_id)
+             VALUES (:name, :parent_id)
+             ON CONFLICT (name) DO NOTHING'
+        );
+        $updateParent = $db->prepare(
+            'UPDATE configurator_part_use_options SET parent_id = :parent_id WHERE name = :name'
+        );
+        $parentLookup = $db->prepare(
+            'SELECT id FROM configurator_part_use_options WHERE name = :name'
+        );
+
+        $seedOptions = [
+            ['name' => 'Interior Opening', 'parent' => null],
+            ['name' => 'Exterior Opening', 'parent' => null],
+            ['name' => 'Fire Rated', 'parent' => null],
+            ['name' => 'Pair Door', 'parent' => null],
+            ['name' => 'Single Door', 'parent' => null],
+            ['name' => 'Hardware Set', 'parent' => null],
+            ['name' => 'Door Hardware', 'parent' => null],
+            ['name' => 'Hinge', 'parent' => 'Door Hardware'],
+            ['name' => 'Butt Hinge', 'parent' => 'Hinge'],
+            ['name' => 'Heavy Duty', 'parent' => 'Butt Hinge'],
+        ];
+
+        foreach ($seedOptions as $option) {
+            $parentId = null;
+
+            if ($option['parent'] !== null) {
+                $parentLookup->execute([':name' => $option['parent']]);
+                $parentCandidate = $parentLookup->fetchColumn();
+                if ($parentCandidate !== false) {
+                    $parentId = (int) $parentCandidate;
+                }
+            }
+
+            $seed->execute([
+                ':name' => $option['name'],
+                ':parent_id' => $parentId,
+            ]);
+
+            if ($parentId !== null) {
+                $updateParent->execute([
+                    ':name' => $option['name'],
+                    ':parent_id' => $parentId,
+                ]);
+            }
         }
 
         $ensured = true;
     }
 
     /**
-     * @return list<array{id:int,name:string}>
+     * @return list<array{id:int,name:string,parent_id:int|null}>
      */
     function configuratorListUseOptions(\PDO $db): array
     {
         configuratorEnsureSchema($db);
 
-        $statement = $db->query('SELECT id, name FROM configurator_part_use_options ORDER BY name ASC');
+        $statement = $db->query('SELECT id, name, parent_id FROM configurator_part_use_options ORDER BY name ASC');
         if ($statement === false) {
             return [];
         }
@@ -187,13 +242,14 @@ if (!function_exists('configuratorEnsureSchema')) {
             static fn (array $row): array => [
                 'id' => (int) $row['id'],
                 'name' => (string) $row['name'],
+                'parent_id' => $row['parent_id'] !== null ? (int) $row['parent_id'] : null,
             ],
             $statement->fetchAll()
         );
     }
 
     /**
-     * @return array<int,array{id:int,name:string}>
+     * @return array<int,array{id:int,name:string,parent_id:int|null}>
      */
     function configuratorUseOptionsMap(\PDO $db): array
     {

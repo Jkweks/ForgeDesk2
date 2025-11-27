@@ -467,23 +467,25 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                   </div>
                 </div>
 
-                <div class="field">
-                  <label for="template_door_select">Copy from door tag</label>
-                  <div class="stacked gap-xs">
-                    <select id="template_door_select" name="template_door_select">
-                      <option value="">Select a door tag to copy</option>
-                      <?php foreach ($doorTagTemplates as $template): ?>
-                        <option value="<?= e((string) $template['door_id']) ?>">
-                          <?= e($template['door_tag']) ?> — <?= e($template['configuration_name']) ?><?php if ($template['job_number'] !== null): ?> (Job <?= e($template['job_number']) ?>)<?php endif; ?>
-                        </option>
-                      <?php endforeach; ?>
-                    </select>
-                    <p class="small muted">Loading a door tag will start a new configuration using that tag as the starting point.</p>
-                    <div class="form-actions inline">
-                      <button type="button" class="button ghost" id="template-door-start" aria-label="Copy from selected door tag">Use door tag</button>
+                <?php if (false): ?>
+                  <div class="field">
+                    <label for="template_door_select">Copy from door tag</label>
+                    <div class="stacked gap-xs">
+                      <select id="template_door_select" name="template_door_select">
+                        <option value="">Select a door tag to copy</option>
+                        <?php foreach ($doorTagTemplates as $template): ?>
+                          <option value="<?= e((string) $template['door_id']) ?>">
+                            <?= e($template['door_tag']) ?> — <?= e($template['configuration_name']) ?><?php if ($template['job_number'] !== null): ?> (Job <?= e($template['job_number']) ?>)<?php endif; ?>
+                          </option>
+                        <?php endforeach; ?>
+                      </select>
+                      <p class="small muted">Loading a door tag will start a new configuration using that tag as the starting point.</p>
+                      <div class="form-actions inline">
+                        <button type="button" class="button ghost" id="template-door-start" aria-label="Copy from selected door tag">Use door tag</button>
+                      </div>
                     </div>
                   </div>
-                </div>
+                <?php endif; ?>
 
                 <div class="form-actions">
                   <button type="submit" class="button primary">Save configuration</button>
@@ -575,49 +577,51 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
         </div>
       </section>
 
-      <section class="panel">
-        <header class="panel-header">
-          <div>
-            <h2>Door tags</h2>
-            <p class="small">Reuse existing door tags to start a new configuration without rebuilding from scratch.</p>
-          </div>
-        </header>
+      <?php if (false): ?>
+        <section class="panel">
+          <header class="panel-header">
+            <div>
+              <h2>Door tags</h2>
+              <p class="small">Reuse existing door tags to start a new configuration without rebuilding from scratch.</p>
+            </div>
+          </header>
 
-        <?php if ($doorTagTemplates === []): ?>
-          <p class="muted">No door tags are available yet. Add tags to a configuration to unlock copying.</p>
-        <?php else: ?>
-          <div class="table-wrapper">
-            <table class="table">
-              <thead>
-                <tr>
-                  <th scope="col">Door Tag</th>
-                  <th scope="col">Configuration</th>
-                  <th scope="col">Job</th>
-                  <th scope="col">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                <?php foreach ($doorTagTemplates as $template): ?>
+          <?php if ($doorTagTemplates === []): ?>
+            <p class="muted">No door tags are available yet. Add tags to a configuration to unlock copying.</p>
+          <?php else: ?>
+            <div class="table-wrapper">
+              <table class="table">
+                <thead>
                   <tr>
-                    <td><?= e($template['door_tag']) ?></td>
-                    <td><?= e($template['configuration_name']) ?></td>
-                    <td>
-                      <?php if ($template['job_number'] !== null): ?>
-                        <?= e($template['job_number']) ?>
-                      <?php else: ?>
-                        <span class="muted">Unassigned</span>
-                      <?php endif; ?>
-                    </td>
-                    <td>
-                      <a class="button ghost" href="configurator.php?create=1&step=configuration&template_door_id=<?= e((string) $template['door_id']) ?>">Start from tag</a>
-                    </td>
+                    <th scope="col">Door Tag</th>
+                    <th scope="col">Configuration</th>
+                    <th scope="col">Job</th>
+                    <th scope="col">Action</th>
                   </tr>
-                <?php endforeach; ?>
-              </tbody>
-            </table>
-          </div>
-        <?php endif; ?>
-      </section>
+                </thead>
+                <tbody>
+                  <?php foreach ($doorTagTemplates as $template): ?>
+                    <tr>
+                      <td><?= e($template['door_tag']) ?></td>
+                      <td><?= e($template['configuration_name']) ?></td>
+                      <td>
+                        <?php if ($template['job_number'] !== null): ?>
+                          <?= e($template['job_number']) ?>
+                        <?php else: ?>
+                          <span class="muted">Unassigned</span>
+                        <?php endif; ?>
+                      </td>
+                      <td>
+                        <a class="button ghost" href="configurator.php?create=1&step=configuration&template_door_id=<?= e((string) $template['door_id']) ?>">Start from tag</a>
+                      </td>
+                    </tr>
+                  <?php endforeach; ?>
+                </tbody>
+              </table>
+            </div>
+          <?php endif; ?>
+        </section>
+      <?php endif; ?>
 
       <section class="panel">
         <header class="panel-header">
