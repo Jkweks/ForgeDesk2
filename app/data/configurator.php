@@ -29,14 +29,14 @@ if (!function_exists('configuratorEnsureSchema')) {
         );
 
         $db->exec(
-            'CREATE TABLE IF NOT EXISTS configurator_part_profiles (
+            "CREATE TABLE IF NOT EXISTS configurator_part_profiles (
                 inventory_item_id BIGINT PRIMARY KEY REFERENCES inventory_items(id) ON DELETE CASCADE,
                 is_enabled BOOLEAN NOT NULL DEFAULT FALSE,
                 part_type TEXT NULL,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 CONSTRAINT configurator_part_profiles_part_type_check
-                    CHECK (part_type IS NULL OR part_type IN (''door'', ''frame'', ''hardware'', ''accessory''))
-            )'
+                    CHECK (part_type IS NULL OR part_type IN ('door', 'frame', 'hardware', 'accessory'))
+            )"
         );
 
         $db->exec(
@@ -70,15 +70,15 @@ if (!function_exists('configuratorEnsureSchema')) {
         );
 
         $db->exec(
-            'CREATE TABLE IF NOT EXISTS configurator_configurations (
+            "CREATE TABLE IF NOT EXISTS configurator_configurations (
                 id BIGSERIAL PRIMARY KEY,
                 name TEXT NOT NULL,
                 job_id BIGINT NULL REFERENCES configurator_jobs(id) ON DELETE SET NULL,
-                status TEXT NOT NULL DEFAULT ''draft'',
+                status TEXT NOT NULL DEFAULT 'draft',
                 notes TEXT NULL,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )'
+            )"
         );
 
         $db->exec(
