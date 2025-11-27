@@ -38,6 +38,31 @@ $entryFormData = [
     'opening' => '',
     'notes' => '',
 ];
+$frameFormData = [
+    'material' => 'aluminum',
+    'profile' => 'narrow',
+    'anchor_type' => 'screw_anchor',
+    'head_condition' => 'standard_head',
+    'sill_condition' => 'standard_sill',
+    'notes' => '',
+];
+$doorFormData = [
+    'door_type' => 'aluminum_stile',
+    'thickness' => '1-3/4"',
+    'core' => 'honeycomb',
+    'lite_kit' => 'half_lite',
+    'bottom_rail' => 'standard',
+    'notes' => '',
+];
+$hardwareFormData = [
+    'set_name' => 'Standard',
+    'hinge_prep' => 'template_hinge',
+    'strike_prep' => 'asa_strike',
+    'closer' => 'surface',
+    'electrified' => 'no',
+    'notes' => '',
+];
+$summaryNotes = '';
 $openingTypeOptions = [
     'single' => 'Single',
     'pair' => 'Pair',
@@ -62,6 +87,81 @@ $glazingOptions = [
 $transomOptions = [
     'yes' => 'Yes',
     'no' => 'No',
+];
+$frameMaterialOptions = [
+    'aluminum' => 'Aluminum',
+    'steel' => 'Steel',
+    'wood' => 'Wood',
+];
+$frameProfileOptions = [
+    'narrow' => 'Narrow stile',
+    'medium' => 'Medium stile',
+    'wide' => 'Wide stile',
+];
+$frameAnchorOptions = [
+    'screw_anchor' => 'Screw anchor',
+    'expansion_bolt' => 'Expansion bolt',
+    'weld_plate' => 'Weld plate',
+];
+$headConditionOptions = [
+    'standard_head' => 'Standard head',
+    'transom_head' => 'Transom prep',
+    'sidelite_head' => 'Sidelite head',
+];
+$sillConditionOptions = [
+    'standard_sill' => 'Standard sill',
+    'threshold' => 'Threshold',
+    'no_sill' => 'No sill',
+];
+$doorTypeOptions = [
+    'aluminum_stile' => 'Aluminum stile',
+    'hollow_metal' => 'Hollow metal',
+    'storefront_panel' => 'Storefront panel',
+];
+$doorThicknessOptions = [
+    '1-3/4"' => '1-3/4"',
+    '2-1/4"' => '2-1/4"',
+];
+$doorCoreOptions = [
+    'honeycomb' => 'Honeycomb',
+    'polystyrene' => 'Polystyrene',
+    'aluminum' => 'Aluminum infill',
+];
+$liteKitOptions = [
+    'half_lite' => 'Half lite',
+    'full_lite' => 'Full lite',
+    'narrow_lite' => 'Narrow lite',
+    'none' => 'No lite',
+];
+$bottomRailOptions = [
+    'standard' => 'Standard rail',
+    '10_inch' => '10" ADA rail',
+    'plank' => 'Plank style',
+];
+$hardwareSetOptions = [
+    'Standard' => 'Standard template',
+    'Grade 1' => 'Grade 1 heavy duty',
+    'Custom' => 'Custom prep',
+];
+$hingePrepOptions = [
+    'template_hinge' => 'Template hinge',
+    'continuous' => 'Continuous hinge',
+    'pivot' => 'Pivot set',
+];
+$strikePrepOptions = [
+    'asa_strike' => 'ASA strike',
+    'cylindrical' => 'Cylindrical',
+    'mortise' => 'Mortise prep',
+];
+$closerOptions = [
+    'surface' => 'Surface closer',
+    'concealed' => 'Concealed closer',
+    'none' => 'No closer',
+];
+$electrifiedOptions = [
+    'no' => 'No electrified hardware',
+    'prewire' => 'Prewire and conduit',
+    'fully_prepped' => 'Fully prepped',
 ];
 $editingConfigId = null;
 $builderSteps = [
@@ -175,6 +275,97 @@ if ($dbError === null) {
         $entryFormData['notes'] = isset($_POST['entry_notes'])
             ? trim((string) $_POST['entry_notes'])
             : $entryFormData['notes'];
+
+        $frameMaterialRaw = $_POST['frame_material'] ?? null;
+        if ($frameMaterialRaw !== null && array_key_exists($frameMaterialRaw, $frameMaterialOptions)) {
+            $frameFormData['material'] = (string) $frameMaterialRaw;
+        }
+
+        $frameProfileRaw = $_POST['frame_profile'] ?? null;
+        if ($frameProfileRaw !== null && array_key_exists($frameProfileRaw, $frameProfileOptions)) {
+            $frameFormData['profile'] = (string) $frameProfileRaw;
+        }
+
+        $frameAnchorRaw = $_POST['frame_anchor_type'] ?? null;
+        if ($frameAnchorRaw !== null && array_key_exists($frameAnchorRaw, $frameAnchorOptions)) {
+            $frameFormData['anchor_type'] = (string) $frameAnchorRaw;
+        }
+
+        $frameHeadRaw = $_POST['frame_head_condition'] ?? null;
+        if ($frameHeadRaw !== null && array_key_exists($frameHeadRaw, $headConditionOptions)) {
+            $frameFormData['head_condition'] = (string) $frameHeadRaw;
+        }
+
+        $frameSillRaw = $_POST['frame_sill_condition'] ?? null;
+        if ($frameSillRaw !== null && array_key_exists($frameSillRaw, $sillConditionOptions)) {
+            $frameFormData['sill_condition'] = (string) $frameSillRaw;
+        }
+
+        $frameFormData['notes'] = isset($_POST['frame_notes'])
+            ? trim((string) $_POST['frame_notes'])
+            : $frameFormData['notes'];
+
+        $doorTypeRaw = $_POST['door_type'] ?? null;
+        if ($doorTypeRaw !== null && array_key_exists($doorTypeRaw, $doorTypeOptions)) {
+            $doorFormData['door_type'] = (string) $doorTypeRaw;
+        }
+
+        $doorThicknessRaw = $_POST['door_thickness'] ?? null;
+        if ($doorThicknessRaw !== null && array_key_exists($doorThicknessRaw, $doorThicknessOptions)) {
+            $doorFormData['thickness'] = (string) $doorThicknessRaw;
+        }
+
+        $doorCoreRaw = $_POST['door_core'] ?? null;
+        if ($doorCoreRaw !== null && array_key_exists($doorCoreRaw, $doorCoreOptions)) {
+            $doorFormData['core'] = (string) $doorCoreRaw;
+        }
+
+        $liteKitRaw = $_POST['door_lite_kit'] ?? null;
+        if ($liteKitRaw !== null && array_key_exists($liteKitRaw, $liteKitOptions)) {
+            $doorFormData['lite_kit'] = (string) $liteKitRaw;
+        }
+
+        $bottomRailRaw = $_POST['door_bottom_rail'] ?? null;
+        if ($bottomRailRaw !== null && array_key_exists($bottomRailRaw, $bottomRailOptions)) {
+            $doorFormData['bottom_rail'] = (string) $bottomRailRaw;
+        }
+
+        $doorFormData['notes'] = isset($_POST['door_notes'])
+            ? trim((string) $_POST['door_notes'])
+            : $doorFormData['notes'];
+
+        $hardwareSetRaw = $_POST['hardware_set'] ?? null;
+        if ($hardwareSetRaw !== null && array_key_exists($hardwareSetRaw, $hardwareSetOptions)) {
+            $hardwareFormData['set_name'] = (string) $hardwareSetRaw;
+        }
+
+        $hingePrepRaw = $_POST['hardware_hinge_prep'] ?? null;
+        if ($hingePrepRaw !== null && array_key_exists($hingePrepRaw, $hingePrepOptions)) {
+            $hardwareFormData['hinge_prep'] = (string) $hingePrepRaw;
+        }
+
+        $strikePrepRaw = $_POST['hardware_strike_prep'] ?? null;
+        if ($strikePrepRaw !== null && array_key_exists($strikePrepRaw, $strikePrepOptions)) {
+            $hardwareFormData['strike_prep'] = (string) $strikePrepRaw;
+        }
+
+        $closerRaw = $_POST['hardware_closer'] ?? null;
+        if ($closerRaw !== null && array_key_exists($closerRaw, $closerOptions)) {
+            $hardwareFormData['closer'] = (string) $closerRaw;
+        }
+
+        $electrifiedRaw = $_POST['hardware_electrified'] ?? null;
+        if ($electrifiedRaw !== null && array_key_exists($electrifiedRaw, $electrifiedOptions)) {
+            $hardwareFormData['electrified'] = (string) $electrifiedRaw;
+        }
+
+        $hardwareFormData['notes'] = isset($_POST['hardware_notes'])
+            ? trim((string) $_POST['hardware_notes'])
+            : $hardwareFormData['notes'];
+
+        $summaryNotes = isset($_POST['summary_notes'])
+            ? trim((string) $_POST['summary_notes'])
+            : $summaryNotes;
 
         if ($action === 'create_job') {
             $jobNumber = trim((string) ($_POST['job_number'] ?? ''));
@@ -297,6 +488,8 @@ if ($dbError === null) {
                     $errors['general'] = 'Unable to save configuration: ' . $exception->getMessage();
                 }
             }
+        } elseif (in_array($action, ['stage_entry', 'stage_frame', 'stage_door', 'stage_hardware', 'stage_summary'], true)) {
+            $successMessage = 'Step details recorded for this session. Saving to the database will follow in a future update.';
         }
     } elseif (isset($_GET['id']) && ctype_digit((string) $_GET['id'])) {
         $editingConfigId = (int) $_GET['id'];
@@ -563,7 +756,9 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                 </div>
               </form>
             <?php elseif ($currentStep === 'entry'): ?>
-              <div class="card">
+              <form method="post" class="form" novalidate>
+                <input type="hidden" name="action" value="stage_entry" />
+                <input type="hidden" name="builder_step" value="entry" />
                 <div class="field-grid two-column">
                   <div class="field">
                     <label for="entry_opening_type">Opening type</label>
@@ -630,11 +825,251 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                   <textarea id="entry_notes" name="entry_notes" rows="3" placeholder="List elevation details, head heights, and any unique conditions."><?= e($entryFormData['notes']) ?></textarea>
                 </div>
                 <p class="small muted">These entry details are staged for the workflow and will be wired into persistence and calculations in a follow-up update.</p>
-              </div>
-            <?php else: ?>
-              <div class="card muted">
-                <p class="small">This step will capture <?= e(strtolower($builderSteps[array_search($currentStep, $stepIds, true)]['label'] ?? 'additional')) ?> details. Content for this stage is coming in the next update.</p>
-              </div>
+                <div class="form-actions">
+                  <button type="submit" class="button secondary" name="builder_step" value="configuration">Save entry data</button>
+                  <button type="submit" class="button primary" name="builder_step" value="frame">Continue to frame data</button>
+                </div>
+              </form>
+            <?php elseif ($currentStep === 'frame'): ?>
+              <form method="post" class="form" novalidate>
+                <input type="hidden" name="action" value="stage_frame" />
+                <input type="hidden" name="builder_step" value="frame" />
+                <div class="field-grid two-column">
+                  <div class="field">
+                    <label for="frame_material">Frame material</label>
+                    <select id="frame_material" name="frame_material">
+                      <?php foreach ($frameMaterialOptions as $value => $label): ?>
+                        <option value="<?= e($value) ?>"<?= $frameFormData['material'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="frame_profile">Frame profile</label>
+                    <select id="frame_profile" name="frame_profile">
+                      <?php foreach ($frameProfileOptions as $value => $label): ?>
+                        <option value="<?= e($value) ?>"<?= $frameFormData['profile'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="field-grid two-column">
+                  <div class="field">
+                    <label for="frame_anchor_type">Anchor type</label>
+                    <select id="frame_anchor_type" name="frame_anchor_type">
+                      <?php foreach ($frameAnchorOptions as $value => $label): ?>
+                        <option value="<?= e($value) ?>"<?= $frameFormData['anchor_type'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="frame_head_condition">Head condition</label>
+                    <select id="frame_head_condition" name="frame_head_condition">
+                      <?php foreach ($headConditionOptions as $value => $label): ?>
+                        <option value="<?= e($value) ?>"<?= $frameFormData['head_condition'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="field-grid two-column">
+                  <div class="field">
+                    <label for="frame_sill_condition">Sill condition</label>
+                    <select id="frame_sill_condition" name="frame_sill_condition">
+                      <?php foreach ($sillConditionOptions as $value => $label): ?>
+                        <option value="<?= e($value) ?>"<?= $frameFormData['sill_condition'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="frame_notes">Frame notes</label>
+                    <textarea id="frame_notes" name="frame_notes" rows="3" placeholder="Anchors, shims, and reinforcing details."><?= e($frameFormData['notes']) ?></textarea>
+                  </div>
+                </div>
+                <p class="small muted">Use this stage to outline frame makeup and installation needs. These values will map to frame part selection and cut lists.</p>
+                <div class="form-actions">
+                  <button type="submit" class="button secondary" name="builder_step" value="entry">Back to entry</button>
+                  <button type="submit" class="button primary" name="builder_step" value="door">Continue to door data</button>
+                </div>
+              </form>
+            <?php elseif ($currentStep === 'door'): ?>
+              <form method="post" class="form" novalidate>
+                <input type="hidden" name="action" value="stage_door" />
+                <input type="hidden" name="builder_step" value="door" />
+                <div class="field-grid two-column">
+                  <div class="field">
+                    <label for="door_type">Door type</label>
+                    <select id="door_type" name="door_type">
+                      <?php foreach ($doorTypeOptions as $value => $label): ?>
+                        <option value="<?= e($value) ?>"<?= $doorFormData['door_type'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="door_thickness">Door thickness</label>
+                    <select id="door_thickness" name="door_thickness">
+                      <?php foreach ($doorThicknessOptions as $value => $label): ?>
+                        <option value="<?= e($value) ?>"<?= $doorFormData['thickness'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="field-grid two-column">
+                  <div class="field">
+                    <label for="door_core">Core</label>
+                    <select id="door_core" name="door_core">
+                      <?php foreach ($doorCoreOptions as $value => $label): ?>
+                        <option value="<?= e($value) ?>"<?= $doorFormData['core'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="door_lite_kit">Lite kit</label>
+                    <select id="door_lite_kit" name="door_lite_kit">
+                      <?php foreach ($liteKitOptions as $value => $label): ?>
+                        <option value="<?= e($value) ?>"<?= $doorFormData['lite_kit'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="field-grid two-column">
+                  <div class="field">
+                    <label for="door_bottom_rail">Bottom rail</label>
+                    <select id="door_bottom_rail" name="door_bottom_rail">
+                      <?php foreach ($bottomRailOptions as $value => $label): ?>
+                        <option value="<?= e($value) ?>"<?= $doorFormData['bottom_rail'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="door_notes">Door notes</label>
+                    <textarea id="door_notes" name="door_notes" rows="3" placeholder="Rail sizes, stiles, reinforcing, or glazing callouts."><?= e($doorFormData['notes']) ?></textarea>
+                  </div>
+                </div>
+                <p class="small muted">Outline the leaf construction to drive BOM selection. Preps and lite kits will guide required components.</p>
+                <div class="form-actions">
+                  <button type="submit" class="button secondary" name="builder_step" value="frame">Back to frame</button>
+                  <button type="submit" class="button primary" name="builder_step" value="hardware">Continue to hardware</button>
+                </div>
+              </form>
+            <?php elseif ($currentStep === 'hardware'): ?>
+              <form method="post" class="form" novalidate>
+                <input type="hidden" name="action" value="stage_hardware" />
+                <input type="hidden" name="builder_step" value="hardware" />
+                <div class="field-grid two-column">
+                  <div class="field">
+                    <label for="hardware_set">Hardware set</label>
+                    <select id="hardware_set" name="hardware_set">
+                      <?php foreach ($hardwareSetOptions as $value => $label): ?>
+                        <option value="<?= e($value) ?>"<?= $hardwareFormData['set_name'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="hardware_hinge_prep">Hinge prep</label>
+                    <select id="hardware_hinge_prep" name="hardware_hinge_prep">
+                      <?php foreach ($hingePrepOptions as $value => $label): ?>
+                        <option value="<?= e($value) ?>"<?= $hardwareFormData['hinge_prep'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="field-grid two-column">
+                  <div class="field">
+                    <label for="hardware_strike_prep">Strike prep</label>
+                    <select id="hardware_strike_prep" name="hardware_strike_prep">
+                      <?php foreach ($strikePrepOptions as $value => $label): ?>
+                        <option value="<?= e($value) ?>"<?= $hardwareFormData['strike_prep'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="hardware_closer">Closer</label>
+                    <select id="hardware_closer" name="hardware_closer">
+                      <?php foreach ($closerOptions as $value => $label): ?>
+                        <option value="<?= e($value) ?>"<?= $hardwareFormData['closer'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="field-grid two-column">
+                  <div class="field">
+                    <label for="hardware_electrified">Electrified hardware</label>
+                    <select id="hardware_electrified" name="hardware_electrified">
+                      <?php foreach ($electrifiedOptions as $value => $label): ?>
+                        <option value="<?= e($value) ?>"<?= $hardwareFormData['electrified'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="hardware_notes">Hardware notes</label>
+                    <textarea id="hardware_notes" name="hardware_notes" rows="3" placeholder="Handing, power transfers, or security devices."><?= e($hardwareFormData['notes']) ?></textarea>
+                  </div>
+                </div>
+                <p class="small muted">Hardware selections will drive preps and required parts lists. Use notes to call out special conditions.</p>
+                <div class="form-actions">
+                  <button type="submit" class="button secondary" name="builder_step" value="door">Back to door</button>
+                  <button type="submit" class="button primary" name="builder_step" value="summary">Continue to summary</button>
+                </div>
+              </form>
+            <?php elseif ($currentStep === 'summary'): ?>
+              <form method="post" class="form" novalidate>
+                <input type="hidden" name="action" value="stage_summary" />
+                <input type="hidden" name="builder_step" value="summary" />
+                <div class="card-grid two-column">
+                  <div class="card">
+                    <h3>Entry overview</h3>
+                    <ul class="stacked gap-xs">
+                      <li><strong>Opening type:</strong> <?= e($openingTypeOptions[$entryFormData['opening_type']] ?? $entryFormData['opening_type']) ?></li>
+                      <li><strong>Hand:</strong> <?= e($entryFormData['opening_type'] === 'pair' ? ($handOptionsPair[$entryFormData['hand_pair']] ?? $entryFormData['hand_pair']) : ($handOptionsSingle[$entryFormData['hand_single']] ?? $entryFormData['hand_single'])) ?></li>
+                      <li><strong>Glazing:</strong> <?= e($entryFormData['door_glazing']) ?></li>
+                      <li><strong>Transom:</strong> <?= e($transomOptions[$entryFormData['transom']] ?? $entryFormData['transom']) ?></li>
+                      <li><strong>Transom glazing:</strong> <?= e($entryFormData['transom'] === 'yes' ? ($entryFormData['transom_glazing'] ?? '') : 'N/A') ?></li>
+                      <li><strong>Elevation:</strong> <?= e($entryFormData['elevation'] !== '' ? $entryFormData['elevation'] : 'TBD') ?></li>
+                      <li><strong>Opening location:</strong> <?= e($entryFormData['opening'] !== '' ? $entryFormData['opening'] : 'TBD') ?></li>
+                    </ul>
+                  </div>
+                  <div class="card">
+                    <h3>Frame and door</h3>
+                    <ul class="stacked gap-xs">
+                      <li><strong>Frame:</strong> <?= e($frameMaterialOptions[$frameFormData['material']] ?? $frameFormData['material']) ?> · <?= e($frameProfileOptions[$frameFormData['profile']] ?? $frameFormData['profile']) ?></li>
+                      <li><strong>Anchorage:</strong> <?= e($frameAnchorOptions[$frameFormData['anchor_type']] ?? $frameFormData['anchor_type']) ?></li>
+                      <li><strong>Head:</strong> <?= e($headConditionOptions[$frameFormData['head_condition']] ?? $frameFormData['head_condition']) ?></li>
+                      <li><strong>Sill:</strong> <?= e($sillConditionOptions[$frameFormData['sill_condition']] ?? $frameFormData['sill_condition']) ?></li>
+                      <li><strong>Door:</strong> <?= e($doorTypeOptions[$doorFormData['door_type']] ?? $doorFormData['door_type']) ?> · <?= e($doorFormData['thickness']) ?> · <?= e($doorCoreOptions[$doorFormData['core']] ?? $doorFormData['core']) ?></li>
+                      <li><strong>Lite kit:</strong> <?= e($liteKitOptions[$doorFormData['lite_kit']] ?? $doorFormData['lite_kit']) ?></li>
+                      <li><strong>Bottom rail:</strong> <?= e($bottomRailOptions[$doorFormData['bottom_rail']] ?? $doorFormData['bottom_rail']) ?></li>
+                    </ul>
+                  </div>
+                </div>
+
+                <div class="card-grid two-column">
+                  <div class="card">
+                    <h3>Hardware</h3>
+                    <ul class="stacked gap-xs">
+                      <li><strong>Set:</strong> <?= e($hardwareFormData['set_name']) ?></li>
+                      <li><strong>Hinge prep:</strong> <?= e($hingePrepOptions[$hardwareFormData['hinge_prep']] ?? $hardwareFormData['hinge_prep']) ?></li>
+                      <li><strong>Strike prep:</strong> <?= e($strikePrepOptions[$hardwareFormData['strike_prep']] ?? $hardwareFormData['strike_prep']) ?></li>
+                      <li><strong>Closer:</strong> <?= e($closerOptions[$hardwareFormData['closer']] ?? $hardwareFormData['closer']) ?></li>
+                      <li><strong>Electrified:</strong> <?= e($electrifiedOptions[$hardwareFormData['electrified']] ?? $hardwareFormData['electrified']) ?></li>
+                    </ul>
+                  </div>
+                  <div class="card">
+                    <h3>Notes</h3>
+                    <p class="small muted">These notes help the team visualize outstanding questions before we wire persistence and BOM calculations.</p>
+                    <textarea name="summary_notes" rows="6" placeholder="Document open items or approvals needed."><?= e($summaryNotes) ?></textarea>
+                  </div>
+                </div>
+                <div class="form-actions">
+                  <button type="submit" class="button secondary" name="builder_step" value="hardware">Back to hardware</button>
+                  <a class="button ghost" href="configurator.php">Return to list</a>
+                  <button type="submit" class="button primary" name="builder_step" value="summary">Acknowledge summary</button>
+                </div>
+              </form>
             <?php endif; ?>
           </section>
         <?php endif; ?>

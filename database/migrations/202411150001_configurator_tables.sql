@@ -33,6 +33,26 @@ CREATE TABLE IF NOT EXISTS configurator_part_requirements (
     PRIMARY KEY (inventory_item_id, required_inventory_item_id)
 );
 
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'configurator_part_use_links' AND column_name = 'id'
+    ) THEN
+        ALTER TABLE configurator_part_use_links ADD COLUMN id BIGSERIAL;
+    END IF;
+END$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'configurator_part_requirements' AND column_name = 'id'
+    ) THEN
+        ALTER TABLE configurator_part_requirements ADD COLUMN id BIGSERIAL;
+    END IF;
+END$$;
+
 ALTER TABLE configurator_part_requirements
     ADD COLUMN IF NOT EXISTS quantity INTEGER NOT NULL DEFAULT 1;
 
@@ -47,6 +67,12 @@ ALTER TABLE configurator_part_profiles
 
 CREATE INDEX IF NOT EXISTS idx_configurator_part_use_options_parent_id
     ON configurator_part_use_options(parent_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_configurator_part_use_links_id
+    ON configurator_part_use_links(id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_configurator_part_requirements_id
+    ON configurator_part_requirements(id);
 
 DO $$
 BEGIN

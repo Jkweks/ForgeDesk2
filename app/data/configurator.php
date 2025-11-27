@@ -76,6 +76,30 @@ if (!function_exists('configuratorEnsureSchema')) {
         );
 
         $db->exec(
+            "DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'configurator_part_use_links' AND column_name = 'id'
+                ) THEN
+                    ALTER TABLE configurator_part_use_links ADD COLUMN id BIGSERIAL;
+                END IF;
+            END$$;"
+        );
+
+        $db->exec(
+            "DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'configurator_part_requirements' AND column_name = 'id'
+                ) THEN
+                    ALTER TABLE configurator_part_requirements ADD COLUMN id BIGSERIAL;
+                END IF;
+            END$$;"
+        );
+
+        $db->exec(
             "ALTER TABLE configurator_part_requirements
                 ADD COLUMN IF NOT EXISTS quantity INTEGER NOT NULL DEFAULT 1"
         );
@@ -88,6 +112,16 @@ if (!function_exists('configuratorEnsureSchema')) {
         $db->exec(
             "CREATE INDEX IF NOT EXISTS idx_configurator_part_use_options_parent_id
                 ON configurator_part_use_options(parent_id)"
+        );
+
+        $db->exec(
+            'CREATE UNIQUE INDEX IF NOT EXISTS idx_configurator_part_use_links_id
+                ON configurator_part_use_links(id)'
+        );
+
+        $db->exec(
+            'CREATE UNIQUE INDEX IF NOT EXISTS idx_configurator_part_requirements_id
+                ON configurator_part_requirements(id)'
         );
 
         $db->exec(

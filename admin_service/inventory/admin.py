@@ -355,3 +355,74 @@ class MaintenanceRecordAdmin(admin.ModelAdmin):
     autocomplete_fields = ("machine", "task")
     date_hierarchy = "performed_at"
     ordering = ("-performed_at", "-created_at")
+
+
+@admin.register(models.ConfiguratorPartUseOption)
+class ConfiguratorPartUseOptionAdmin(admin.ModelAdmin):
+    list_display = ("name", "parent")
+    search_fields = ("name",)
+    autocomplete_fields = ("parent",)
+    ordering = ("name",)
+
+
+@admin.register(models.ConfiguratorPartProfile)
+class ConfiguratorPartProfileAdmin(admin.ModelAdmin):
+    list_display = ("inventory_item", "is_enabled", "part_type", "height_lz", "depth_ly", "created_at")
+    list_filter = ("is_enabled", "part_type")
+    search_fields = ("inventory_item__item", "inventory_item__sku", "part_type")
+    autocomplete_fields = ("inventory_item",)
+    readonly_fields = ("created_at",)
+
+
+@admin.register(models.ConfiguratorPartUseLink)
+class ConfiguratorPartUseLinkAdmin(admin.ModelAdmin):
+    list_display = ("inventory_item", "use_option")
+    search_fields = ("inventory_item__item", "inventory_item__sku", "use_option__name")
+    autocomplete_fields = ("inventory_item", "use_option")
+    ordering = ("inventory_item", "use_option")
+
+
+@admin.register(models.ConfiguratorPartRequirement)
+class ConfiguratorPartRequirementAdmin(admin.ModelAdmin):
+    list_display = ("inventory_item", "required_inventory_item", "quantity")
+    search_fields = (
+        "inventory_item__item",
+        "inventory_item__sku",
+        "required_inventory_item__item",
+        "required_inventory_item__sku",
+    )
+    autocomplete_fields = ("inventory_item", "required_inventory_item")
+    ordering = ("inventory_item", "required_inventory_item")
+
+
+class ConfiguratorDoorInline(admin.TabularInline):
+    model = models.ConfiguratorConfigurationDoor
+    extra = 0
+    autocomplete_fields = ("configuration",)
+
+
+@admin.register(models.ConfiguratorConfiguration)
+class ConfiguratorConfigurationAdmin(admin.ModelAdmin):
+    list_display = ("name", "job", "job_scope", "quantity", "status", "updated_at")
+    list_filter = ("job_scope", "status")
+    search_fields = ("name", "job__job_number", "job__name", "notes")
+    autocomplete_fields = ("job",)
+    readonly_fields = ("created_at", "updated_at")
+    inlines = [ConfiguratorDoorInline]
+    ordering = ("-updated_at", "name")
+
+
+@admin.register(models.ConfiguratorJob)
+class ConfiguratorJobAdmin(admin.ModelAdmin):
+    list_display = ("job_number", "name", "created_at")
+    search_fields = ("job_number", "name")
+    ordering = ("-created_at", "job_number")
+    readonly_fields = ("created_at",)
+
+
+@admin.register(models.ConfiguratorConfigurationDoor)
+class ConfiguratorConfigurationDoorAdmin(admin.ModelAdmin):
+    list_display = ("door_tag", "configuration", "created_at")
+    search_fields = ("door_tag", "configuration__name", "configuration__job__job_number")
+    autocomplete_fields = ("configuration",)
+    ordering = ("door_tag",)

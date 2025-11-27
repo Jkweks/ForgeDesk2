@@ -239,6 +239,7 @@ Agents MUST:
 - Follow existing patterns
 - Document ambiguous assumptions in comments
 - Make sure all database tables etc are available in Django Admin
+- Register every new database table (including configurator tables) in the Django admin app, even if the client UI does not surface them yet
 
 ---
 
