@@ -3,6 +3,43 @@
 declare(strict_types=1);
 
 /**
+ * @return array<int,array{id:int,name:string}>
+ */
+function maintenanceMachineTypesList(\PDO $db): array
+{
+    $sql = 'SELECT id, name FROM maintenance_machine_types ORDER BY name ASC';
+    $statement = $db->query($sql);
+
+    return array_map(
+        static fn (array $row): array => [
+            'id' => (int) $row['id'],
+            'name' => (string) $row['name'],
+        ],
+        $statement->fetchAll()
+    );
+}
+
+function maintenanceMachineTypeEnsure(\PDO $db, string $name): int
+{
+    $normalized = trim($name);
+    if ($normalized === '') {
+        throw new InvalidArgumentException('Machine type name cannot be empty.');
+    }
+
+    $sql = <<<SQL
+        INSERT INTO maintenance_machine_types (name)
+        VALUES (:name)
+        ON CONFLICT (name) DO UPDATE SET updated_at = NOW()
+        RETURNING id
+    SQL;
+
+    $statement = $db->prepare($sql);
+    $statement->execute(['name' => $normalized]);
+
+    return (int) $statement->fetchColumn();
+}
+
+/**
  * @return array<int,array<string,mixed>>
  */
 function maintenanceMachineList(\PDO $db): array
@@ -10,10 +47,12 @@ function maintenanceMachineList(\PDO $db): array
     $sql = <<<SQL
         SELECT
             m.*,
+            mt.name AS machine_type_name,
             COALESCE(task_counts.task_count, 0) AS task_count,
             latest.performed_at AS last_service_at,
             COALESCE(downtime.total_downtime_minutes, 0) AS total_downtime_minutes
         FROM maintenance_machines AS m
+        LEFT JOIN maintenance_machine_types AS mt ON mt.id = m.machine_type_id
         LEFT JOIN (
             SELECT machine_id, COUNT(*) AS task_count
             FROM maintenance_tasks
@@ -41,6 +80,10 @@ function maintenanceMachineList(\PDO $db): array
                 'id' => (int) $row['id'],
                 'name' => (string) $row['name'],
                 'equipment_type' => (string) $row['equipment_type'],
+                'machine_type_id' => $row['machine_type_id'] !== null ? (int) $row['machine_type_id'] : null,
+                'machine_type_name' => $row['machine_type_name'] !== null
+                    ? (string) $row['machine_type_name']
+                    : (string) $row['equipment_type'],
                 'manufacturer' => $row['manufacturer'] !== null ? (string) $row['manufacturer'] : null,
                 'model' => $row['model'] !== null ? (string) $row['model'] : null,
                 'serial_number' => $row['serial_number'] !== null ? (string) $row['serial_number'] : null,
@@ -66,6 +109,7 @@ function maintenanceMachineUpdate(\PDO $db, int $machineId, array $payload): voi
         SET
             name = :name,
             equipment_type = :equipment_type,
+            machine_type_id = :machine_type_id,
             manufacturer = :manufacturer,
             model = :model,
             serial_number = :serial_number,
@@ -80,6 +124,7 @@ function maintenanceMachineUpdate(\PDO $db, int $machineId, array $payload): voi
         'id' => $machineId,
         'name' => $payload['name'],
         'equipment_type' => $payload['equipment_type'],
+        'machine_type_id' => $payload['machine_type_id'],
         'manufacturer' => $payload['manufacturer'],
         'model' => $payload['model'],
         'serial_number' => $payload['serial_number'],
@@ -95,8 +140,8 @@ function maintenanceMachineUpdate(\PDO $db, int $machineId, array $payload): voi
 function maintenanceMachineCreate(\PDO $db, array $payload): int
 {
     $sql = <<<SQL
-        INSERT INTO maintenance_machines (name, equipment_type, manufacturer, model, serial_number, location, documents, notes)
-        VALUES (:name, :equipment_type, :manufacturer, :model, :serial_number, :location, :documents, :notes)
+        INSERT INTO maintenance_machines (name, equipment_type, machine_type_id, manufacturer, model, serial_number, location, documents, notes)
+        VALUES (:name, :equipment_type, :machine_type_id, :manufacturer, :model, :serial_number, :location, :documents, :notes)
         RETURNING id
     SQL;
 
@@ -104,6 +149,7 @@ function maintenanceMachineCreate(\PDO $db, array $payload): int
     $statement->execute([
         'name' => $payload['name'],
         'equipment_type' => $payload['equipment_type'],
+        'machine_type_id' => $payload['machine_type_id'],
         'manufacturer' => $payload['manufacturer'],
         'model' => $payload['model'],
         'serial_number' => $payload['serial_number'],
@@ -113,6 +159,114 @@ function maintenanceMachineCreate(\PDO $db, array $payload): int
     ]);
 
     return (int) $statement->fetchColumn();
+}
+
+/**
+ * @return array<int,array<string,mixed>>
+ */
+function maintenanceAssetsList(\PDO $db): array
+{
+    $sql = <<<SQL
+        SELECT
+            a.*,
+            string_agg(m.name, ', ' ORDER BY m.name) AS machine_names,
+            array_remove(array_agg(am.machine_id), NULL) AS machine_ids
+        FROM maintenance_assets AS a
+        LEFT JOIN maintenance_asset_machines AS am ON am.asset_id = a.id
+        LEFT JOIN maintenance_machines AS m ON m.id = am.machine_id
+        GROUP BY a.id
+        ORDER BY a.name ASC
+    SQL;
+
+    $statement = $db->query($sql);
+
+    return array_map(
+        static fn (array $row): array => [
+            'id' => (int) $row['id'],
+            'name' => (string) $row['name'],
+            'description' => $row['description'] !== null ? (string) $row['description'] : null,
+            'documents' => maintenanceDecodeDocuments($row['documents'] ?? '[]'),
+            'notes' => $row['notes'] !== null ? (string) $row['notes'] : null,
+            'machine_names' => $row['machine_names'] !== null ? (string) $row['machine_names'] : '',
+            'machine_ids' => array_values(array_filter(array_map(static fn ($id) => $id !== null ? (int) $id : null, (array) ($row['machine_ids'] ?? [])), static fn ($value) => $value !== null)),
+        ],
+        $statement->fetchAll()
+    );
+}
+
+/**
+ * @param array<string,mixed> $payload
+ */
+function maintenanceAssetCreate(\PDO $db, array $payload): int
+{
+    $sql = <<<SQL
+        INSERT INTO maintenance_assets (name, description, documents, notes)
+        VALUES (:name, :description, :documents, :notes)
+        RETURNING id
+    SQL;
+
+    $statement = $db->prepare($sql);
+    $statement->execute([
+        'name' => $payload['name'],
+        'description' => $payload['description'],
+        'documents' => maintenanceEncodeDocuments($payload['documents'] ?? []),
+        'notes' => $payload['notes'],
+    ]);
+
+    $assetId = (int) $statement->fetchColumn();
+
+    maintenanceAssetMachinesSync($db, $assetId, $payload['machine_ids'] ?? []);
+
+    return $assetId;
+}
+
+/**
+ * @param array<string,mixed> $payload
+ */
+function maintenanceAssetUpdate(\PDO $db, int $assetId, array $payload): void
+{
+    $sql = <<<SQL
+        UPDATE maintenance_assets
+        SET name = :name,
+            description = :description,
+            documents = :documents,
+            notes = :notes,
+            updated_at = NOW()
+        WHERE id = :id
+    SQL;
+
+    $statement = $db->prepare($sql);
+    $statement->execute([
+        'id' => $assetId,
+        'name' => $payload['name'],
+        'description' => $payload['description'],
+        'documents' => maintenanceEncodeDocuments($payload['documents'] ?? []),
+        'notes' => $payload['notes'],
+    ]);
+
+    maintenanceAssetMachinesSync($db, $assetId, $payload['machine_ids'] ?? []);
+}
+
+/**
+ * @param array<int> $machineIds
+ */
+function maintenanceAssetMachinesSync(\PDO $db, int $assetId, array $machineIds): void
+{
+    $db->prepare('DELETE FROM maintenance_asset_machines WHERE asset_id = :asset_id')->execute(['asset_id' => $assetId]);
+
+    if ($machineIds === []) {
+        return;
+    }
+
+    $sql = 'INSERT INTO maintenance_asset_machines (asset_id, machine_id) VALUES (:asset_id, :machine_id)';
+    $statement = $db->prepare($sql);
+
+    foreach ($machineIds as $machineId) {
+        $statement->execute([
+            'asset_id' => $assetId,
+            'machine_id' => $machineId,
+        ]);
+    }
 }
 
 /**
@@ -252,10 +406,11 @@ function maintenanceTaskCreate(\PDO $db, array $payload): int
 function maintenanceRecordsList(\PDO $db): array
 {
     $sql = <<<SQL
-        SELECT r.*, m.name AS machine_name, t.title AS task_title
+        SELECT r.*, m.name AS machine_name, t.title AS task_title, a.name AS asset_name
         FROM maintenance_records AS r
         INNER JOIN maintenance_machines AS m ON m.id = r.machine_id
         LEFT JOIN maintenance_tasks AS t ON t.id = r.task_id
+        LEFT JOIN maintenance_assets AS a ON a.id = r.asset_id
         ORDER BY r.performed_at DESC NULLS LAST, r.id DESC
     SQL;
 
@@ -267,11 +422,13 @@ function maintenanceRecordsList(\PDO $db): array
                 'id' => (int) $row['id'],
                 'machine_id' => (int) $row['machine_id'],
                 'task_id' => $row['task_id'] !== null ? (int) $row['task_id'] : null,
+                'asset_id' => $row['asset_id'] !== null ? (int) $row['asset_id'] : null,
                 'performed_by' => $row['performed_by'] !== null ? (string) $row['performed_by'] : null,
                 'performed_at' => $row['performed_at'] !== null ? (string) $row['performed_at'] : null,
                 'notes' => $row['notes'] !== null ? (string) $row['notes'] : null,
                 'machine_name' => (string) $row['machine_name'],
                 'task_title' => $row['task_title'] !== null ? (string) $row['task_title'] : null,
+                'asset_name' => $row['asset_name'] !== null ? (string) $row['asset_name'] : null,
                 'downtime_minutes' => $row['downtime_minutes'] !== null ? (int) $row['downtime_minutes'] : null,
                 'labor_hours' => $row['labor_hours'] !== null ? (float) $row['labor_hours'] : null,
                 'parts_used' => maintenanceDecodeParts($row['parts_used'] ?? '[]'),
@@ -291,6 +448,7 @@ function maintenanceRecordCreate(\PDO $db, array $payload): int
         INSERT INTO maintenance_records (
             machine_id,
             task_id,
+            asset_id,
             performed_by,
             performed_at,
             notes,
@@ -302,6 +460,7 @@ function maintenanceRecordCreate(\PDO $db, array $payload): int
         VALUES (
             :machine_id,
             :task_id,
+            :asset_id,
             :performed_by,
             :performed_at,
             :notes,
@@ -317,6 +476,7 @@ function maintenanceRecordCreate(\PDO $db, array $payload): int
     $statement->execute([
         'machine_id' => $payload['machine_id'],
         'task_id' => $payload['task_id'],
+        'asset_id' => $payload['asset_id'],
         'performed_by' => $payload['performed_by'],
         'performed_at' => $payload['performed_at'],
         'notes' => $payload['notes'],
