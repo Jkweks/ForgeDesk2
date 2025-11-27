@@ -10,6 +10,7 @@ require_once __DIR__ . '/../app/helpers/view.php';
 require_once __DIR__ . '/../app/data/inventory.php';
 require_once __DIR__ . '/../app/data/suppliers.php';
 require_once __DIR__ . '/../app/data/storage_locations.php';
+require_once __DIR__ . '/../app/data/configurator.php';
 require_once __DIR__ . '/../app/views/components/inventory_table.php';
 
 $databaseConfig = $app['database'];
@@ -48,12 +49,20 @@ $formData = [
     'subcategories' => [],
     'discontinued' => false,
     'locations' => [],
+    'configurator_enabled' => false,
+    'configurator_part_type' => '',
+    'configurator_uses' => [],
+    'configurator_requires' => [],
 ];
 $storageLocations = [];
 $storageLocationMap = [];
 $locationAssignmentsList = [];
 $suppliers = [];
 $supplierMap = [];
+$configuratorUseOptions = [];
+$configuratorUseMap = [];
+$configuratorRequirementOptions = [];
+$configuratorRequirementMap = [];
 
 foreach ($nav as &$groupItems) {
     foreach ($groupItems as &$item) {
@@ -103,6 +112,24 @@ if ($dbError === null) {
         $supplierMap = [];
     }
 
+    try {
+        $configuratorUseOptions = configuratorListUseOptions($db);
+        foreach ($configuratorUseOptions as $option) {
+            $configuratorUseMap[$option['id']] = $option;
+        }
+
+        $configuratorRequirementOptions = configuratorInventoryOptions($db);
+        foreach ($configuratorRequirementOptions as $option) {
+            $configuratorRequirementMap[$option['id']] = $option;
+        }
+    } catch (\Throwable $exception) {
+        $errors[] = 'Unable to load configurator options: ' . $exception->getMessage();
+        $configuratorUseOptions = [];
+        $configuratorUseMap = [];
+        $configuratorRequirementOptions = [];
+        $configuratorRequirementMap = [];
+    }
+
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $action = $_POST['action'] ?? 'create';
 
@@ -126,6 +153,8 @@ if ($dbError === null) {
         $packSizeRaw = trim((string) ($_POST['pack_size'] ?? ''));
         $purchaseUomRaw = strtolower(trim((string) ($_POST['purchase_uom'] ?? '')));
         $stockUomRaw = trim((string) ($_POST['stock_uom'] ?? ''));
+        $configuratorEnabled = isset($_POST['configurator_enabled']) && (string) $_POST['configurator_enabled'] === '1';
+        $configuratorPartTypeRaw = strtolower(trim((string) ($_POST['configurator_part_type'] ?? '')));
         $formData = [
             'item' => $payload['item'],
             'part_number' => $payload['part_number'],
@@ -144,7 +173,30 @@ if ($dbError === null) {
             'category' => trim((string) ($_POST['category'] ?? '')),
             'subcategories' => [],
             'discontinued' => $isDiscontinued,
+            'configurator_enabled' => $configuratorEnabled,
+            'configurator_part_type' => $configuratorPartTypeRaw,
+            'configurator_uses' => [],
+            'configurator_requires' => [],
         ];
+
+        $submittedConfiguratorUses = isset($_POST['configurator_uses']) && is_array($_POST['configurator_uses'])
+            ? array_values(array_unique(array_map('intval', $_POST['configurator_uses'])))
+            : [];
+        $submittedConfiguratorRequires = isset($_POST['configurator_requires']) && is_array($_POST['configurator_requires'])
+            ? array_values(array_unique(array_map('intval', $_POST['configurator_requires'])))
+            : [];
+
+        $validConfiguratorUses = array_values(array_filter(
+            $submittedConfiguratorUses,
+            static fn (int $id): bool => isset($configuratorUseMap[$id])
+        ));
+        $validConfiguratorRequires = array_values(array_filter(
+            $submittedConfiguratorRequires,
+            static fn (int $id): bool => isset($configuratorRequirementMap[$id])
+        ));
+
+        $formData['configurator_uses'] = $validConfiguratorUses;
+        $formData['configurator_requires'] = $validConfiguratorRequires;
 
         $submittedSubcategories = isset($_POST['subcategories']) && is_array($_POST['subcategories'])
             ? array_values(array_filter(
@@ -227,6 +279,24 @@ if ($dbError === null) {
         } else {
             $validSubcategories = array_values(array_intersect($categoryOptions[$formData['category']], $formData['subcategories']));
             $formData['subcategories'] = $validSubcategories;
+        }
+
+        if (!$configuratorEnabled) {
+            $configuratorPartTypeRaw = '';
+            $validConfiguratorUses = [];
+            $validConfiguratorRequires = [];
+            $formData['configurator_uses'] = [];
+            $formData['configurator_requires'] = [];
+        } else {
+            if (!in_array($configuratorPartTypeRaw, configuratorAllowedPartTypes(), true)) {
+                $errors['configurator_part_type'] = 'Choose door, frame, hardware, or accessory.';
+                $formData['configurator_part_type'] = '';
+            }
+
+            $invalidRequirementSelections = array_diff($submittedConfiguratorRequires, $validConfiguratorRequires);
+            if ($invalidRequirementSelections !== []) {
+                $errors['configurator_requires'] = 'Select valid required parts from the list.';
+            }
         }
 
         if ($payload['item'] === '') {
@@ -354,6 +424,8 @@ if ($dbError === null) {
             $existingItem = null;
         }
 
+        $configuratorPartType = $configuratorPartTypeRaw !== '' ? $configuratorPartTypeRaw : null;
+
         if ($errors === []) {
             $committedQty = $existingItem['committed_qty'] ?? 0;
             $availableQty = $payload['stock'] - $committedQty;
@@ -365,10 +437,26 @@ if ($dbError === null) {
                 if ($action === 'update' && $editingId !== null) {
                     updateInventoryItem($db, $editingId, $payload);
                     inventorySyncLocationAssignments($db, $editingId, $locationAssignmentsList);
+                    configuratorSyncPartProfile(
+                        $db,
+                        $editingId,
+                        $configuratorEnabled,
+                        $configuratorPartType,
+                        $validConfiguratorUses,
+                        $validConfiguratorRequires
+                    );
                     header('Location: inventory.php?success=updated');
                 } else {
                     $newItemId = createInventoryItem($db, $payload);
                     inventorySyncLocationAssignments($db, $newItemId, $locationAssignmentsList);
+                    configuratorSyncPartProfile(
+                        $db,
+                        $newItemId,
+                        $configuratorEnabled,
+                        $configuratorPartType,
+                        $validConfiguratorUses,
+                        $validConfiguratorRequires
+                    );
                     header('Location: inventory.php?success=created');
                 }
 
@@ -434,6 +522,18 @@ if ($dbError === null) {
                     );
                 }
 
+                $configuratorProfile = configuratorLoadPartProfile($db, $editingId);
+                $formData['configurator_enabled'] = $configuratorProfile['enabled'];
+                $formData['configurator_part_type'] = $configuratorProfile['part_type'] ?? '';
+                $formData['configurator_uses'] = array_values(array_filter(
+                    $configuratorProfile['use_ids'],
+                    static fn (int $id): bool => isset($configuratorUseMap[$id])
+                ));
+                $formData['configurator_requires'] = array_values(array_filter(
+                    $configuratorProfile['required_ids'],
+                    static fn (int $id): bool => isset($configuratorRequirementMap[$id])
+                ));
+
                 $itemActivity = inventoryLoadItemActivity($db, $editingId, 50);
             } else {
                 $successMessage = null;
@@ -467,7 +567,10 @@ if ($formData['sku'] === '' && $formData['part_number'] !== '') {
 }
 
 $activeModalTab = !empty($errors['category']) ? 'categories' : 'details';
-if (isset($_GET['tab']) && in_array($_GET['tab'], ['details', 'categories', 'activity'], true)) {
+if (!empty($errors['configurator_part_type']) || !empty($errors['configurator_requires'])) {
+    $activeModalTab = 'configurator';
+}
+if (isset($_GET['tab']) && in_array($_GET['tab'], ['details', 'categories', 'configurator', 'activity'], true)) {
     $activeModalTab = $_GET['tab'];
 }
 
@@ -612,11 +715,13 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
         <?php
         $detailsActive = $activeModalTab === 'details';
         $categoriesActive = $activeModalTab === 'categories';
+        $configuratorActive = $activeModalTab === 'configurator';
         $activityActive = $activeModalTab === 'activity';
         ?>
         <div class="modal-tabs" role="tablist">
           <button type="button" role="tab" id="inventory-tab-details" aria-controls="inventory-panel-details" aria-selected="<?= $detailsActive ? 'true' : 'false' ?>" tabindex="<?= $detailsActive ? '0' : '-1' ?>">Part Details</button>
           <button type="button" role="tab" id="inventory-tab-categories" aria-controls="inventory-panel-categories" aria-selected="<?= $categoriesActive ? 'true' : 'false' ?>" tabindex="<?= $categoriesActive ? '0' : '-1' ?>">Categories</button>
+          <button type="button" role="tab" id="inventory-tab-configurator" aria-controls="inventory-panel-configurator" aria-selected="<?= $configuratorActive ? 'true' : 'false' ?>" tabindex="<?= $configuratorActive ? '0' : '-1' ?>">Configurator</button>
           <button type="button" role="tab" id="inventory-tab-activity" aria-controls="inventory-panel-activity" aria-selected="<?= $activityActive ? 'true' : 'false' ?>" tabindex="<?= $activityActive ? '0' : '-1' ?>">Activity</button>
         </div>
 
@@ -898,6 +1003,60 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
           </div>
         </div>
 
+        <div id="inventory-panel-configurator" class="tab-panel" role="tabpanel" aria-labelledby="inventory-tab-configurator"<?= $configuratorActive ? '' : ' hidden' ?>>
+          <div class="field">
+            <div class="checkbox-field">
+              <input type="checkbox" id="configurator_enabled" name="configurator_enabled" value="1"<?= $formData['configurator_enabled'] ? ' checked' : '' ?>>
+              <label for="configurator_enabled">Available in configurator</label>
+            </div>
+            <p class="field-help">Include this part when building door and frame assemblies.</p>
+          </div>
+
+          <fieldset class="field-group" data-configurator-fields>
+            <legend class="sr-only">Configurator details</legend>
+            <div class="field-grid">
+              <div class="field">
+                <label for="configurator_part_type">Configurator part type<span aria-hidden="true">*</span></label>
+                <select id="configurator_part_type" name="configurator_part_type" data-configurator-toggle>
+                  <option value="">Select type</option>
+                  <?php foreach (configuratorAllowedPartTypes() as $type): ?>
+                    <?php $typeLabel = ucfirst($type); ?>
+                    <option value="<?= e($type) ?>"<?= $formData['configurator_part_type'] === $type ? ' selected' : '' ?>><?= e($typeLabel) ?></option>
+                  <?php endforeach; ?>
+                </select>
+                <p class="field-help">Categorize the component for configurator filtering.</p>
+                <?php if (!empty($errors['configurator_part_type'])): ?>
+                  <p class="field-error"><?= e($errors['configurator_part_type']) ?></p>
+                <?php endif; ?>
+              </div>
+
+              <div class="field">
+                <label for="configurator_uses">Part uses</label>
+                <select id="configurator_uses" name="configurator_uses[]" multiple data-configurator-toggle>
+                  <?php foreach ($configuratorUseOptions as $option): ?>
+                    <option value="<?= e((string) $option['id']) ?>"<?= in_array((int) $option['id'], $formData['configurator_uses'], true) ? ' selected' : '' ?>><?= e($option['name']) ?></option>
+                  <?php endforeach; ?>
+                </select>
+                <p class="field-help">Select all applicable opening types or prep scenarios.</p>
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="configurator_requires">Requires</label>
+              <select id="configurator_requires" name="configurator_requires[]" multiple data-configurator-toggle>
+                <?php foreach ($configuratorRequirementOptions as $option): ?>
+                  <?php if ($editingId !== null && (int) $option['id'] === $editingId) { continue; } ?>
+                  <option value="<?= e((string) $option['id']) ?>"<?= in_array((int) $option['id'], $formData['configurator_requires'], true) ? ' selected' : '' ?>><?= e($option['label']) ?></option>
+                <?php endforeach; ?>
+              </select>
+              <p class="field-help">Add hardware, frames, or accessories automatically whenever this part is used. Required parts cascade into the final bill of material.</p>
+              <?php if (!empty($errors['configurator_requires'])): ?>
+                <p class="field-error"><?= e($errors['configurator_requires']) ?></p>
+              <?php endif; ?>
+            </div>
+          </fieldset>
+        </div>
+
         <div id="inventory-panel-activity" class="tab-panel" role="tabpanel" aria-labelledby="inventory-tab-activity"<?= $activityActive ? '' : ' hidden' ?>>
           <?php if ($editingId === null): ?>
             <p class="small">Save the item to review receipts, cycle counts, and inventory adjustments.</p>
@@ -1001,6 +1160,40 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
   <script src="js/dashboard.js"></script>
   <script src="js/inventory-table.js"></script>
   <script>
+  (function () {
+    const modal = document.getElementById('inventory-modal');
+    if (!modal) {
+      return;
+    }
+
+    const configuratorCheckbox = modal.querySelector('#configurator_enabled');
+    const configuratorFieldset = modal.querySelector('[data-configurator-fields]');
+    const configuratorInputs = Array.from(modal.querySelectorAll('[data-configurator-toggle]'));
+
+    function syncConfiguratorControls() {
+      const isEnabled = configuratorCheckbox instanceof HTMLInputElement && configuratorCheckbox.checked;
+
+      configuratorInputs.forEach((input) => {
+        if (input instanceof HTMLInputElement || input instanceof HTMLSelectElement) {
+          input.disabled = !isEnabled;
+        }
+      });
+
+      if (configuratorFieldset instanceof HTMLElement) {
+        if (isEnabled) {
+          configuratorFieldset.removeAttribute('aria-disabled');
+        } else {
+          configuratorFieldset.setAttribute('aria-disabled', 'true');
+        }
+      }
+    }
+
+    if (configuratorCheckbox instanceof HTMLInputElement) {
+      configuratorCheckbox.addEventListener('change', syncConfiguratorControls);
+      syncConfiguratorControls();
+    }
+  })();
+
   (function () {
     const modal = document.getElementById('inventory-modal');
     if (!modal) {

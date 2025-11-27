@@ -6,6 +6,7 @@ return [
     ],
     'Inventory' => [
         ['icon' => 'edit', 'label' => 'Manage Inventory', 'href' => '/inventory.php'],
+        ['icon' => 'box', 'label' => 'Door Configurator', 'href' => '/configurator.php'],
         ['icon' => 'repeat', 'label' => 'Inventory Transactions', 'href' => '/inventory-transactions.php'],
         ['icon' => 'checklist', 'label' => 'Cycle Counts', 'href' => '/cycle-count.php'],
         ['icon' => 'map', 'label' => 'Storage Locations', 'href' => '/admin/storage-locations.php'],
