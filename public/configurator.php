@@ -23,6 +23,16 @@ $configFormData = [
     'notes' => '',
 ];
 $editingConfigId = null;
+$builderSteps = [
+    ['id' => 'configuration', 'label' => 'Configuration data', 'description' => 'Name, job, and lifecycle status'],
+    ['id' => 'entry', 'label' => 'Entry data', 'description' => 'Opening type, handing, and measurements'],
+    ['id' => 'frame', 'label' => 'Frame data', 'description' => 'Profiles, anchors, and accessories (if required)'],
+    ['id' => 'door', 'label' => 'Door data', 'description' => 'Leaf construction and lite kit details (if required)'],
+    ['id' => 'hardware', 'label' => 'Door hardware data', 'description' => 'Sets, preps, and templated routing'],
+    ['id' => 'summary', 'label' => 'Summary & cut list', 'description' => 'Bill of materials and cut information'],
+];
+$stepIds = array_map(static fn (array $step): string => $step['id'], $builderSteps);
+$currentStep = 'configuration';
 
 foreach ($nav as &$groupItems) {
     foreach ($groupItems as &$item) {
@@ -47,20 +57,24 @@ foreach ($nav as &$groupItems) {
 }
 unset($groupItems, $item);
 
-if ($dbError === null) {
-    try {
-        $jobs = configuratorListJobs($db);
-    } catch (\Throwable $exception) {
-        $errors[] = 'Unable to load jobs: ' . $exception->getMessage();
-        $jobs = [];
-    }
+    if ($dbError === null) {
+        try {
+            $jobs = configuratorListJobs($db);
+        } catch (\Throwable $exception) {
+            $errors[] = 'Unable to load jobs: ' . $exception->getMessage();
+            $jobs = [];
+        }
 
-    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        $action = $_POST['action'] ?? '';
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $action = $_POST['action'] ?? '';
 
-        if ($action === 'create_job') {
-            $jobNumber = trim((string) ($_POST['job_number'] ?? ''));
-            $jobName = trim((string) ($_POST['job_name'] ?? ''));
+            if (isset($_POST['builder_step']) && in_array($_POST['builder_step'], $stepIds, true)) {
+                $currentStep = (string) $_POST['builder_step'];
+            }
+
+            if ($action === 'create_job') {
+                $jobNumber = trim((string) ($_POST['job_number'] ?? ''));
+                $jobName = trim((string) ($_POST['job_name'] ?? ''));
 
             if ($jobNumber === '') {
                 $errors['job_number'] = 'Job number is required.';
@@ -172,6 +186,10 @@ if ($dbError === null) {
         }
     }
 
+    if (isset($_GET['step']) && in_array($_GET['step'], $stepIds, true)) {
+        $currentStep = (string) $_GET['step'];
+    }
+
     try {
         $configurations = configuratorListConfigurations($db);
     } catch (\Throwable $exception) {
@@ -190,9 +208,15 @@ if (isset($_GET['success'])) {
     }
 }
 
-$modalRequested = isset($_GET['modal']) && $_GET['modal'] === 'open';
-$modalOpen = $modalRequested || $editingConfigId !== null || ($errors !== [] && ($_POST['action'] ?? '') === 'save_configuration');
-$bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
+$editorMode = ($editingConfigId !== null)
+    || (($_POST['action'] ?? '') === 'save_configuration')
+    || (isset($_GET['create']) && $_GET['create'] === '1');
+
+if ($editorMode && !in_array($currentStep, $stepIds, true)) {
+    $currentStep = 'configuration';
+}
+
+$bodyAttributes = ' class="has-sidebar-toggle"';
 ?>
 <!doctype html>
 <html lang="en">
@@ -236,7 +260,7 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
             <p class="small">Capture bill-of-material templates, tie them to jobs, and keep required parts organized.</p>
           </div>
           <div class="header-actions">
-            <a class="button primary" href="configurator.php?modal=open">Add configuration</a>
+            <a class="button primary" href="configurator.php?create=1&step=configuration">Add configuration</a>
             <?php if ($editingConfigId !== null): ?>
               <a class="button secondary" href="configurator.php">Exit edit</a>
             <?php endif; ?>
@@ -255,6 +279,101 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
 
         <?php if ($successMessage !== null): ?>
           <div class="alert success" role="status"><?= e($successMessage) ?></div>
+        <?php endif; ?>
+
+        <?php if ($editorMode): ?>
+          <?php $activeIndex = array_search($currentStep, $stepIds, true); ?>
+          <section class="panel" aria-labelledby="configurator-builder-title">
+            <header class="panel-header">
+              <div>
+                <h2 id="configurator-builder-title">Configuration builder</h2>
+                <p class="small">Step <?= e((string) (($activeIndex === false ? 0 : $activeIndex) + 1)) ?> of <?= e((string) count($builderSteps)) ?> · <?= e(ucwords(str_replace('_', ' ', $currentStep))) ?></p>
+              </div>
+              <div class="header-actions">
+                <a class="button secondary" href="configurator.php">Return to list</a>
+                <?php if ($editingConfigId !== null): ?>
+                  <span class="pill">Editing #<?= e((string) $editingConfigId) ?></span>
+                <?php endif; ?>
+              </div>
+            </header>
+
+            <ol class="stepper">
+              <?php foreach ($builderSteps as $index => $step): ?>
+                <?php
+                  $state = $step['id'] === $currentStep
+                    ? 'current'
+                    : ($index < ($activeIndex === false ? 0 : $activeIndex) ? 'complete' : 'upcoming');
+                ?>
+                <li class="step <?= e($state) ?>">
+                  <div class="step-label"><?= e($step['label']) ?></div>
+                  <p class="small muted"><?= e($step['description']) ?></p>
+                </li>
+              <?php endforeach; ?>
+            </ol>
+
+            <?php if ($currentStep === 'configuration'): ?>
+              <form method="post" class="form" novalidate>
+                <input type="hidden" name="action" value="save_configuration" />
+                <input type="hidden" name="builder_step" value="<?= e($currentStep) ?>" />
+                <?php if ($editingConfigId !== null): ?>
+                  <input type="hidden" name="config_id" value="<?= e((string) $editingConfigId) ?>" />
+                <?php endif; ?>
+
+                <div class="field-grid two-column">
+                  <div class="field">
+                    <label for="config_name">Configuration Name<span aria-hidden="true">*</span></label>
+                    <input type="text" id="config_name" name="config_name" value="<?= e($configFormData['name']) ?>" required />
+                    <?php if (!empty($errors['config_name'])): ?>
+                      <p class="field-error"><?= e($errors['config_name']) ?></p>
+                    <?php endif; ?>
+                  </div>
+
+                  <div class="field">
+                    <label for="config_job_id">Job (optional)</label>
+                    <select id="config_job_id" name="config_job_id">
+                      <option value="">Unassigned</option>
+                      <?php foreach ($jobs as $job): ?>
+                        <option value="<?= e((string) $job['id']) ?>"<?= $configFormData['job_id'] !== '' && (int) $configFormData['job_id'] === (int) $job['id'] ? ' selected' : '' ?>>
+                          <?= e($job['job_number']) ?> — <?= e($job['name']) ?>
+                        </option>
+                      <?php endforeach; ?>
+                    </select>
+                    <?php if (!empty($errors['config_job_id'])): ?>
+                      <p class="field-error"><?= e($errors['config_job_id']) ?></p>
+                    <?php endif; ?>
+                  </div>
+                </div>
+
+                <div class="field-grid two-column">
+                  <div class="field">
+                    <label for="config_status">Status</label>
+                    <select id="config_status" name="config_status">
+                      <?php foreach ($statusOptions as $option): ?>
+                        <option value="<?= e($option) ?>"<?= $configFormData['status'] === $option ? ' selected' : '' ?>><?= e(ucwords(str_replace('_', ' ', $option))) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                    <?php if (!empty($errors['config_status'])): ?>
+                      <p class="field-error"><?= e($errors['config_status']) ?></p>
+                    <?php endif; ?>
+                  </div>
+
+                  <div class="field">
+                    <label for="config_notes">Notes</label>
+                    <textarea id="config_notes" name="config_notes" rows="3" placeholder="Add scope, opening counts, or prep details."><?= e($configFormData['notes']) ?></textarea>
+                  </div>
+                </div>
+
+                <div class="form-actions">
+                  <button type="submit" class="button primary">Save configuration</button>
+                  <a class="button ghost" href="configurator.php">Cancel</a>
+                </div>
+              </form>
+            <?php else: ?>
+              <div class="card muted">
+                <p class="small">This step will capture <?= e(strtolower($builderSteps[array_search($currentStep, $stepIds, true)]['label'] ?? 'additional')) ?> details. Content for this stage is coming in the next update.</p>
+              </div>
+            <?php endif; ?>
+          </section>
         <?php endif; ?>
 
         <div class="table-wrapper">
@@ -290,7 +409,7 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
                     <td><span class="pill"><?= e(ucwords(str_replace('_', ' ', $configuration['status']))) ?></span></td>
                     <td class="muted"><?= e(date('M j, Y', strtotime($configuration['updated_at']))) ?></td>
                     <td>
-                      <a class="button ghost" href="configurator.php?id=<?= e((string) $configuration['id']) ?>&modal=open">Edit</a>
+                      <a class="button ghost" href="configurator.php?id=<?= e((string) $configuration['id']) ?>&step=configuration">Edit</a>
                     </td>
                   </tr>
                 <?php endforeach; ?>
@@ -361,84 +480,5 @@ $bodyAttributes = $modalOpen ? ' class="modal-open"' : '';
     </main>
   </div>
 
-  <div id="configurator-modal" class="modal<?= $modalOpen ? ' open' : '' ?>" role="dialog" aria-modal="true" aria-labelledby="configurator-modal-title" aria-hidden="<?= $modalOpen ? 'false' : 'true' ?>" data-close-url="configurator.php">
-    <div class="modal-dialog">
-      <header>
-        <div>
-          <h2 id="configurator-modal-title"><?= $editingConfigId === null ? 'Add Configuration' : 'Edit Configuration' ?></h2>
-          <p>Link a template to a job and track its lifecycle.</p>
-        </div>
-        <a class="modal-close" href="configurator.php" aria-label="Close configurator form">&times;</a>
-      </header>
-
-      <form method="post" class="form" novalidate>
-        <input type="hidden" name="action" value="save_configuration" />
-        <?php if ($editingConfigId !== null): ?>
-          <input type="hidden" name="config_id" value="<?= e((string) $editingConfigId) ?>" />
-        <?php endif; ?>
-
-        <div class="field">
-          <label for="config_name">Configuration Name<span aria-hidden="true">*</span></label>
-          <input type="text" id="config_name" name="config_name" value="<?= e($configFormData['name']) ?>" required data-modal-focus="true" />
-          <?php if (!empty($errors['config_name'])): ?>
-            <p class="field-error"><?= e($errors['config_name']) ?></p>
-          <?php endif; ?>
-        </div>
-
-        <div class="field-grid">
-          <div class="field">
-            <label for="config_job_id">Job (optional)</label>
-            <select id="config_job_id" name="config_job_id">
-              <option value="">Unassigned</option>
-              <?php foreach ($jobs as $job): ?>
-                <option value="<?= e((string) $job['id']) ?>"<?= $configFormData['job_id'] !== '' && (int) $configFormData['job_id'] === (int) $job['id'] ? ' selected' : '' ?>>
-                  <?= e($job['job_number']) ?> — <?= e($job['name']) ?>
-                </option>
-              <?php endforeach; ?>
-            </select>
-            <?php if (!empty($errors['config_job_id'])): ?>
-              <p class="field-error"><?= e($errors['config_job_id']) ?></p>
-            <?php endif; ?>
-          </div>
-
-          <div class="field">
-            <label for="config_status">Status</label>
-            <select id="config_status" name="config_status">
-              <?php foreach ($statusOptions as $option): ?>
-                <option value="<?= e($option) ?>"<?= $configFormData['status'] === $option ? ' selected' : '' ?>><?= e(ucwords(str_replace('_', ' ', $option))) ?></option>
-              <?php endforeach; ?>
-            </select>
-            <?php if (!empty($errors['config_status'])): ?>
-              <p class="field-error"><?= e($errors['config_status']) ?></p>
-            <?php endif; ?>
-          </div>
-        </div>
-
-        <div class="field">
-          <label for="config_notes">Notes</label>
-          <textarea id="config_notes" name="config_notes" rows="3" placeholder="Add scope, opening counts, or prep details."><?= e($configFormData['notes']) ?></textarea>
-        </div>
-
-        <div class="form-actions">
-          <button type="submit" class="button primary">Save configuration</button>
-          <a class="button ghost" href="configurator.php">Cancel</a>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <script>
-    (function () {
-      const modal = document.getElementById('configurator-modal');
-      if (!modal) {
-        return;
-      }
-
-      const focusTarget = modal.querySelector('[data-modal-focus]');
-      if (modal.classList.contains('open') && focusTarget instanceof HTMLElement) {
-        focusTarget.focus();
-      }
-    })();
-  </script>
 </body>
 </html>

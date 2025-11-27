@@ -22,8 +22,16 @@ CREATE TABLE IF NOT EXISTS configurator_part_use_links (
 CREATE TABLE IF NOT EXISTS configurator_part_requirements (
     inventory_item_id BIGINT NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
     required_inventory_item_id BIGINT NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
+    quantity INTEGER NOT NULL DEFAULT 1,
     PRIMARY KEY (inventory_item_id, required_inventory_item_id)
 );
+
+ALTER TABLE configurator_part_requirements
+    ADD COLUMN IF NOT EXISTS quantity INTEGER NOT NULL DEFAULT 1;
+
+ALTER TABLE configurator_part_requirements
+    ADD CONSTRAINT IF NOT EXISTS configurator_part_requirements_quantity_check
+    CHECK (quantity > 0);
 
 CREATE INDEX IF NOT EXISTS idx_configurator_part_requirements_required
     ON configurator_part_requirements(required_inventory_item_id);

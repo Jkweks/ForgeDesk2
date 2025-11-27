@@ -183,20 +183,67 @@ if ($dbError === null) {
             ? array_values(array_unique(array_map('intval', $_POST['configurator_uses'])))
             : [];
         $submittedConfiguratorRequires = isset($_POST['configurator_requires']) && is_array($_POST['configurator_requires'])
-            ? array_values(array_unique(array_map('intval', $_POST['configurator_requires'])))
+            ? $_POST['configurator_requires']
             : [];
 
         $validConfiguratorUses = array_values(array_filter(
             $submittedConfiguratorUses,
             static fn (int $id): bool => isset($configuratorUseMap[$id])
         ));
-        $validConfiguratorRequires = array_values(array_filter(
-            $submittedConfiguratorRequires,
-            static fn (int $id): bool => isset($configuratorRequirementMap[$id])
-        ));
+
+        $validConfiguratorRequires = [];
+        $requirementRows = [];
+
+        foreach ($submittedConfiguratorRequires as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $itemIdRaw = trim((string) ($row['item_id'] ?? ''));
+            $quantityRaw = trim((string) ($row['quantity'] ?? ''));
+            $labelRaw = trim((string) ($row['label'] ?? ''));
+
+            if ($itemIdRaw === '' && $quantityRaw === '' && $labelRaw === '') {
+                continue;
+            }
+
+            $requirementRows[] = [
+                'item_id' => $itemIdRaw,
+                'label' => $labelRaw,
+                'quantity' => $quantityRaw,
+            ];
+
+            if ($itemIdRaw === '' || !ctype_digit($itemIdRaw) || !isset($configuratorRequirementMap[(int) $itemIdRaw])) {
+                $errors['configurator_requires'] = 'Select valid required parts from the list.';
+                continue;
+            }
+
+            if ($editingId !== null && (int) $itemIdRaw === $editingId) {
+                $errors['configurator_requires'] = 'Parts cannot require themselves.';
+                continue;
+            }
+
+            $quantity = filter_var($quantityRaw, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+            if ($quantity === false) {
+                $errors['configurator_requires'] = 'Quantities must be positive whole numbers.';
+                continue;
+            }
+
+            $requiredId = (int) $itemIdRaw;
+
+            if (!isset($validConfiguratorRequires[$requiredId])) {
+                $validConfiguratorRequires[$requiredId] = [
+                    'item_id' => $requiredId,
+                    'quantity' => $quantity,
+                    'label' => $configuratorRequirementMap[$requiredId]['label'] ?? '',
+                ];
+            } else {
+                $validConfiguratorRequires[$requiredId]['quantity'] += $quantity;
+            }
+        }
 
         $formData['configurator_uses'] = $validConfiguratorUses;
-        $formData['configurator_requires'] = $validConfiguratorRequires;
+        $formData['configurator_requires'] = $requirementRows;
 
         $submittedSubcategories = isset($_POST['subcategories']) && is_array($_POST['subcategories'])
             ? array_values(array_filter(
@@ -293,11 +340,12 @@ if ($dbError === null) {
                 $formData['configurator_part_type'] = '';
             }
 
-            $invalidRequirementSelections = array_diff($submittedConfiguratorRequires, $validConfiguratorRequires);
-            if ($invalidRequirementSelections !== []) {
-                $errors['configurator_requires'] = 'Select valid required parts from the list.';
+            if ($formData['configurator_requires'] === []) {
+                $formData['configurator_requires'][] = ['item_id' => '', 'label' => '', 'quantity' => '1'];
             }
         }
+
+        $validConfiguratorRequires = array_values($validConfiguratorRequires);
 
         if ($payload['item'] === '') {
             $errors['item'] = 'Item name is required.';
@@ -529,10 +577,20 @@ if ($dbError === null) {
                     $configuratorProfile['use_ids'],
                     static fn (int $id): bool => isset($configuratorUseMap[$id])
                 ));
-                $formData['configurator_requires'] = array_values(array_filter(
-                    $configuratorProfile['required_ids'],
-                    static fn (int $id): bool => isset($configuratorRequirementMap[$id])
-                ));
+                $formData['configurator_requires'] = [];
+
+                foreach ($configuratorProfile['requirements'] as $requirement) {
+                    $requiredId = (int) $requirement['item_id'];
+                    if (!isset($configuratorRequirementMap[$requiredId])) {
+                        continue;
+                    }
+
+                    $formData['configurator_requires'][] = [
+                        'item_id' => (string) $requiredId,
+                        'label' => $configuratorRequirementMap[$requiredId]['label'] ?? '',
+                        'quantity' => (string) $requirement['quantity'],
+                    ];
+                }
 
                 $itemActivity = inventoryLoadItemActivity($db, $editingId, 50);
             } else {
@@ -549,6 +607,10 @@ if ($dbError === null) {
 
 if ($formData['locations'] === []) {
     $formData['locations'][] = ['location_id' => '', 'label' => '', 'quantity' => ''];
+}
+
+if ($formData['configurator_requires'] === []) {
+    $formData['configurator_requires'][] = ['item_id' => '', 'label' => '', 'quantity' => '1'];
 }
 
 if (isset($_GET['success'])) {
@@ -1043,13 +1105,59 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
 
             <div class="field">
               <label for="configurator_requires">Requires</label>
-              <select id="configurator_requires" name="configurator_requires[]" multiple data-configurator-toggle>
+              <div class="stacked" data-requirement-list>
+                <?php foreach ($formData['configurator_requires'] as $index => $requirement): ?>
+                  <div class="requirement-row" data-requirement-row>
+                    <div class="field">
+                      <label class="sr-only" for="configurator-requirement-label-<?= e((string) $index) ?>">Required part</label>
+                      <input
+                        type="search"
+                        id="configurator-requirement-label-<?= e((string) $index) ?>"
+                        name="configurator_requires[<?= e((string) $index) ?>][label]"
+                        list="configurator-requirement-options"
+                        value="<?= e((string) ($requirement['label'] ?? '')) ?>"
+                        placeholder="Search configurator-ready parts"
+                        autocomplete="off"
+                        data-configurator-toggle
+                        data-requirement-input="label"
+                      />
+                      <input
+                        type="hidden"
+                        name="configurator_requires[<?= e((string) $index) ?>][item_id]"
+                        value="<?= e((string) ($requirement['item_id'] ?? '')) ?>"
+                        data-requirement-input="item_id"
+                      />
+                    </div>
+                    <div class="field narrow">
+                      <label class="sr-only" for="configurator-requirement-quantity-<?= e((string) $index) ?>">Quantity</label>
+                      <input
+                        type="number"
+                        id="configurator-requirement-quantity-<?= e((string) $index) ?>"
+                        name="configurator_requires[<?= e((string) $index) ?>][quantity]"
+                        min="1"
+                        step="1"
+                        value="<?= e((string) ($requirement['quantity'] ?? '1')) ?>"
+                        data-configurator-toggle
+                        data-requirement-input="quantity"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      class="button ghost icon-only"
+                      aria-label="Remove required part"
+                      data-remove-requirement
+                    >&times;</button>
+                  </div>
+                <?php endforeach; ?>
+              </div>
+              <button type="button" class="button ghost" data-add-requirement>Add required part</button>
+              <datalist id="configurator-requirement-options">
                 <?php foreach ($configuratorRequirementOptions as $option): ?>
                   <?php if ($editingId !== null && (int) $option['id'] === $editingId) { continue; } ?>
-                  <option value="<?= e((string) $option['id']) ?>"<?= in_array((int) $option['id'], $formData['configurator_requires'], true) ? ' selected' : '' ?>><?= e($option['label']) ?></option>
+                  <option value="<?= e($option['label']) ?>" data-item-id="<?= e((string) $option['id']) ?>"></option>
                 <?php endforeach; ?>
-              </select>
-              <p class="field-help">Add hardware, frames, or accessories automatically whenever this part is used. Required parts cascade into the final bill of material.</p>
+              </datalist>
+              <p class="field-help">Search configurator-enabled parts, set quantities, and add as many required components as needed. Required parts cascade into the final bill of material.</p>
               <?php if (!empty($errors['configurator_requires'])): ?>
                 <p class="field-error"><?= e($errors['configurator_requires']) ?></p>
               <?php endif; ?>
@@ -1152,6 +1260,36 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
             <input type="number" min="0" step="1" data-location-input="quantity" />
           </div>
           <button type="button" class="button ghost icon-only" data-remove-location aria-label="Remove location">&times;</button>
+        </div>
+      </template>
+      <template id="requirement-row-template">
+        <div class="requirement-row" data-requirement-row>
+          <div class="field">
+            <label class="sr-only">Required part</label>
+            <input
+              type="search"
+              list="configurator-requirement-options"
+              placeholder="Search configurator-ready parts"
+              autocomplete="off"
+              data-configurator-toggle
+              data-requirement-input="label"
+              data-name-key="label"
+            />
+            <input type="hidden" data-requirement-input="item_id" data-name-key="item_id" />
+          </div>
+          <div class="field narrow">
+            <label class="sr-only">Quantity</label>
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value="1"
+              data-configurator-toggle
+              data-requirement-input="quantity"
+              data-name-key="quantity"
+            />
+          </div>
+          <button type="button" class="button ghost icon-only" aria-label="Remove required part" data-remove-requirement>&times;</button>
         </div>
       </template>
     </div>
@@ -1469,6 +1607,129 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
       const qtyInput = newRow.querySelector('[data-location-input="quantity"]');
       if (qtyInput instanceof HTMLInputElement && Object.prototype.hasOwnProperty.call(defaults, 'quantity')) {
         qtyInput.value = defaults.quantity;
+      }
+
+      attachRow(newRow);
+      syncNames();
+    }
+
+    getRows().forEach(attachRow);
+    syncNames();
+
+    if (addButton instanceof HTMLButtonElement) {
+      addButton.addEventListener('click', function (event) {
+        event.preventDefault();
+        addRow();
+      });
+    }
+  })();
+
+  (function () {
+    const modal = document.getElementById('inventory-modal');
+    if (!modal) {
+      return;
+    }
+
+    const requirementOptions = <?php echo json_encode($configuratorRequirementOptions, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+    const list = modal.querySelector('[data-requirement-list]');
+    const template = document.getElementById('requirement-row-template');
+    const addButton = modal.querySelector('[data-add-requirement]');
+
+    if (!(list instanceof HTMLElement) || !(template instanceof HTMLTemplateElement)) {
+      return;
+    }
+
+    function getRows() {
+      return Array.from(list.querySelectorAll('[data-requirement-row]'));
+    }
+
+    function syncNames() {
+      getRows().forEach((row, index) => {
+        row.querySelectorAll('[data-requirement-input]').forEach((input) => {
+          const key = input.getAttribute('data-name-key');
+          if (!key) {
+            return;
+          }
+
+          input.setAttribute('name', 'configurator_requires[' + index + '][' + key + ']');
+
+          if (input instanceof HTMLInputElement) {
+            const baseId = 'configurator-requirement-' + key + '-' + index;
+            input.id = baseId;
+            const label = input.closest('.field')?.querySelector('label');
+            if (label instanceof HTMLLabelElement) {
+              label.setAttribute('for', baseId);
+            }
+          }
+        });
+      });
+    }
+
+    function findOptionByLabel(labelValue) {
+      return requirementOptions.find((option) => option.label === labelValue) || null;
+    }
+
+    function attachRow(row) {
+      const removeButton = row.querySelector('[data-remove-requirement]');
+      if (removeButton instanceof HTMLButtonElement) {
+        removeButton.addEventListener('click', function (event) {
+          event.preventDefault();
+          const rows = getRows();
+          if (rows.length <= 1) {
+            const labelInput = row.querySelector('[data-requirement-input="label"]');
+            const itemIdInput = row.querySelector('[data-requirement-input="item_id"]');
+            const qtyInput = row.querySelector('[data-requirement-input="quantity"]');
+            if (labelInput instanceof HTMLInputElement) {
+              labelInput.value = '';
+            }
+            if (itemIdInput instanceof HTMLInputElement) {
+              itemIdInput.value = '';
+            }
+            if (qtyInput instanceof HTMLInputElement) {
+              qtyInput.value = '1';
+            }
+            return;
+          }
+
+          row.remove();
+          syncNames();
+        });
+      }
+
+      const labelInput = row.querySelector('[data-requirement-input="label"]');
+      const itemIdInput = row.querySelector('[data-requirement-input="item_id"]');
+
+      if (labelInput instanceof HTMLInputElement && itemIdInput instanceof HTMLInputElement) {
+        labelInput.addEventListener('input', function () {
+          const match = findOptionByLabel(labelInput.value.trim());
+          itemIdInput.value = match ? String(match.id) : '';
+        });
+      }
+    }
+
+    function addRow(defaults = {}) {
+      const fragment = template.content.cloneNode(true);
+      list.appendChild(fragment);
+      const rows = getRows();
+      const newRow = rows[rows.length - 1];
+      if (!newRow) {
+        return;
+      }
+
+      const labelInput = newRow.querySelector('[data-requirement-input="label"]');
+      const itemIdInput = newRow.querySelector('[data-requirement-input="item_id"]');
+      const qtyInput = newRow.querySelector('[data-requirement-input="quantity"]');
+
+      if (labelInput instanceof HTMLInputElement && defaults.label) {
+        labelInput.value = String(defaults.label);
+      }
+
+      if (itemIdInput instanceof HTMLInputElement && defaults.item_id) {
+        itemIdInput.value = String(defaults.item_id);
+      }
+
+      if (qtyInput instanceof HTMLInputElement && Object.prototype.hasOwnProperty.call(defaults, 'quantity')) {
+        qtyInput.value = String(defaults.quantity);
       }
 
       attachRow(newRow);

@@ -51,8 +51,20 @@ if (!function_exists('configuratorEnsureSchema')) {
             'CREATE TABLE IF NOT EXISTS configurator_part_requirements (
                 inventory_item_id BIGINT NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
                 required_inventory_item_id BIGINT NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
+                quantity INTEGER NOT NULL DEFAULT 1,
                 PRIMARY KEY (inventory_item_id, required_inventory_item_id)
             )'
+        );
+
+        $db->exec(
+            "ALTER TABLE configurator_part_requirements
+                ADD COLUMN IF NOT EXISTS quantity INTEGER NOT NULL DEFAULT 1"
+        );
+
+        $db->exec(
+            "ALTER TABLE configurator_part_requirements
+                ADD CONSTRAINT IF NOT EXISTS configurator_part_requirements_quantity_check
+                CHECK (quantity > 0)"
         );
 
         $db->exec(
@@ -140,7 +152,10 @@ if (!function_exists('configuratorEnsureSchema')) {
         configuratorEnsureSchema($db);
 
         $statement = $db->query(
-            'SELECT id, sku, item FROM inventory_items ORDER BY item ASC'
+            'SELECT ii.id, ii.sku, ii.item
+             FROM inventory_items ii
+             JOIN configurator_part_profiles cpp ON cpp.inventory_item_id = ii.id AND cpp.is_enabled = TRUE
+             ORDER BY ii.item ASC'
         );
 
         if ($statement === false) {
@@ -163,7 +178,7 @@ if (!function_exists('configuratorEnsureSchema')) {
     }
 
     /**
-     * @return array{enabled:bool,part_type:?string,use_ids:list<int>,required_ids:list<int>}
+     * @return array{enabled:bool,part_type:?string,use_ids:list<int>,requirements:list<array{item_id:int,quantity:int}>}
      */
     function configuratorLoadPartProfile(\PDO $db, int $inventoryItemId): array
     {
@@ -182,10 +197,18 @@ if (!function_exists('configuratorEnsureSchema')) {
         $useIds = array_map('intval', $useStatement->fetchAll(\PDO::FETCH_COLUMN));
 
         $requiresStatement = $db->prepare(
-            'SELECT required_inventory_item_id FROM configurator_part_requirements WHERE inventory_item_id = :item_id'
+            'SELECT required_inventory_item_id, quantity
+             FROM configurator_part_requirements
+             WHERE inventory_item_id = :item_id'
         );
         $requiresStatement->execute([':item_id' => $inventoryItemId]);
-        $requiredIds = array_map('intval', $requiresStatement->fetchAll(\PDO::FETCH_COLUMN));
+        $requiredParts = array_map(
+            static fn (array $row): array => [
+                'item_id' => (int) $row['required_inventory_item_id'],
+                'quantity' => max(1, (int) $row['quantity']),
+            ],
+            $requiresStatement->fetchAll()
+        );
 
         return [
             'enabled' => $profile !== false ? (bool) $profile['is_enabled'] : false,
@@ -193,7 +216,7 @@ if (!function_exists('configuratorEnsureSchema')) {
                 ? (string) $profile['part_type']
                 : null,
             'use_ids' => $useIds,
-            'required_ids' => $requiredIds,
+            'requirements' => $requiredParts,
         ];
     }
 
@@ -201,7 +224,7 @@ if (!function_exists('configuratorEnsureSchema')) {
      * Persist configurator metadata for an inventory item.
      *
      * @param list<int> $useIds
-     * @param list<int> $requiredItemIds
+     * @param list<array{item_id:int,quantity:int}> $requiredItems
      */
     function configuratorSyncPartProfile(
         \PDO $db,
@@ -209,7 +232,7 @@ if (!function_exists('configuratorEnsureSchema')) {
         bool $enabled,
         ?string $partType,
         array $useIds,
-        array $requiredItemIds
+        array $requiredItems
     ): void {
         configuratorEnsureSchema($db);
 
@@ -251,21 +274,34 @@ if (!function_exists('configuratorEnsureSchema')) {
                 }
             }
 
-            if ($enabled && $requiredItemIds !== []) {
+            if ($enabled && $requiredItems !== []) {
                 $requireInsert = $db->prepare(
-                    'INSERT INTO configurator_part_requirements (inventory_item_id, required_inventory_item_id)
-                     VALUES (:item_id, :required_id)'
+                    'INSERT INTO configurator_part_requirements (inventory_item_id, required_inventory_item_id, quantity)
+                     VALUES (:item_id, :required_id, :quantity)'
                 );
 
-                $uniqueRequired = array_values(array_unique(array_map('intval', $requiredItemIds)));
-                foreach ($uniqueRequired as $requiredId) {
+                $uniqueRequired = [];
+
+                foreach ($requiredItems as $requirement) {
+                    $requiredId = (int) $requirement['item_id'];
+                    $quantity = max(1, (int) $requirement['quantity']);
+
                     if ($requiredId === $inventoryItemId) {
                         continue;
                     }
 
+                    if (!isset($uniqueRequired[$requiredId])) {
+                        $uniqueRequired[$requiredId] = $quantity;
+                    } else {
+                        $uniqueRequired[$requiredId] += $quantity;
+                    }
+                }
+
+                foreach ($uniqueRequired as $requiredId => $quantity) {
                     $requireInsert->execute([
                         ':item_id' => $inventoryItemId,
                         ':required_id' => $requiredId,
+                        ':quantity' => $quantity,
                     ]);
                 }
             }
