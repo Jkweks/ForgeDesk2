@@ -47,14 +47,38 @@ CREATE TABLE IF NOT EXISTS configurator_configurations (
     id BIGSERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     job_id BIGINT NULL REFERENCES configurator_jobs(id) ON DELETE SET NULL,
+    job_scope TEXT NOT NULL DEFAULT 'door_and_frame',
+    quantity INTEGER NOT NULL DEFAULT 1,
     status TEXT NOT NULL DEFAULT 'draft',
     notes TEXT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE configurator_configurations
+    ADD COLUMN IF NOT EXISTS job_scope TEXT NOT NULL DEFAULT 'door_and_frame';
+
+ALTER TABLE configurator_configurations
+    ADD COLUMN IF NOT EXISTS quantity INTEGER NOT NULL DEFAULT 1;
+
+ALTER TABLE configurator_configurations
+    ADD CONSTRAINT IF NOT EXISTS configurator_configurations_quantity_check
+    CHECK (quantity > 0);
+
+ALTER TABLE configurator_configurations
+    ADD CONSTRAINT IF NOT EXISTS configurator_configurations_job_scope_check
+    CHECK (job_scope IN ('door_and_frame', 'frame_only', 'door_only'));
+
 CREATE INDEX IF NOT EXISTS idx_configurator_configurations_job_id
     ON configurator_configurations(job_id);
+
+CREATE TABLE IF NOT EXISTS configurator_configuration_doors (
+    id BIGSERIAL PRIMARY KEY,
+    configuration_id BIGINT NOT NULL REFERENCES configurator_configurations(id) ON DELETE CASCADE,
+    door_tag TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (configuration_id, door_tag)
+);
 
 INSERT INTO configurator_part_use_options (name)
 VALUES

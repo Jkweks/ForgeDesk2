@@ -13,6 +13,18 @@ if (!function_exists('configuratorEnsureSchema')) {
         return ['door', 'frame', 'hardware', 'accessory'];
     }
 
+    /**
+     * @return array<string,string>
+     */
+    function configuratorJobScopes(): array
+    {
+        return [
+            'door_and_frame' => 'Door and Frame',
+            'frame_only' => 'Frame Only',
+            'door_only' => 'Door Only',
+        ];
+    }
+
     function configuratorEnsureSchema(\PDO $db): void
     {
         static $ensured = false;
@@ -86,6 +98,8 @@ if (!function_exists('configuratorEnsureSchema')) {
                 id BIGSERIAL PRIMARY KEY,
                 name TEXT NOT NULL,
                 job_id BIGINT NULL REFERENCES configurator_jobs(id) ON DELETE SET NULL,
+                job_scope TEXT NOT NULL DEFAULT 'door_and_frame',
+                quantity INTEGER NOT NULL DEFAULT 1,
                 status TEXT NOT NULL DEFAULT 'draft',
                 notes TEXT NULL,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -94,8 +108,40 @@ if (!function_exists('configuratorEnsureSchema')) {
         );
 
         $db->exec(
+            "ALTER TABLE configurator_configurations
+                ADD COLUMN IF NOT EXISTS job_scope TEXT NOT NULL DEFAULT 'door_and_frame'"
+        );
+
+        $db->exec(
+            "ALTER TABLE configurator_configurations
+                ADD COLUMN IF NOT EXISTS quantity INTEGER NOT NULL DEFAULT 1"
+        );
+
+        $db->exec(
+            "ALTER TABLE configurator_configurations
+                ADD CONSTRAINT IF NOT EXISTS configurator_configurations_quantity_check
+                CHECK (quantity > 0)"
+        );
+
+        $db->exec(
+            "ALTER TABLE configurator_configurations
+                ADD CONSTRAINT IF NOT EXISTS configurator_configurations_job_scope_check
+                CHECK (job_scope IN ('door_and_frame', 'frame_only', 'door_only'))"
+        );
+
+        $db->exec(
             'CREATE INDEX IF NOT EXISTS idx_configurator_configurations_job_id
                 ON configurator_configurations(job_id)'
+        );
+
+        $db->exec(
+            'CREATE TABLE IF NOT EXISTS configurator_configuration_doors (
+                id BIGSERIAL PRIMARY KEY,
+                configuration_id BIGINT NOT NULL REFERENCES configurator_configurations(id) ON DELETE CASCADE,
+                door_tag TEXT NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                UNIQUE (configuration_id, door_tag)
+            )'
         );
 
         $seed = $db->prepare('INSERT INTO configurator_part_use_options (name) VALUES (:name) ON CONFLICT (name) DO NOTHING');
@@ -355,17 +401,29 @@ if (!function_exists('configuratorEnsureSchema')) {
     }
 
     /**
-     * @return list<array{id:int,name:string,job_id:?int,job_number:?string,job_name:?string,status:string,notes:?string,updated_at:string}>
+     * @return list<array{id:int,name:string,job_id:?int,job_number:?string,job_name:?string,job_scope:string,quantity:int,status:string,notes:?string,updated_at:string,door_tags:list<string>}>
      */
     function configuratorListConfigurations(\PDO $db): array
     {
         configuratorEnsureSchema($db);
 
         $statement = $db->query(
-            'SELECT cc.id, cc.name, cc.job_id, cc.status, cc.notes, cc.updated_at, cj.job_number, cj.name AS job_name
+            "SELECT cc.id,
+                    cc.name,
+                    cc.job_id,
+                    cc.job_scope,
+                    cc.quantity,
+                    cc.status,
+                    cc.notes,
+                    cc.updated_at,
+                    cj.job_number,
+                    cj.name AS job_name,
+                    COALESCE(ARRAY_REMOVE(ARRAY_AGG(ccd.door_tag ORDER BY ccd.door_tag), NULL), '{}') AS door_tags
              FROM configurator_configurations cc
              LEFT JOIN configurator_jobs cj ON cj.id = cc.job_id
-             ORDER BY cc.updated_at DESC, cc.id DESC'
+             LEFT JOIN configurator_configuration_doors ccd ON ccd.configuration_id = cc.id
+             GROUP BY cc.id, cj.id, cj.job_number, cj.name
+             ORDER BY cc.updated_at DESC, cc.id DESC"
         );
 
         if ($statement === false) {
@@ -379,23 +437,29 @@ if (!function_exists('configuratorEnsureSchema')) {
                 'job_id' => $row['job_id'] !== null ? (int) $row['job_id'] : null,
                 'job_number' => $row['job_number'] !== null ? (string) $row['job_number'] : null,
                 'job_name' => $row['job_name'] !== null ? (string) $row['job_name'] : null,
+                'job_scope' => (string) $row['job_scope'],
+                'quantity' => max(1, (int) $row['quantity']),
                 'status' => (string) $row['status'],
                 'notes' => $row['notes'] !== null ? (string) $row['notes'] : null,
                 'updated_at' => (string) $row['updated_at'],
+                'door_tags' => array_values(array_filter(
+                    array_map('strval', is_array($row['door_tags']) ? $row['door_tags'] : []),
+                    static fn (string $tag): bool => $tag !== ''
+                )),
             ],
             $statement->fetchAll()
         );
     }
 
     /**
-     * @return array{id:int,name:string,job_id:?int,status:string,notes:?string}|null
+     * @return array{id:int,name:string,job_id:?int,job_scope:string,quantity:int,status:string,notes:?string,door_tags:list<string>}|null
      */
     function configuratorFindConfiguration(\PDO $db, int $id): ?array
     {
         configuratorEnsureSchema($db);
 
         $statement = $db->prepare(
-            'SELECT id, name, job_id, status, notes FROM configurator_configurations WHERE id = :id'
+            'SELECT id, name, job_id, job_scope, quantity, status, notes FROM configurator_configurations WHERE id = :id'
         );
         $statement->execute([':id' => $id]);
         $row = $statement->fetch();
@@ -408,55 +472,205 @@ if (!function_exists('configuratorEnsureSchema')) {
             'id' => (int) $row['id'],
             'name' => (string) $row['name'],
             'job_id' => $row['job_id'] !== null ? (int) $row['job_id'] : null,
+            'job_scope' => (string) $row['job_scope'],
+            'quantity' => max(1, (int) $row['quantity']),
             'status' => (string) $row['status'],
             'notes' => $row['notes'] !== null ? (string) $row['notes'] : null,
+            'door_tags' => configuratorLoadConfigurationDoorTags($db, (int) $row['id']),
         ];
     }
 
     /**
-     * @param array{name:string,job_id:?int,status:string,notes:?string} $payload
+     * @param array{name:string,job_id:?int,job_scope:string,quantity:int,status:string,notes:?string,door_tags:list<string>} $payload
      */
     function configuratorCreateConfiguration(\PDO $db, array $payload): int
     {
         configuratorEnsureSchema($db);
 
-        $statement = $db->prepare(
-            'INSERT INTO configurator_configurations (name, job_id, status, notes)
-             VALUES (:name, :job_id, :status, :notes) RETURNING id'
-        );
-        $statement->execute([
-            ':name' => $payload['name'],
-            ':job_id' => $payload['job_id'],
-            ':status' => $payload['status'],
-            ':notes' => $payload['notes'],
-        ]);
+        $db->beginTransaction();
 
-        return (int) $statement->fetchColumn();
+        try {
+            $statement = $db->prepare(
+                'INSERT INTO configurator_configurations (name, job_id, job_scope, quantity, status, notes)
+                 VALUES (:name, :job_id, :job_scope, :quantity, :status, :notes) RETURNING id'
+            );
+            $statement->execute([
+                ':name' => $payload['name'],
+                ':job_id' => $payload['job_id'],
+                ':job_scope' => $payload['job_scope'],
+                ':quantity' => $payload['quantity'],
+                ':status' => $payload['status'],
+                ':notes' => $payload['notes'],
+            ]);
+
+            $configId = (int) $statement->fetchColumn();
+
+            configuratorSyncConfigurationDoorTags($db, $configId, $payload['door_tags']);
+
+            $db->commit();
+
+            return $configId;
+        } catch (\Throwable $exception) {
+            $db->rollBack();
+            throw $exception;
+        }
     }
 
     /**
-     * @param array{name:string,job_id:?int,status:string,notes:?string} $payload
+     * @param array{name:string,job_id:?int,job_scope:string,quantity:int,status:string,notes:?string,door_tags:list<string>} $payload
      */
     function configuratorUpdateConfiguration(\PDO $db, int $id, array $payload): void
     {
         configuratorEnsureSchema($db);
 
+        $db->beginTransaction();
+
+        try {
+            $statement = $db->prepare(
+                'UPDATE configurator_configurations
+                 SET name = :name,
+                     job_id = :job_id,
+                     job_scope = :job_scope,
+                     quantity = :quantity,
+                     status = :status,
+                     notes = :notes,
+                     updated_at = NOW()
+                 WHERE id = :id'
+            );
+
+            $statement->execute([
+                ':id' => $id,
+                ':name' => $payload['name'],
+                ':job_id' => $payload['job_id'],
+                ':job_scope' => $payload['job_scope'],
+                ':quantity' => $payload['quantity'],
+                ':status' => $payload['status'],
+                ':notes' => $payload['notes'],
+            ]);
+
+            configuratorSyncConfigurationDoorTags($db, $id, $payload['door_tags']);
+
+            $db->commit();
+        } catch (\Throwable $exception) {
+            $db->rollBack();
+            throw $exception;
+        }
+    }
+
+    /**
+     * @return list<string>
+     */
+    function configuratorLoadConfigurationDoorTags(\PDO $db, int $configurationId): array
+    {
+        configuratorEnsureSchema($db);
+
         $statement = $db->prepare(
-            'UPDATE configurator_configurations
-             SET name = :name,
-                 job_id = :job_id,
-                 status = :status,
-                 notes = :notes,
-                 updated_at = NOW()
-             WHERE id = :id'
+            'SELECT door_tag FROM configurator_configuration_doors WHERE configuration_id = :id ORDER BY door_tag ASC'
+        );
+        $statement->execute([':id' => $configurationId]);
+
+        return array_values(array_filter(
+            array_map('strval', $statement->fetchAll(\PDO::FETCH_COLUMN)),
+            static fn (string $tag): bool => $tag !== ''
+        ));
+    }
+
+    /**
+     * @param list<string> $doorTags
+     */
+    function configuratorSyncConfigurationDoorTags(\PDO $db, int $configurationId, array $doorTags): void
+    {
+        $db->prepare('DELETE FROM configurator_configuration_doors WHERE configuration_id = :id')
+            ->execute([':id' => $configurationId]);
+
+        if ($doorTags === []) {
+            return;
+        }
+
+        $insert = $db->prepare(
+            'INSERT INTO configurator_configuration_doors (configuration_id, door_tag)
+             VALUES (:configuration_id, :door_tag)'
         );
 
-        $statement->execute([
-            ':id' => $id,
-            ':name' => $payload['name'],
-            ':job_id' => $payload['job_id'],
-            ':status' => $payload['status'],
-            ':notes' => $payload['notes'],
-        ]);
+        $uniqueTags = [];
+
+        foreach ($doorTags as $tag) {
+            $normalized = trim((string) $tag);
+
+            if ($normalized === '') {
+                continue;
+            }
+
+            $uniqueTags[$normalized] = true;
+        }
+
+        foreach (array_keys($uniqueTags) as $tag) {
+            $insert->execute([
+                ':configuration_id' => $configurationId,
+                ':door_tag' => $tag,
+            ]);
+        }
+    }
+
+    /**
+     * @return list<array{door_id:int,door_tag:string,configuration_id:int,configuration_name:string,job_number:?string}>
+     */
+    function configuratorListDoorTagTemplates(\PDO $db): array
+    {
+        configuratorEnsureSchema($db);
+
+        $statement = $db->query(
+            'SELECT ccd.id AS door_id, ccd.door_tag, ccd.configuration_id, cc.name AS configuration_name, cj.job_number
+             FROM configurator_configuration_doors ccd
+             JOIN configurator_configurations cc ON cc.id = ccd.configuration_id
+             LEFT JOIN configurator_jobs cj ON cj.id = cc.job_id
+             ORDER BY ccd.door_tag ASC'
+        );
+
+        if ($statement === false) {
+            return [];
+        }
+
+        return array_map(
+            static fn (array $row): array => [
+                'door_id' => (int) $row['door_id'],
+                'door_tag' => (string) $row['door_tag'],
+                'configuration_id' => (int) $row['configuration_id'],
+                'configuration_name' => (string) $row['configuration_name'],
+                'job_number' => $row['job_number'] !== null ? (string) $row['job_number'] : null,
+            ],
+            $statement->fetchAll()
+        );
+    }
+
+    /**
+     * @return array{door_tag:string,configuration_id:int,configuration_name:string,job_id:?int,job_scope:string,status:string,notes:?string}|null
+     */
+    function configuratorFindDoorTagTemplate(\PDO $db, int $doorId): ?array
+    {
+        configuratorEnsureSchema($db);
+
+        $statement = $db->prepare(
+            'SELECT ccd.door_tag, ccd.configuration_id, cc.name AS configuration_name, cc.job_id, cc.job_scope, cc.status, cc.notes
+             FROM configurator_configuration_doors ccd
+             JOIN configurator_configurations cc ON cc.id = ccd.configuration_id
+             WHERE ccd.id = :door_id'
+        );
+        $statement->execute([':door_id' => $doorId]);
+        $row = $statement->fetch();
+
+        if ($row === false) {
+            return null;
+        }
+
+        return [
+            'door_tag' => (string) $row['door_tag'],
+            'configuration_id' => (int) $row['configuration_id'],
+            'configuration_name' => (string) $row['configuration_name'],
+            'job_id' => $row['job_id'] !== null ? (int) $row['job_id'] : null,
+            'job_scope' => (string) $row['job_scope'],
+            'status' => (string) $row['status'],
+            'notes' => $row['notes'] !== null ? (string) $row['notes'] : null,
+        ];
     }
 }

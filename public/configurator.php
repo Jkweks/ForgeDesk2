@@ -15,17 +15,22 @@ $errors = [];
 $successMessage = null;
 $configurations = [];
 $jobs = [];
+$doorTagTemplates = [];
 $statusOptions = ['draft', 'in_progress', 'released'];
+$jobScopeOptions = configuratorJobScopes();
 $configFormData = [
     'name' => '',
     'job_id' => '',
+    'job_scope' => 'door_and_frame',
+    'quantity' => 1,
     'status' => 'draft',
     'notes' => '',
+    'door_tags' => [],
 ];
 $editingConfigId = null;
 $builderSteps = [
-    ['id' => 'configuration', 'label' => 'Configuration data', 'description' => 'Name, job, and lifecycle status'],
-    ['id' => 'entry', 'label' => 'Entry data', 'description' => 'Opening type, handing, and measurements'],
+    ['id' => 'configuration', 'label' => 'Configuration data', 'description' => 'Name, job, scope, and lifecycle status'],
+    ['id' => 'entry', 'label' => 'Entry data', 'description' => 'Elevation information and opening measurements'],
     ['id' => 'frame', 'label' => 'Frame data', 'description' => 'Profiles, anchors, and accessories (if required)'],
     ['id' => 'door', 'label' => 'Door data', 'description' => 'Leaf construction and lite kit details (if required)'],
     ['id' => 'hardware', 'label' => 'Door hardware data', 'description' => 'Sets, preps, and templated routing'],
@@ -57,24 +62,53 @@ foreach ($nav as &$groupItems) {
 }
 unset($groupItems, $item);
 
-    if ($dbError === null) {
+if ($dbError === null) {
+    try {
+        $jobs = configuratorListJobs($db);
+    } catch (\Throwable $exception) {
+        $errors[] = 'Unable to load jobs: ' . $exception->getMessage();
+        $jobs = [];
+    }
+
+    try {
+        $doorTagTemplates = configuratorListDoorTagTemplates($db);
+    } catch (\Throwable $exception) {
+        $errors[] = 'Unable to load door tags: ' . $exception->getMessage();
+        $doorTagTemplates = [];
+    }
+
+    if (isset($_GET['template_door_id']) && ctype_digit((string) $_GET['template_door_id'])) {
         try {
-            $jobs = configuratorListJobs($db);
+            $template = configuratorFindDoorTagTemplate($db, (int) $_GET['template_door_id']);
+            if ($template !== null) {
+                $configFormData = [
+                    'name' => $template['configuration_name'] . ' — ' . $template['door_tag'],
+                    'job_id' => $template['job_id'] !== null ? (string) $template['job_id'] : '',
+                    'job_scope' => $template['job_scope'],
+                    'quantity' => 1,
+                    'status' => $template['status'],
+                    'notes' => $template['notes'] ?? '',
+                    'door_tags' => [$template['door_tag']],
+                ];
+                $successMessage = 'Starting a new configuration from door tag ' . $template['door_tag'] . '.';
+                $currentStep = 'configuration';
+                $editingConfigId = null;
+            }
         } catch (\Throwable $exception) {
-            $errors[] = 'Unable to load jobs: ' . $exception->getMessage();
-            $jobs = [];
+            $errors[] = 'Unable to load door tag template: ' . $exception->getMessage();
+        }
+    }
+
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $action = $_POST['action'] ?? '';
+
+        if (isset($_POST['builder_step']) && in_array($_POST['builder_step'], $stepIds, true)) {
+            $currentStep = (string) $_POST['builder_step'];
         }
 
-        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            $action = $_POST['action'] ?? '';
-
-            if (isset($_POST['builder_step']) && in_array($_POST['builder_step'], $stepIds, true)) {
-                $currentStep = (string) $_POST['builder_step'];
-            }
-
-            if ($action === 'create_job') {
-                $jobNumber = trim((string) ($_POST['job_number'] ?? ''));
-                $jobName = trim((string) ($_POST['job_name'] ?? ''));
+        if ($action === 'create_job') {
+            $jobNumber = trim((string) ($_POST['job_number'] ?? ''));
+            $jobName = trim((string) ($_POST['job_name'] ?? ''));
 
             if ($jobNumber === '') {
                 $errors['job_number'] = 'Job number is required.';
@@ -101,14 +135,20 @@ unset($groupItems, $item);
         } elseif ($action === 'save_configuration') {
             $configName = trim((string) ($_POST['config_name'] ?? ''));
             $jobIdRaw = trim((string) ($_POST['config_job_id'] ?? ''));
+            $configScope = (string) ($_POST['config_job_scope'] ?? 'door_and_frame');
+            $configQuantityRaw = trim((string) ($_POST['config_quantity'] ?? '1'));
             $configStatus = trim((string) ($_POST['config_status'] ?? 'draft'));
             $configNotes = trim((string) ($_POST['config_notes'] ?? ''));
+            $doorTagsRaw = isset($_POST['door_tags']) && is_array($_POST['door_tags']) ? $_POST['door_tags'] : [];
 
             $configFormData = [
                 'name' => $configName,
                 'job_id' => $jobIdRaw,
+                'job_scope' => $configScope,
+                'quantity' => $configQuantityRaw,
                 'status' => $configStatus,
                 'notes' => $configNotes,
+                'door_tags' => array_map('strval', $doorTagsRaw),
             ];
 
             if ($configName === '') {
@@ -128,9 +168,29 @@ unset($groupItems, $item);
                 }
             }
 
+            if (!array_key_exists($configScope, $jobScopeOptions)) {
+                $errors['config_job_scope'] = 'Select a valid job scope.';
+                $configFormData['job_scope'] = 'door_and_frame';
+            }
+
+            $quantity = ctype_digit($configQuantityRaw) ? (int) $configQuantityRaw : 0;
+            if ($quantity < 1) {
+                $errors['config_quantity'] = 'Quantity must be at least 1.';
+                $quantity = 1;
+            }
+
             if (!in_array($configStatus, $statusOptions, true)) {
                 $errors['config_status'] = 'Select a valid status.';
                 $configFormData['status'] = 'draft';
+            }
+
+            $doorTags = array_values(array_filter(
+                array_map(static fn ($value): string => trim((string) $value), $doorTagsRaw),
+                static fn (string $value): bool => $value !== ''
+            ));
+
+            if (count($doorTags) !== $quantity) {
+                $errors['door_tags'] = 'Door tag count must match the quantity.';
             }
 
             $configIdRaw = trim((string) ($_POST['config_id'] ?? ''));
@@ -146,8 +206,11 @@ unset($groupItems, $item);
                 $payload = [
                     'name' => $configName,
                     'job_id' => $jobId,
+                    'job_scope' => array_key_exists($configScope, $jobScopeOptions) ? $configScope : 'door_and_frame',
+                    'quantity' => $quantity,
                     'status' => $configStatus,
                     'notes' => $configNotes !== '' ? $configNotes : null,
+                    'door_tags' => $doorTags,
                 ];
 
                 try {
@@ -173,8 +236,11 @@ unset($groupItems, $item);
                 $configFormData = [
                     'name' => $existingConfig['name'],
                     'job_id' => $existingConfig['job_id'] !== null ? (string) $existingConfig['job_id'] : '',
+                    'job_scope' => $existingConfig['job_scope'],
+                    'quantity' => $existingConfig['quantity'],
                     'status' => $existingConfig['status'],
                     'notes' => $existingConfig['notes'] ?? '',
+                    'door_tags' => $existingConfig['door_tags'],
                 ];
             } else {
                 $editingConfigId = null;
@@ -346,6 +412,29 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
 
                 <div class="field-grid two-column">
                   <div class="field">
+                    <label for="config_job_scope">Job Scope</label>
+                    <select id="config_job_scope" name="config_job_scope">
+                      <?php foreach ($jobScopeOptions as $value => $label): ?>
+                        <option value="<?= e($value) ?>"<?= $configFormData['job_scope'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                    <?php if (!empty($errors['config_job_scope'])): ?>
+                      <p class="field-error"><?= e($errors['config_job_scope']) ?></p>
+                    <?php endif; ?>
+                  </div>
+
+                  <div class="field">
+                    <label for="config_quantity">Quantity<span aria-hidden="true">*</span></label>
+                    <input type="number" min="1" id="config_quantity" name="config_quantity" value="<?= e((string) $configFormData['quantity']) ?>" required />
+                    <p class="small muted">Door tag count must match this quantity.</p>
+                    <?php if (!empty($errors['config_quantity'])): ?>
+                      <p class="field-error"><?= e($errors['config_quantity']) ?></p>
+                    <?php endif; ?>
+                  </div>
+                </div>
+
+                <div class="field-grid two-column">
+                  <div class="field">
                     <label for="config_status">Status</label>
                     <select id="config_status" name="config_status">
                       <?php foreach ($statusOptions as $option): ?>
@@ -363,11 +452,62 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                   </div>
                 </div>
 
+                <div class="field">
+                  <label>Door Tags<span aria-hidden="true">*</span></label>
+                  <p class="small muted">Provide one tag per opening. The number of tags must equal the quantity.</p>
+                  <?php if (!empty($errors['door_tags'])): ?>
+                    <p class="field-error"><?= e($errors['door_tags']) ?></p>
+                  <?php endif; ?>
+                  <div id="door-tags-container" class="stacked gap-sm">
+                    <?php foreach ($configFormData['door_tags'] as $tag): ?>
+                      <div class="door-tag-row">
+                        <input type="text" name="door_tags[]" value="<?= e($tag) ?>" required />
+                      </div>
+                    <?php endforeach; ?>
+                  </div>
+                </div>
+
+                <div class="field">
+                  <label for="template_door_select">Copy from door tag</label>
+                  <div class="stacked gap-xs">
+                    <select id="template_door_select" name="template_door_select">
+                      <option value="">Select a door tag to copy</option>
+                      <?php foreach ($doorTagTemplates as $template): ?>
+                        <option value="<?= e((string) $template['door_id']) ?>">
+                          <?= e($template['door_tag']) ?> — <?= e($template['configuration_name']) ?><?php if ($template['job_number'] !== null): ?> (Job <?= e($template['job_number']) ?>)<?php endif; ?>
+                        </option>
+                      <?php endforeach; ?>
+                    </select>
+                    <p class="small muted">Loading a door tag will start a new configuration using that tag as the starting point.</p>
+                    <div class="form-actions inline">
+                      <button type="button" class="button ghost" id="template-door-start" aria-label="Copy from selected door tag">Use door tag</button>
+                    </div>
+                  </div>
+                </div>
+
                 <div class="form-actions">
                   <button type="submit" class="button primary">Save configuration</button>
                   <a class="button ghost" href="configurator.php">Cancel</a>
                 </div>
               </form>
+            <?php elseif ($currentStep === 'entry'): ?>
+              <div class="card">
+                <div class="field-grid two-column">
+                  <div class="field">
+                    <label for="entry_elevation">Elevation / Mark</label>
+                    <input type="text" id="entry_elevation" name="entry_elevation" placeholder="Example: Elevation A" />
+                  </div>
+                  <div class="field">
+                    <label for="entry_opening">Opening location</label>
+                    <input type="text" id="entry_opening" name="entry_opening" placeholder="Floor, room, or grid reference" />
+                  </div>
+                </div>
+                <div class="field">
+                  <label for="entry_notes">Elevation notes</label>
+                  <textarea id="entry_notes" name="entry_notes" rows="3" placeholder="List elevation details, head heights, and any unique conditions."></textarea>
+                </div>
+                <p class="small muted">Elevation inputs are captured here for planning; persistence hooks will be added in a later step.</p>
+              </div>
             <?php else: ?>
               <div class="card muted">
                 <p class="small">This step will capture <?= e(strtolower($builderSteps[array_search($currentStep, $stepIds, true)]['label'] ?? 'additional')) ?> details. Content for this stage is coming in the next update.</p>
@@ -382,6 +522,9 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
               <tr>
                 <th scope="col">Configuration</th>
                 <th scope="col">Job</th>
+                <th scope="col">Scope</th>
+                <th scope="col">Quantity</th>
+                <th scope="col">Door Tags</th>
                 <th scope="col">Status</th>
                 <th scope="col">Updated</th>
                 <th scope="col">Actions</th>
@@ -390,7 +533,7 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
             <tbody>
               <?php if ($configurations === []): ?>
                 <tr>
-                  <td colspan="5" class="muted">No configurations yet. Add one to start building a template.</td>
+                  <td colspan="8" class="muted">No configurations yet. Add one to start building a template.</td>
                 </tr>
               <?php else: ?>
                 <?php foreach ($configurations as $configuration): ?>
@@ -406,6 +549,19 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                         <span class="muted">Unassigned</span>
                       <?php endif; ?>
                     </td>
+                    <td><?= e($jobScopeOptions[$configuration['job_scope']] ?? $configuration['job_scope']) ?></td>
+                    <td><?= e((string) $configuration['quantity']) ?></td>
+                    <td>
+                      <?php if ($configuration['door_tags'] === []): ?>
+                        <span class="muted">No tags</span>
+                      <?php else: ?>
+                        <div class="stacked gap-xs">
+                          <?php foreach ($configuration['door_tags'] as $tag): ?>
+                            <span class="pill secondary"><?= e($tag) ?></span>
+                          <?php endforeach; ?>
+                        </div>
+                      <?php endif; ?>
+                    </td>
                     <td><span class="pill"><?= e(ucwords(str_replace('_', ' ', $configuration['status']))) ?></span></td>
                     <td class="muted"><?= e(date('M j, Y', strtotime($configuration['updated_at']))) ?></td>
                     <td>
@@ -417,6 +573,50 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
             </tbody>
           </table>
         </div>
+      </section>
+
+      <section class="panel">
+        <header class="panel-header">
+          <div>
+            <h2>Door tags</h2>
+            <p class="small">Reuse existing door tags to start a new configuration without rebuilding from scratch.</p>
+          </div>
+        </header>
+
+        <?php if ($doorTagTemplates === []): ?>
+          <p class="muted">No door tags are available yet. Add tags to a configuration to unlock copying.</p>
+        <?php else: ?>
+          <div class="table-wrapper">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th scope="col">Door Tag</th>
+                  <th scope="col">Configuration</th>
+                  <th scope="col">Job</th>
+                  <th scope="col">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <?php foreach ($doorTagTemplates as $template): ?>
+                  <tr>
+                    <td><?= e($template['door_tag']) ?></td>
+                    <td><?= e($template['configuration_name']) ?></td>
+                    <td>
+                      <?php if ($template['job_number'] !== null): ?>
+                        <?= e($template['job_number']) ?>
+                      <?php else: ?>
+                        <span class="muted">Unassigned</span>
+                      <?php endif; ?>
+                    </td>
+                    <td>
+                      <a class="button ghost" href="configurator.php?create=1&step=configuration&template_door_id=<?= e((string) $template['door_id']) ?>">Start from tag</a>
+                    </td>
+                  </tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table>
+          </div>
+        <?php endif; ?>
       </section>
 
       <section class="panel">
@@ -479,6 +679,63 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
       </section>
     </main>
   </div>
+
+  <script>
+    (function () {
+      const quantityInput = document.getElementById('config_quantity');
+      const doorTagsContainer = document.getElementById('door-tags-container');
+      const templateSelect = document.getElementById('template_door_select');
+      const templateButton = document.getElementById('template-door-start');
+
+      function syncDoorTags() {
+        if (!quantityInput || !doorTagsContainer) {
+          return;
+        }
+
+        const parsed = parseInt(quantityInput.value, 10);
+        const quantity = Number.isNaN(parsed) || parsed < 1 ? 1 : parsed;
+        quantityInput.value = quantity;
+
+        const existing = Array.from(doorTagsContainer.querySelectorAll('input[name="door_tags[]"]')).map((input) => input.value);
+
+        doorTagsContainer.innerHTML = '';
+
+        for (let index = 0; index < quantity; index += 1) {
+          const wrapper = document.createElement('div');
+          wrapper.className = 'door-tag-row';
+
+          const input = document.createElement('input');
+          input.type = 'text';
+          input.name = 'door_tags[]';
+          input.required = true;
+          input.placeholder = `Door tag #${index + 1}`;
+          input.value = existing[index] ?? '';
+
+          wrapper.appendChild(input);
+          doorTagsContainer.appendChild(wrapper);
+        }
+      }
+
+      quantityInput?.addEventListener('change', syncDoorTags);
+      quantityInput?.addEventListener('blur', syncDoorTags);
+      syncDoorTags();
+
+      if (templateSelect && templateButton) {
+        templateButton.addEventListener('click', () => {
+          const selected = templateSelect.value;
+          if (selected === '') {
+            return;
+          }
+
+          const url = new URL(window.location.href);
+          url.searchParams.set('create', '1');
+          url.searchParams.set('step', 'configuration');
+          url.searchParams.set('template_door_id', selected);
+          window.location.href = url.toString();
+        });
+      }
+    })();
+  </script>
 
 </body>
 </html>
