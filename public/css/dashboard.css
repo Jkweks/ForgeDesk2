@@ -1407,13 +1407,14 @@ a.link:focus{
 
 .reservation-editor{
   position:fixed;
-  top:50%;
+  top:24px;
   left:50%;
-  transform:translate(-50%,-50%);
+  transform:translate(-50%,0);
   z-index:901;
-  width:min(900px,94vw);
-  max-height:90vh;
-  overflow:hidden;
+  width:min(1300px,96vw);
+  bottom:24px;
+  max-height:none;
+  overflow:auto;
   background:linear-gradient(180deg,var(--panel-2),#151920);
   border-radius:var(--radius);
   border:1px solid rgba(255,255,255,.08);
@@ -1442,8 +1443,8 @@ a.link:focus{
   grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
 }
 .reservation-editor__table-wrapper{
-  max-height:42vh;
-  overflow:auto;
+  max-height:none;
+  overflow:visible;
   border:1px solid rgba(255,255,255,.06);
   border-radius:var(--radius);
 }

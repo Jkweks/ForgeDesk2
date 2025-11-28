@@ -9,6 +9,8 @@ require_once __DIR__ . '/../app/helpers/database.php';
 require_once __DIR__ . '/../app/helpers/view.php';
 require_once __DIR__ . '/../app/data/configurator.php';
 
+session_start();
+
 $databaseConfig = $app['database'];
 $dbError = null;
 $errors = [];
@@ -163,6 +165,14 @@ $electrifiedOptions = [
     'prewire' => 'Prewire and conduit',
     'fully_prepped' => 'Fully prepped',
 ];
+$defaultBuilderForms = [
+    'configuration' => $configFormData,
+    'entry' => $entryFormData,
+    'frame' => $frameFormData,
+    'door' => $doorFormData,
+    'hardware' => $hardwareFormData,
+    'summary_notes' => $summaryNotes,
+];
 $editingConfigId = null;
 $builderSteps = [
     ['id' => 'configuration', 'label' => 'Configuration data', 'description' => 'Name, job, scope, and lifecycle status'],
@@ -174,6 +184,26 @@ $builderSteps = [
 ];
 $stepIds = array_map(static fn (array $step): string => $step['id'], $builderSteps);
 $currentStep = 'configuration';
+$builderSessionKey = 'configurator_builder';
+$builderState = $_SESSION[$builderSessionKey] ?? [
+    'config_id' => null,
+    'current_step' => 'configuration',
+    'completed' => [],
+    'forms' => $defaultBuilderForms,
+    'config_payload' => null,
+];
+$stepOrder = array_flip($stepIds);
+
+$resetBuilderState = static function (?int $configId = null) use (&$builderState, $defaultBuilderForms, $builderSessionKey): void {
+    $builderState = [
+        'config_id' => $configId,
+        'current_step' => 'configuration',
+        'completed' => [],
+        'forms' => $defaultBuilderForms,
+        'config_payload' => null,
+    ];
+    $_SESSION[$builderSessionKey] = $builderState;
+};
 
 foreach ($nav as &$groupItems) {
     foreach ($groupItems as &$item) {
@@ -213,6 +243,53 @@ if ($dbError === null) {
         $doorTagTemplates = [];
     }
 
+    $requestedConfigId = isset($_GET['id']) && ctype_digit((string) $_GET['id'])
+        ? (int) $_GET['id']
+        : null;
+
+    if (isset($_GET['create'])) {
+        $resetBuilderState(null);
+    } elseif ($builderState['config_id'] !== $requestedConfigId) {
+        $resetBuilderState($requestedConfigId);
+    }
+
+    $editingConfigId = $builderState['config_id'];
+
+    if ($requestedConfigId !== null && $builderState['config_payload'] === null) {
+        try {
+            $existingConfig = configuratorFindConfiguration($db, $requestedConfigId);
+            if ($existingConfig !== null) {
+                $builderState['forms']['configuration'] = [
+                    'name' => $existingConfig['name'],
+                    'job_id' => $existingConfig['job_id'] !== null ? (string) $existingConfig['job_id'] : '',
+                    'job_scope' => $existingConfig['job_scope'],
+                    'quantity' => $existingConfig['quantity'],
+                    'status' => $existingConfig['status'],
+                    'notes' => $existingConfig['notes'] ?? '',
+                    'door_tags' => $existingConfig['door_tags'],
+                ];
+                $builderState['config_payload'] = [
+                    'name' => $existingConfig['name'],
+                    'job_id' => $existingConfig['job_id'],
+                    'job_scope' => $existingConfig['job_scope'],
+                    'quantity' => (int) $existingConfig['quantity'],
+                    'status' => $existingConfig['status'],
+                    'notes' => $existingConfig['notes'],
+                    'door_tags' => $existingConfig['door_tags'],
+                ];
+                $builderState['current_step'] = 'configuration';
+            } else {
+                $editingConfigId = null;
+                $errors['general'] = 'The requested configuration could not be found.';
+                $resetBuilderState(null);
+            }
+        } catch (\Throwable $exception) {
+            $errors['general'] = 'Unable to load configuration: ' . $exception->getMessage();
+            $editingConfigId = null;
+            $resetBuilderState(null);
+        }
+    }
+
     if (isset($_GET['template_door_id']) && ctype_digit((string) $_GET['template_door_id'])) {
         try {
             $template = configuratorFindDoorTagTemplate($db, (int) $_GET['template_door_id']);
@@ -226,6 +303,12 @@ if ($dbError === null) {
                     'notes' => $template['notes'] ?? '',
                     'door_tags' => [$template['door_tag']],
                 ];
+                $builderState['forms']['configuration'] = $configFormData;
+                $builderState['config_payload'] = null;
+                $builderState['config_id'] = null;
+                $builderState['completed'] = [];
+                $builderState['current_step'] = 'configuration';
+                $_SESSION[$builderSessionKey] = $builderState;
                 $successMessage = 'Starting a new configuration from door tag ' . $template['door_tag'] . '.';
                 $currentStep = 'configuration';
                 $editingConfigId = null;
@@ -237,10 +320,26 @@ if ($dbError === null) {
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $action = $_POST['action'] ?? '';
+        $navigateToRaw = $_POST['navigate_to'] ?? null;
+        $targetStep = $navigateToRaw !== null && in_array($navigateToRaw, $stepIds, true)
+            ? (string) $navigateToRaw
+            : null;
 
-        if (isset($_POST['builder_step']) && in_array($_POST['builder_step'], $stepIds, true)) {
-            $currentStep = (string) $_POST['builder_step'];
-        }
+        $computeTargetStep = static function (string $current, ?string $requested) use ($stepIds, $stepOrder): string {
+            $currentIndex = $stepOrder[$current] ?? 0;
+            if ($requested === null || !array_key_exists($requested, $stepOrder)) {
+                $nextIndex = $currentIndex + 1;
+                return $stepIds[$nextIndex] ?? $current;
+            }
+
+            $requestedIndex = $stepOrder[$requested];
+            if ($requestedIndex > $currentIndex + 1) {
+                $nextIndex = $currentIndex + 1;
+                return $stepIds[$nextIndex] ?? $current;
+            }
+
+            return $requested;
+        };
 
         $openingTypeRaw = $_POST['entry_opening_type'] ?? null;
         if ($openingTypeRaw !== null && isset($openingTypeOptions[$openingTypeRaw])) {
@@ -393,7 +492,7 @@ if ($dbError === null) {
                     }
                 }
             }
-        } elseif ($action === 'save_configuration') {
+        } elseif ($action === 'stage_configuration') {
             $configName = trim((string) ($_POST['config_name'] ?? ''));
             $jobIdRaw = trim((string) ($_POST['config_job_id'] ?? ''));
             $configScope = (string) ($_POST['config_job_scope'] ?? 'door_and_frame');
@@ -474,50 +573,92 @@ if ($dbError === null) {
                     'door_tags' => $doorTags,
                 ];
 
+                $builderState['forms']['configuration'] = $configFormData;
+                $builderState['config_payload'] = $payload;
+                $builderState['config_id'] = $editingConfigId;
+                $builderState['completed'] = array_values(array_unique(array_merge($builderState['completed'], ['configuration'])));
+                $builderState['current_step'] = $computeTargetStep('configuration', $targetStep ?? 'entry');
+            } else {
+                $builderState['current_step'] = 'configuration';
+            }
+        } elseif ($action === 'stage_entry') {
+            $builderState['forms']['entry'] = $entryFormData;
+            $builderState['completed'] = array_values(array_unique(array_merge($builderState['completed'], ['configuration', 'entry'])));
+            $builderState['current_step'] = $computeTargetStep('entry', $targetStep ?? 'frame');
+        } elseif ($action === 'stage_frame') {
+            $builderState['forms']['frame'] = $frameFormData;
+            $builderState['completed'] = array_values(array_unique(array_merge($builderState['completed'], ['configuration', 'entry', 'frame'])));
+            $builderState['current_step'] = $computeTargetStep('frame', $targetStep ?? 'door');
+        } elseif ($action === 'stage_door') {
+            $builderState['forms']['door'] = $doorFormData;
+            $builderState['completed'] = array_values(array_unique(array_merge($builderState['completed'], ['configuration', 'entry', 'frame', 'door'])));
+            $builderState['current_step'] = $computeTargetStep('door', $targetStep ?? 'hardware');
+        } elseif ($action === 'stage_hardware') {
+            $builderState['forms']['hardware'] = $hardwareFormData;
+            $builderState['forms']['summary_notes'] = $summaryNotes;
+            $builderState['completed'] = array_values(array_unique(array_merge($builderState['completed'], ['configuration', 'entry', 'frame', 'door', 'hardware'])));
+            $builderState['current_step'] = $computeTargetStep('hardware', $targetStep ?? 'summary');
+        } elseif ($action === 'finalize_configuration') {
+            $builderState['forms']['summary_notes'] = $summaryNotes;
+            $requiredSteps = array_slice($stepIds, 0, count($stepIds) - 1);
+            $missingStep = null;
+
+            foreach ($requiredSteps as $stepId) {
+                if (!in_array($stepId, $builderState['completed'], true)) {
+                    $missingStep = $stepId;
+                    break;
+                }
+            }
+
+            if ($missingStep !== null) {
+                $errors['general'] = 'Complete all steps before saving the configuration.';
+                $builderState['current_step'] = $missingStep;
+            } elseif ($builderState['config_payload'] === null) {
+                $errors['general'] = 'Configuration details are missing. Please complete the first step.';
+                $builderState['current_step'] = 'configuration';
+            } else {
+                $payload = $builderState['config_payload'];
+                $editingConfigId = $builderState['config_id'];
+
                 try {
                     if ($editingConfigId !== null) {
                         configuratorUpdateConfiguration($db, $editingConfigId, $payload);
+                        $resetBuilderState(null);
                         header('Location: configurator.php?success=updated');
                     } else {
                         configuratorCreateConfiguration($db, $payload);
+                        $resetBuilderState(null);
                         header('Location: configurator.php?success=created');
                     }
 
                     exit;
                 } catch (\Throwable $exception) {
                     $errors['general'] = 'Unable to save configuration: ' . $exception->getMessage();
+                    $builderState['current_step'] = 'summary';
                 }
             }
-        } elseif (in_array($action, ['stage_entry', 'stage_frame', 'stage_door', 'stage_hardware', 'stage_summary'], true)) {
-            $successMessage = 'Step details recorded for this session. Saving to the database will follow in a future update.';
         }
-    } elseif (isset($_GET['id']) && ctype_digit((string) $_GET['id'])) {
-        $editingConfigId = (int) $_GET['id'];
-        try {
-            $existingConfig = configuratorFindConfiguration($db, $editingConfigId);
-            if ($existingConfig !== null) {
-                $configFormData = [
-                    'name' => $existingConfig['name'],
-                    'job_id' => $existingConfig['job_id'] !== null ? (string) $existingConfig['job_id'] : '',
-                    'job_scope' => $existingConfig['job_scope'],
-                    'quantity' => $existingConfig['quantity'],
-                    'status' => $existingConfig['status'],
-                    'notes' => $existingConfig['notes'] ?? '',
-                    'door_tags' => $existingConfig['door_tags'],
-                ];
-            } else {
-                $editingConfigId = null;
-                $errors['general'] = 'The requested configuration could not be found.';
-            }
-        } catch (\Throwable $exception) {
-            $errors['general'] = 'Unable to load configuration: ' . $exception->getMessage();
-            $editingConfigId = null;
+
+        $_SESSION[$builderSessionKey] = $builderState;
+    }
+
+    $currentStep = $builderState['current_step'];
+    if (isset($_GET['step']) && in_array($_GET['step'], $stepIds, true)) {
+        $requestedStep = (string) $_GET['step'];
+        if (in_array($requestedStep, $builderState['completed'], true) || $requestedStep === $currentStep) {
+            $currentStep = $requestedStep;
+            $builderState['current_step'] = $requestedStep;
+            $_SESSION[$builderSessionKey] = $builderState;
         }
     }
 
-    if (isset($_GET['step']) && in_array($_GET['step'], $stepIds, true)) {
-        $currentStep = (string) $_GET['step'];
-    }
+    $configFormData = $builderState['forms']['configuration'];
+    $entryFormData = $builderState['forms']['entry'];
+    $frameFormData = $builderState['forms']['frame'];
+    $doorFormData = $builderState['forms']['door'];
+    $hardwareFormData = $builderState['forms']['hardware'];
+    $summaryNotes = $builderState['forms']['summary_notes'];
+    $editingConfigId = $builderState['config_id'];
 
     try {
         $configurations = configuratorListConfigurations($db);
@@ -538,8 +679,16 @@ if (isset($_GET['success'])) {
 }
 
 $editorMode = ($editingConfigId !== null)
-    || (($_POST['action'] ?? '') === 'save_configuration')
-    || (isset($_GET['create']) && $_GET['create'] === '1');
+    || (isset($_POST['action']) && in_array($_POST['action'], [
+        'stage_configuration',
+        'stage_entry',
+        'stage_frame',
+        'stage_door',
+        'stage_hardware',
+        'finalize_configuration',
+    ], true))
+    || (isset($_GET['create']) && $_GET['create'] === '1')
+    || ($builderState['config_payload'] !== null);
 
 if ($editorMode && !in_array($currentStep, $stepIds, true)) {
     $currentStep = 'configuration';
@@ -642,8 +791,7 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
 
             <?php if ($currentStep === 'configuration'): ?>
               <form method="post" class="form" novalidate>
-                <input type="hidden" name="action" value="save_configuration" />
-                <input type="hidden" name="builder_step" value="<?= e($currentStep) ?>" />
+                <input type="hidden" name="action" value="stage_configuration" />
                 <?php if ($editingConfigId !== null): ?>
                   <input type="hidden" name="config_id" value="<?= e((string) $editingConfigId) ?>" />
                 <?php endif; ?>
@@ -751,14 +899,13 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                 <?php endif; ?>
 
                 <div class="form-actions">
-                  <button type="submit" class="button primary">Save configuration</button>
+                  <button type="submit" class="button primary" name="navigate_to" value="entry">Continue to entry data</button>
                   <a class="button ghost" href="configurator.php">Cancel</a>
                 </div>
               </form>
             <?php elseif ($currentStep === 'entry'): ?>
               <form method="post" class="form" novalidate>
                 <input type="hidden" name="action" value="stage_entry" />
-                <input type="hidden" name="builder_step" value="entry" />
                 <div class="field-grid two-column">
                   <div class="field">
                     <label for="entry_opening_type">Opening type</label>
@@ -826,14 +973,13 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                 </div>
                 <p class="small muted">These entry details are staged for the workflow and will be wired into persistence and calculations in a follow-up update.</p>
                 <div class="form-actions">
-                  <button type="submit" class="button secondary" name="builder_step" value="configuration">Save entry data</button>
-                  <button type="submit" class="button primary" name="builder_step" value="frame">Continue to frame data</button>
+                  <button type="submit" class="button secondary" name="navigate_to" value="configuration">Back to configuration</button>
+                  <button type="submit" class="button primary" name="navigate_to" value="frame">Continue to frame data</button>
                 </div>
               </form>
             <?php elseif ($currentStep === 'frame'): ?>
               <form method="post" class="form" novalidate>
                 <input type="hidden" name="action" value="stage_frame" />
-                <input type="hidden" name="builder_step" value="frame" />
                 <div class="field-grid two-column">
                   <div class="field">
                     <label for="frame_material">Frame material</label>
@@ -888,14 +1034,13 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                 </div>
                 <p class="small muted">Use this stage to outline frame makeup and installation needs. These values will map to frame part selection and cut lists.</p>
                 <div class="form-actions">
-                  <button type="submit" class="button secondary" name="builder_step" value="entry">Back to entry</button>
-                  <button type="submit" class="button primary" name="builder_step" value="door">Continue to door data</button>
+                  <button type="submit" class="button secondary" name="navigate_to" value="entry">Back to entry</button>
+                  <button type="submit" class="button primary" name="navigate_to" value="door">Continue to door data</button>
                 </div>
               </form>
             <?php elseif ($currentStep === 'door'): ?>
               <form method="post" class="form" novalidate>
                 <input type="hidden" name="action" value="stage_door" />
-                <input type="hidden" name="builder_step" value="door" />
                 <div class="field-grid two-column">
                   <div class="field">
                     <label for="door_type">Door type</label>
@@ -950,14 +1095,13 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                 </div>
                 <p class="small muted">Outline the leaf construction to drive BOM selection. Preps and lite kits will guide required components.</p>
                 <div class="form-actions">
-                  <button type="submit" class="button secondary" name="builder_step" value="frame">Back to frame</button>
-                  <button type="submit" class="button primary" name="builder_step" value="hardware">Continue to hardware</button>
+                  <button type="submit" class="button secondary" name="navigate_to" value="frame">Back to frame</button>
+                  <button type="submit" class="button primary" name="navigate_to" value="hardware">Continue to hardware</button>
                 </div>
               </form>
             <?php elseif ($currentStep === 'hardware'): ?>
               <form method="post" class="form" novalidate>
                 <input type="hidden" name="action" value="stage_hardware" />
-                <input type="hidden" name="builder_step" value="hardware" />
                 <div class="field-grid two-column">
                   <div class="field">
                     <label for="hardware_set">Hardware set</label>
@@ -1012,14 +1156,13 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                 </div>
                 <p class="small muted">Hardware selections will drive preps and required parts lists. Use notes to call out special conditions.</p>
                 <div class="form-actions">
-                  <button type="submit" class="button secondary" name="builder_step" value="door">Back to door</button>
-                  <button type="submit" class="button primary" name="builder_step" value="summary">Continue to summary</button>
+                  <button type="submit" class="button secondary" name="navigate_to" value="door">Back to door</button>
+                  <button type="submit" class="button primary" name="navigate_to" value="summary">Continue to summary</button>
                 </div>
               </form>
             <?php elseif ($currentStep === 'summary'): ?>
               <form method="post" class="form" novalidate>
-                <input type="hidden" name="action" value="stage_summary" />
-                <input type="hidden" name="builder_step" value="summary" />
+                <input type="hidden" name="action" value="finalize_configuration" />
                 <div class="card-grid two-column">
                   <div class="card">
                     <h3>Entry overview</h3>
@@ -1065,9 +1208,9 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                   </div>
                 </div>
                 <div class="form-actions">
-                  <button type="submit" class="button secondary" name="builder_step" value="hardware">Back to hardware</button>
+                  <button type="submit" class="button secondary" name="navigate_to" value="hardware">Back to hardware</button>
                   <a class="button ghost" href="configurator.php">Return to list</a>
-                  <button type="submit" class="button primary" name="builder_step" value="summary">Acknowledge summary</button>
+                  <button type="submit" class="button primary">Save configuration</button>
                 </div>
               </form>
             <?php endif; ?>
