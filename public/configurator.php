@@ -12,12 +12,16 @@ require_once __DIR__ . '/../app/data/configurator.php';
 session_start();
 
 $databaseConfig = $app['database'];
-$dbError = null;
+$localStorageOnly = true;
+$dbError = $localStorageOnly
+    ? 'Local storage mode active. Configurations are stored in this browser until database integration is added.'
+    : null;
 $errors = [];
 $successMessage = null;
 $configurations = [];
 $jobs = [];
 $doorTagTemplates = [];
+$localSavePayload = null;
 $statusOptions = ['draft', 'in_progress', 'released'];
 $jobScopeOptions = configuratorJobScopes();
 $configFormData = [
@@ -29,6 +33,7 @@ $configFormData = [
     'notes' => '',
     'door_tags' => [],
 ];
+$db = null;
 $entryFormData = [
     'opening_type' => 'single',
     'hand_single' => 'LH - Inswing',
@@ -212,35 +217,39 @@ foreach ($nav as &$groupItems) {
 }
 unset($groupItems, $item);
 
-try {
-    $db = db($databaseConfig);
-} catch (\Throwable $exception) {
-    $dbError = $exception->getMessage();
+if (!$localStorageOnly) {
+    try {
+        $db = db($databaseConfig);
+    } catch (\Throwable $exception) {
+        $dbError = $exception->getMessage();
+    }
 }
 
 foreach ($nav as &$groupItems) {
     foreach ($groupItems as &$item) {
         if (($item['label'] ?? '') === 'Database Health') {
-            $item['badge'] = $dbError === null ? 'Live' : 'Error';
-            $item['badge_class'] = $dbError === null ? 'success' : 'danger';
+            $item['badge'] = $dbError === null ? 'Live' : 'Local';
+            $item['badge_class'] = $dbError === null ? 'success' : 'info';
         }
     }
 }
 unset($groupItems, $item);
 
-if ($dbError === null) {
-    try {
-        $jobs = configuratorListJobs($db);
-    } catch (\Throwable $exception) {
-        $errors[] = 'Unable to load jobs: ' . $exception->getMessage();
-        $jobs = [];
-    }
+if ($dbError === null || $localStorageOnly) {
+    if (!$localStorageOnly) {
+        try {
+            $jobs = configuratorListJobs($db);
+        } catch (\Throwable $exception) {
+            $errors[] = 'Unable to load jobs: ' . $exception->getMessage();
+            $jobs = [];
+        }
 
-    try {
-        $doorTagTemplates = configuratorListDoorTagTemplates($db);
-    } catch (\Throwable $exception) {
-        $errors[] = 'Unable to load door tags: ' . $exception->getMessage();
-        $doorTagTemplates = [];
+        try {
+            $doorTagTemplates = configuratorListDoorTagTemplates($db);
+        } catch (\Throwable $exception) {
+            $errors[] = 'Unable to load door tags: ' . $exception->getMessage();
+            $doorTagTemplates = [];
+        }
     }
 
     $requestedConfigId = isset($_GET['id']) && ctype_digit((string) $_GET['id'])
@@ -517,18 +526,7 @@ if ($dbError === null) {
                 $errors['config_name'] = 'Configuration name is required.';
             }
 
-            $jobId = null;
-            if ($jobIdRaw !== '') {
-                if (!ctype_digit($jobIdRaw)) {
-                    $errors['config_job_id'] = 'Select a valid job or leave blank.';
-                } else {
-                    $jobId = (int) $jobIdRaw;
-                    $jobIds = array_map(static fn (array $job): int => (int) $job['id'], $jobs);
-                    if (!in_array($jobId, $jobIds, true)) {
-                        $errors['config_job_id'] = 'Select a valid job or leave blank.';
-                    }
-                }
-            }
+            $jobId = $jobIdRaw !== '' ? $jobIdRaw : null;
 
             if (!array_key_exists($configScope, $jobScopeOptions)) {
                 $errors['config_job_scope'] = 'Select a valid job scope.';
@@ -620,24 +618,24 @@ if ($dbError === null) {
                 $builderState['current_step'] = 'configuration';
             } else {
                 $payload = $builderState['config_payload'];
-                $editingConfigId = $builderState['config_id'];
+                $editingConfigId = $builderState['config_id'] ?? null;
 
-                try {
-                    if ($editingConfigId !== null) {
-                        configuratorUpdateConfiguration($db, $editingConfigId, $payload);
-                        $resetBuilderState(null);
-                        header('Location: configurator.php?success=updated');
-                    } else {
-                        configuratorCreateConfiguration($db, $payload);
-                        $resetBuilderState(null);
-                        header('Location: configurator.php?success=created');
-                    }
+                $localSavePayload = [
+                    'id' => $editingConfigId ?? uniqid('cfg_', true),
+                    'configuration' => $payload,
+                    'entry' => $entryFormData,
+                    'frame' => $frameFormData,
+                    'door' => $doorFormData,
+                    'hardware' => $hardwareFormData,
+                    'summary_notes' => $summaryNotes,
+                    'updated_at' => date(DATE_ATOM),
+                ];
 
-                    exit;
-                } catch (\Throwable $exception) {
-                    $errors['general'] = 'Unable to save configuration: ' . $exception->getMessage();
-                    $builderState['current_step'] = 'summary';
-                }
+                $builderState['config_id'] = $localSavePayload['id'];
+                $builderState['completed'] = $stepIds;
+                $builderState['forms']['summary_notes'] = $summaryNotes;
+                $builderState['current_step'] = 'summary';
+                $successMessage = 'Configuration saved locally in this browser. Database storage will be added later.';
             }
         }
 
@@ -662,11 +660,13 @@ if ($dbError === null) {
     $summaryNotes = $builderState['forms']['summary_notes'];
     $editingConfigId = $builderState['config_id'];
 
-    try {
-        $configurations = configuratorListConfigurations($db);
-    } catch (\Throwable $exception) {
-        $errors[] = 'Unable to load configurations: ' . $exception->getMessage();
-        $configurations = [];
+    if (!$localStorageOnly) {
+        try {
+            $configurations = configuratorListConfigurations($db);
+        } catch (\Throwable $exception) {
+            $errors[] = 'Unable to load configurations: ' . $exception->getMessage();
+            $configurations = [];
+        }
     }
 }
 
@@ -748,8 +748,8 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
         </header>
 
         <?php if ($dbError !== null): ?>
-          <div class="alert error" role="alert">
-            <strong>Database connection issue:</strong> <?= e($dbError) ?>
+          <div class="alert info" role="alert">
+            <strong>Local storage mode:</strong> <?= e($dbError) ?>
           </div>
         <?php endif; ?>
 
@@ -1233,46 +1233,10 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                 <th scope="col">Actions</th>
               </tr>
             </thead>
-            <tbody>
-              <?php if ($configurations === []): ?>
-                <tr>
-                  <td colspan="8" class="muted">No configurations yet. Add one to start building a template.</td>
-                </tr>
-              <?php else: ?>
-                <?php foreach ($configurations as $configuration): ?>
-                  <tr>
-                    <td><?= e($configuration['name']) ?></td>
-                    <td>
-                      <?php if ($configuration['job_number'] !== null): ?>
-                        <div class="stacked">
-                          <strong><?= e($configuration['job_number']) ?></strong>
-                          <span class="muted"><?= e($configuration['job_name'] ?? '') ?></span>
-                        </div>
-                      <?php else: ?>
-                        <span class="muted">Unassigned</span>
-                      <?php endif; ?>
-                    </td>
-                    <td><?= e($jobScopeOptions[$configuration['job_scope']] ?? $configuration['job_scope']) ?></td>
-                    <td><?= e((string) $configuration['quantity']) ?></td>
-                    <td>
-                      <?php if ($configuration['door_tags'] === []): ?>
-                        <span class="muted">No tags</span>
-                      <?php else: ?>
-                        <div class="stacked gap-xs">
-                          <?php foreach ($configuration['door_tags'] as $tag): ?>
-                            <span class="pill secondary"><?= e($tag) ?></span>
-                          <?php endforeach; ?>
-                        </div>
-                      <?php endif; ?>
-                    </td>
-                    <td><span class="pill"><?= e(ucwords(str_replace('_', ' ', $configuration['status']))) ?></span></td>
-                    <td class="muted"><?= e(date('M j, Y', strtotime($configuration['updated_at']))) ?></td>
-                    <td>
-                      <a class="button ghost" href="configurator.php?id=<?= e((string) $configuration['id']) ?>&step=configuration">Edit</a>
-                    </td>
-                  </tr>
-                <?php endforeach; ?>
-              <?php endif; ?>
+            <tbody data-configs-body>
+              <tr>
+                <td colspan="8" class="muted">No configurations yet. Add one to start building a template.</td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -1332,26 +1296,22 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
           </div>
         </header>
 
-        <form method="post" class="form inline-form" novalidate>
-          <input type="hidden" name="action" value="create_job" />
+        <form method="post" class="form inline-form" novalidate data-job-form>
           <div class="field-grid two-column">
             <div class="field">
               <label for="job_number">Job Number<span aria-hidden="true">*</span></label>
-              <input type="text" id="job_number" name="job_number" value="<?= e($_POST['job_number'] ?? '') ?>" />
-              <?php if (!empty($errors['job_number'])): ?>
-                <p class="field-error"><?= e($errors['job_number']) ?></p>
-              <?php endif; ?>
+              <input type="text" id="job_number" name="job_number" />
+              <p class="field-error" data-job-error="number"></p>
             </div>
             <div class="field">
               <label for="job_name">Job Name<span aria-hidden="true">*</span></label>
-              <input type="text" id="job_name" name="job_name" value="<?= e($_POST['job_name'] ?? '') ?>" />
-              <?php if (!empty($errors['job_name'])): ?>
-                <p class="field-error"><?= e($errors['job_name']) ?></p>
-              <?php endif; ?>
+              <input type="text" id="job_name" name="job_name" />
+              <p class="field-error" data-job-error="name"></p>
             </div>
           </div>
           <div class="form-actions">
             <button type="submit" class="button secondary">Add job</button>
+            <p class="muted" data-job-feedback></p>
           </div>
         </form>
 
@@ -1364,20 +1324,10 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                 <th scope="col">Added</th>
               </tr>
             </thead>
-            <tbody>
-              <?php if ($jobs === []): ?>
-                <tr>
-                  <td colspan="3" class="muted">No jobs have been added yet.</td>
-                </tr>
-              <?php else: ?>
-                <?php foreach ($jobs as $job): ?>
-                  <tr>
-                    <td><?= e($job['job_number']) ?></td>
-                    <td><?= e($job['name']) ?></td>
-                    <td class="muted"><?= e(date('M j, Y', strtotime($job['created_at']))) ?></td>
-                  </tr>
-                <?php endforeach; ?>
-              <?php endif; ?>
+            <tbody data-jobs-body>
+              <tr>
+                <td colspan="3" class="muted">No jobs have been added yet.</td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -1385,6 +1335,19 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
     </main>
   </div>
 
+  <script>
+    window.localSavePayload = <?= json_encode($localSavePayload, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
+    window.localBuilderForms = <?= json_encode([
+        'configuration' => $configFormData,
+        'entry' => $entryFormData,
+        'frame' => $frameFormData,
+        'door' => $doorFormData,
+        'hardware' => $hardwareFormData,
+        'summary_notes' => $summaryNotes,
+    ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
+    window.localBuilderConfigId = <?= json_encode($builderState['config_id'] ?? null, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
+    window.localJobScopes = <?= json_encode($jobScopeOptions, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
+  </script>
   <script>
     (function () {
       const quantityInput = document.getElementById('config_quantity');
@@ -1481,6 +1444,414 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
       transomSelect?.addEventListener('change', syncTransomGlazing);
       syncHands();
       syncTransomGlazing();
+
+      const CONFIG_KEY = 'configurator_configurations';
+      const JOB_KEY = 'configurator_jobs';
+      const ACTIVE_KEY = 'configurator_active_record';
+      const PREFILL_KEY = 'configurator_builder_prefill';
+
+      const configTableBody = document.querySelector('[data-configs-body]');
+      const jobsTableBody = document.querySelector('[data-jobs-body]');
+      const jobSelect = document.getElementById('config_job_id');
+      const jobForm = document.querySelector('[data-job-form]');
+      const jobNumberError = document.querySelector('[data-job-error="number"]');
+      const jobNameError = document.querySelector('[data-job-error="name"]');
+      const jobFeedback = document.querySelector('[data-job-feedback]');
+
+      function readJson(key, fallback) {
+        try {
+          const stored = localStorage.getItem(key);
+          return stored ? JSON.parse(stored) : fallback;
+        } catch (error) {
+          console.warn('Unable to parse local storage value for', key, error);
+          return fallback;
+        }
+      }
+
+      function writeJson(key, value) {
+        localStorage.setItem(key, JSON.stringify(value));
+      }
+
+      let jobs = readJson(JOB_KEY, []);
+      let configs = readJson(CONFIG_KEY, []);
+      let activeRecord = readJson(ACTIVE_KEY, null);
+
+      const prefillRaw = localStorage.getItem(PREFILL_KEY);
+      if (prefillRaw) {
+        activeRecord = readJson(PREFILL_KEY, null);
+        localStorage.removeItem(PREFILL_KEY);
+      }
+
+      function renderJobs() {
+        if (!jobsTableBody) {
+          return;
+        }
+
+        jobsTableBody.innerHTML = '';
+
+        if (jobs.length === 0) {
+          const row = document.createElement('tr');
+          const cell = document.createElement('td');
+          cell.colSpan = 3;
+          cell.className = 'muted';
+          cell.textContent = 'No jobs have been added yet.';
+          row.appendChild(cell);
+          jobsTableBody.appendChild(row);
+        } else {
+          jobs.forEach((job) => {
+            const row = document.createElement('tr');
+            const numberCell = document.createElement('td');
+            numberCell.textContent = job.job_number;
+            const nameCell = document.createElement('td');
+            nameCell.textContent = job.name;
+            const addedCell = document.createElement('td');
+            addedCell.className = 'muted';
+            addedCell.textContent = job.created_at
+              ? new Date(job.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+              : '';
+            row.appendChild(numberCell);
+            row.appendChild(nameCell);
+            row.appendChild(addedCell);
+            jobsTableBody.appendChild(row);
+          });
+        }
+
+        if (jobSelect) {
+          const selectedValue = jobSelect.value;
+          jobSelect.innerHTML = '<option value="">Unassigned</option>';
+          jobs.forEach((job) => {
+            const option = document.createElement('option');
+            option.value = job.id;
+            option.textContent = `${job.job_number} — ${job.name}`;
+            if (selectedValue === job.id) {
+              option.selected = true;
+            }
+            jobSelect.appendChild(option);
+          });
+        }
+      }
+
+      function renderConfigs() {
+        if (!configTableBody) {
+          return;
+        }
+
+        configTableBody.innerHTML = '';
+
+        if (configs.length === 0) {
+          const row = document.createElement('tr');
+          const cell = document.createElement('td');
+          cell.colSpan = 8;
+          cell.className = 'muted';
+          cell.textContent = 'No configurations yet. Add one to start building a template.';
+          row.appendChild(cell);
+          configTableBody.appendChild(row);
+          return;
+        }
+
+        configs.forEach((config) => {
+          const row = document.createElement('tr');
+          const job = jobs.find((entry) => entry.id === config.configuration.job_id);
+
+          const nameCell = document.createElement('td');
+          nameCell.textContent = config.configuration.name || 'Untitled configuration';
+
+          const jobCell = document.createElement('td');
+          if (job) {
+            const stack = document.createElement('div');
+            stack.className = 'stacked';
+            const strong = document.createElement('strong');
+            strong.textContent = job.job_number;
+            const muted = document.createElement('span');
+            muted.className = 'muted';
+            muted.textContent = job.name;
+            stack.appendChild(strong);
+            stack.appendChild(muted);
+            jobCell.appendChild(stack);
+          } else if (config.configuration.job_id) {
+            jobCell.textContent = config.configuration.job_id;
+          } else {
+            const muted = document.createElement('span');
+            muted.className = 'muted';
+            muted.textContent = 'Unassigned';
+            jobCell.appendChild(muted);
+          }
+
+          const scopeCell = document.createElement('td');
+          const scopeLabel = window.localJobScopes?.[config.configuration.job_scope] ?? config.configuration.job_scope;
+          scopeCell.textContent = scopeLabel;
+
+          const qtyCell = document.createElement('td');
+          qtyCell.textContent = String(config.configuration.quantity ?? 0);
+
+          const tagsCell = document.createElement('td');
+          if (Array.isArray(config.configuration.door_tags) && config.configuration.door_tags.length > 0) {
+            const wrap = document.createElement('div');
+            wrap.className = 'stacked gap-xs';
+            config.configuration.door_tags.forEach((tag) => {
+              const pill = document.createElement('span');
+              pill.className = 'pill secondary';
+              pill.textContent = tag;
+              wrap.appendChild(pill);
+            });
+            tagsCell.appendChild(wrap);
+          } else {
+            const muted = document.createElement('span');
+            muted.className = 'muted';
+            muted.textContent = 'No tags';
+            tagsCell.appendChild(muted);
+          }
+
+          const statusCell = document.createElement('td');
+          const statusPill = document.createElement('span');
+          statusPill.className = 'pill';
+          statusPill.textContent = (config.configuration.status || '').replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+          statusCell.appendChild(statusPill);
+
+          const updatedCell = document.createElement('td');
+          updatedCell.className = 'muted';
+          updatedCell.textContent = config.updated_at
+            ? new Date(config.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+            : '';
+
+          const actionCell = document.createElement('td');
+          const editButton = document.createElement('button');
+          editButton.type = 'button';
+          editButton.className = 'button ghost';
+          editButton.textContent = 'Edit';
+          editButton.addEventListener('click', () => {
+            localStorage.setItem(PREFILL_KEY, JSON.stringify(config));
+            window.location.href = 'configurator.php?create=1&step=configuration';
+          });
+          actionCell.appendChild(editButton);
+
+          row.appendChild(nameCell);
+          row.appendChild(jobCell);
+          row.appendChild(scopeCell);
+          row.appendChild(qtyCell);
+          row.appendChild(tagsCell);
+          row.appendChild(statusCell);
+          row.appendChild(updatedCell);
+          row.appendChild(actionCell);
+
+          configTableBody.appendChild(row);
+        });
+      }
+
+      function applyConfigurationForm(data) {
+        const config = data?.configuration;
+        if (!config) return;
+
+        const name = document.getElementById('config_name');
+        if (name) name.value = config.name ?? '';
+
+        if (jobSelect) {
+          jobSelect.value = config.job_id ?? '';
+          if (jobSelect.value === '' && config.job_id) {
+            const option = document.createElement('option');
+            option.value = config.job_id;
+            option.textContent = config.job_id;
+            option.selected = true;
+            jobSelect.appendChild(option);
+          }
+        }
+
+        const scope = document.getElementById('config_job_scope');
+        if (scope && config.job_scope) scope.value = config.job_scope;
+
+        if (quantityInput && config.quantity) {
+          quantityInput.value = config.quantity;
+          syncDoorTags();
+        }
+
+        const status = document.getElementById('config_status');
+        if (status && config.status) status.value = config.status;
+
+        const notes = document.getElementById('config_notes');
+        if (notes) notes.value = config.notes ?? '';
+
+        if (Array.isArray(config.door_tags) && doorTagsContainer) {
+          syncDoorTags();
+          const inputs = doorTagsContainer.querySelectorAll('input[name="door_tags[]"]');
+          inputs.forEach((input, index) => {
+            input.value = config.door_tags[index] ?? '';
+          });
+        }
+
+        const configIdField = document.querySelector('input[name="config_id"]');
+        if (configIdField && data.id) {
+          configIdField.value = data.id;
+        }
+      }
+
+      function applyEntryForm(data) {
+        const entry = data?.entry;
+        if (!entry) return;
+        const openingType = document.getElementById('entry_opening_type');
+        if (openingType && entry.opening_type) openingType.value = entry.opening_type;
+        const handSingle = document.getElementById('entry_hand_single');
+        if (handSingle && entry.hand_single) handSingle.value = entry.hand_single;
+        const handPair = document.getElementById('entry_hand_pair');
+        if (handPair && entry.hand_pair) handPair.value = entry.hand_pair;
+        const glazing = document.getElementById('entry_door_glazing');
+        if (glazing && entry.door_glazing) glazing.value = entry.door_glazing;
+        const transom = document.getElementById('entry_transom');
+        if (transom && entry.transom) transom.value = entry.transom;
+        const transomGlazing = document.getElementById('entry_transom_glazing');
+        if (transomGlazing && entry.transom_glazing) transomGlazing.value = entry.transom_glazing;
+        const elevation = document.getElementById('entry_elevation');
+        if (elevation) elevation.value = entry.elevation ?? '';
+        const opening = document.getElementById('entry_opening');
+        if (opening) opening.value = entry.opening ?? '';
+        const notes = document.getElementById('entry_notes');
+        if (notes) notes.value = entry.notes ?? '';
+        syncHands();
+        syncTransomGlazing();
+      }
+
+      function applyFrameForm(data) {
+        const frame = data?.frame;
+        if (!frame) return;
+        const material = document.getElementById('frame_material');
+        if (material && frame.material) material.value = frame.material;
+        const profile = document.getElementById('frame_profile');
+        if (profile && frame.profile) profile.value = frame.profile;
+        const anchor = document.getElementById('frame_anchor_type');
+        if (anchor && frame.anchor_type) anchor.value = frame.anchor_type;
+        const head = document.getElementById('frame_head_condition');
+        if (head && frame.head_condition) head.value = frame.head_condition;
+        const sill = document.getElementById('frame_sill_condition');
+        if (sill && frame.sill_condition) sill.value = frame.sill_condition;
+        const notes = document.getElementById('frame_notes');
+        if (notes) notes.value = frame.notes ?? '';
+      }
+
+      function applyDoorForm(data) {
+        const door = data?.door;
+        if (!door) return;
+        const type = document.getElementById('door_type');
+        if (type && door.door_type) type.value = door.door_type;
+        const thickness = document.getElementById('door_thickness');
+        if (thickness && door.thickness) thickness.value = door.thickness;
+        const core = document.getElementById('door_core');
+        if (core && door.core) core.value = door.core;
+        const liteKit = document.getElementById('door_lite_kit');
+        if (liteKit && door.lite_kit) liteKit.value = door.lite_kit;
+        const bottomRail = document.getElementById('door_bottom_rail');
+        if (bottomRail && door.bottom_rail) bottomRail.value = door.bottom_rail;
+        const notes = document.getElementById('door_notes');
+        if (notes) notes.value = door.notes ?? '';
+      }
+
+      function applyHardwareForm(data) {
+        const hardware = data?.hardware;
+        if (!hardware) return;
+        const set = document.getElementById('hardware_set');
+        if (set && hardware.set_name) set.value = hardware.set_name;
+        const hinge = document.getElementById('hardware_hinge_prep');
+        if (hinge && hardware.hinge_prep) hinge.value = hardware.hinge_prep;
+        const strike = document.getElementById('hardware_strike_prep');
+        if (strike && hardware.strike_prep) strike.value = hardware.strike_prep;
+        const closer = document.getElementById('hardware_closer');
+        if (closer && hardware.closer) closer.value = hardware.closer;
+        const electrified = document.getElementById('hardware_electrified');
+        if (electrified && hardware.electrified) electrified.value = hardware.electrified;
+        const notes = document.getElementById('hardware_notes');
+        if (notes) notes.value = hardware.notes ?? '';
+      }
+
+      function applySummary(data) {
+        const summary = document.querySelector('textarea[name="summary_notes"]');
+        if (summary && data?.summary_notes !== undefined) {
+          summary.value = data.summary_notes ?? '';
+        }
+      }
+
+      function applyActiveRecord(record) {
+        applyConfigurationForm(record);
+        applyEntryForm(record);
+        applyFrameForm(record);
+        applyDoorForm(record);
+        applyHardwareForm(record);
+        applySummary(record);
+      }
+
+      function attachJobForm() {
+        if (!jobForm) return;
+        jobForm.addEventListener('submit', (event) => {
+          event.preventDefault();
+          if (jobNumberError) jobNumberError.textContent = '';
+          if (jobNameError) jobNameError.textContent = '';
+          if (jobFeedback) jobFeedback.textContent = '';
+
+          const numberValue = document.getElementById('job_number')?.value.trim() ?? '';
+          const nameValue = document.getElementById('job_name')?.value.trim() ?? '';
+
+          if (numberValue === '' && jobNumberError) {
+            jobNumberError.textContent = 'Job number is required.';
+          }
+
+          if (nameValue === '' && jobNameError) {
+            jobNameError.textContent = 'Job name is required.';
+          }
+
+          if (numberValue === '' || nameValue === '') {
+            return;
+          }
+
+          const newJob = {
+            id: `job_${Date.now()}`,
+            job_number: numberValue,
+            name: nameValue,
+            created_at: new Date().toISOString(),
+          };
+
+          jobs.push(newJob);
+          writeJson(JOB_KEY, jobs);
+          renderJobs();
+
+          const numberInput = document.getElementById('job_number');
+          const nameInput = document.getElementById('job_name');
+          if (numberInput) numberInput.value = '';
+          if (nameInput) nameInput.value = '';
+          if (jobFeedback) {
+            jobFeedback.textContent = 'Job saved locally. It will sync to the database later.';
+          }
+        });
+      }
+
+      if (window.localSavePayload) {
+        const payload = window.localSavePayload;
+        const existingIndex = configs.findIndex((item) => item.id === payload.id);
+        if (existingIndex >= 0) {
+          configs[existingIndex] = payload;
+        } else {
+          configs.push(payload);
+        }
+        writeJson(CONFIG_KEY, configs);
+        writeJson(ACTIVE_KEY, payload);
+        activeRecord = payload;
+      }
+
+      if (window.localBuilderForms) {
+        activeRecord = {
+          ...(activeRecord || {}),
+          id: window.localBuilderConfigId || (activeRecord ? activeRecord.id : null),
+          ...window.localBuilderForms,
+          configuration: {
+            ...(window.localBuilderForms.configuration || {}),
+            id: window.localBuilderConfigId || (activeRecord ? activeRecord.id : null),
+          },
+        };
+        writeJson(ACTIVE_KEY, activeRecord);
+      }
+
+      attachJobForm();
+      renderJobs();
+      if (activeRecord) {
+        applyActiveRecord(activeRecord);
+      }
+      renderConfigs();
     })();
   </script>
 
