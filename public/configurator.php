@@ -247,10 +247,12 @@ if ($dbError === null) {
         ? (int) $_GET['id']
         : null;
 
-    if (isset($_GET['create'])) {
-        $resetBuilderState(null);
-    } elseif ($builderState['config_id'] !== $requestedConfigId) {
-        $resetBuilderState($requestedConfigId);
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        if (isset($_GET['create'])) {
+            $resetBuilderState(null);
+        } elseif ($builderState['config_id'] !== $requestedConfigId) {
+            $resetBuilderState($requestedConfigId);
+        }
     }
 
     $editingConfigId = $builderState['config_id'];
