@@ -190,6 +190,7 @@ $builderSteps = [
 $stepIds = array_map(static fn (array $step): string => $step['id'], $builderSteps);
 $currentStep = 'configuration';
 $builderSessionKey = 'configurator_builder';
+$redirectStep = null;
 $builderState = $_SESSION[$builderSessionKey] ?? [
     'config_id' => null,
     'current_step' => 'configuration',
@@ -578,6 +579,7 @@ if ($dbError === null || $localStorageOnly) {
                 $builderState['config_id'] = $editingConfigId;
                 $builderState['completed'] = array_values(array_unique(array_merge($builderState['completed'], ['configuration'])));
                 $builderState['current_step'] = $computeTargetStep('configuration', $targetStep ?? 'entry');
+                $redirectStep = $builderState['current_step'];
             } else {
                 $builderState['current_step'] = 'configuration';
             }
@@ -585,19 +587,23 @@ if ($dbError === null || $localStorageOnly) {
             $builderState['forms']['entry'] = $entryFormData;
             $builderState['completed'] = array_values(array_unique(array_merge($builderState['completed'], ['configuration', 'entry'])));
             $builderState['current_step'] = $computeTargetStep('entry', $targetStep ?? 'frame');
+            $redirectStep = $builderState['current_step'];
         } elseif ($action === 'stage_frame') {
             $builderState['forms']['frame'] = $frameFormData;
             $builderState['completed'] = array_values(array_unique(array_merge($builderState['completed'], ['configuration', 'entry', 'frame'])));
             $builderState['current_step'] = $computeTargetStep('frame', $targetStep ?? 'door');
+            $redirectStep = $builderState['current_step'];
         } elseif ($action === 'stage_door') {
             $builderState['forms']['door'] = $doorFormData;
             $builderState['completed'] = array_values(array_unique(array_merge($builderState['completed'], ['configuration', 'entry', 'frame', 'door'])));
             $builderState['current_step'] = $computeTargetStep('door', $targetStep ?? 'hardware');
+            $redirectStep = $builderState['current_step'];
         } elseif ($action === 'stage_hardware') {
             $builderState['forms']['hardware'] = $hardwareFormData;
             $builderState['forms']['summary_notes'] = $summaryNotes;
             $builderState['completed'] = array_values(array_unique(array_merge($builderState['completed'], ['configuration', 'entry', 'frame', 'door', 'hardware'])));
             $builderState['current_step'] = $computeTargetStep('hardware', $targetStep ?? 'summary');
+            $redirectStep = $builderState['current_step'];
         } elseif ($action === 'finalize_configuration') {
             $builderState['forms']['summary_notes'] = $summaryNotes;
             $requiredSteps = array_slice($stepIds, 0, count($stepIds) - 1);
@@ -640,6 +646,15 @@ if ($dbError === null || $localStorageOnly) {
         }
 
         $_SESSION[$builderSessionKey] = $builderState;
+
+        if ($redirectStep !== null && $errors === []) {
+            $query = http_build_query([
+                'create' => '1',
+                'step' => $builderState['current_step'],
+            ]);
+            header('Location: configurator.php?' . $query);
+            exit;
+        }
     }
 
     $currentStep = $builderState['current_step'];

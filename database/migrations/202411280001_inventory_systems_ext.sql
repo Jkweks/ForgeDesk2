@@ -1,24 +1,12 @@
--- Inventory system reference data
-CREATE TABLE IF NOT EXISTS inventory_systems (
-    id BIGSERIAL PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
-    manufacturer TEXT NOT NULL DEFAULT '',
-    system TEXT NOT NULL DEFAULT '',
-    default_glazing NUMERIC(10,4) NULL,
-    default_frame_parts JSONB NOT NULL DEFAULT '[]'::jsonb,
-    default_door_parts JSONB NOT NULL DEFAULT '[]'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+-- Add manufacturer/system detail and default component templates to inventory systems
+ALTER TABLE inventory_systems
+    ADD COLUMN IF NOT EXISTS manufacturer TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS system TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS default_glazing NUMERIC(10,4) NULL,
+    ADD COLUMN IF NOT EXISTS default_frame_parts JSONB NOT NULL DEFAULT '[]'::jsonb,
+    ADD COLUMN IF NOT EXISTS default_door_parts JSONB NOT NULL DEFAULT '[]'::jsonb;
 
-CREATE TABLE IF NOT EXISTS inventory_item_systems (
-    inventory_item_id BIGINT NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
-    system_id BIGINT NOT NULL REFERENCES inventory_systems(id) ON DELETE CASCADE,
-    PRIMARY KEY (inventory_item_id, system_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_inventory_item_systems_system_id
-    ON inventory_item_systems(system_id);
-
+-- Seed or update Tubelite defaults
 INSERT INTO inventory_systems (
     name,
     manufacturer,

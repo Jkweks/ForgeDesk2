@@ -1277,8 +1277,15 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
             <label for="systems">Systems</label>
             <select id="systems" name="systems[]" multiple size="4">
               <?php foreach ($systemOptions as $system): ?>
+                <?php
+                  $labelParts = array_filter([
+                      $system['manufacturer'] ?? null,
+                      $system['system'] ?? null,
+                  ]);
+                  $systemLabel = $labelParts !== [] ? implode(' — ', $labelParts) : $system['name'];
+                ?>
                 <option value="<?= e((string) $system['id']) ?>"<?= in_array((int) $system['id'], $formData['systems'], true) ? ' selected' : '' ?>>
-                  <?= e($system['name']) ?>
+                  <?= e($systemLabel) ?>
                 </option>
               <?php endforeach; ?>
             </select>
