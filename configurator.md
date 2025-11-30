@@ -116,3 +116,11 @@ If transom glass is ¼" or
       - Generated based on door glazing choice
     - Door glass jack
       - Generated based on door glazing choice
+
+---
+
+Open questions
+
+1. The transom glazing callouts mention both “½ glass adapter” and “¼ glass adapter” but the formatting is ambiguous. Should adapters be required for every transom selection or only when stepping down from ½" to ¼" glass?
+2. Should the frame glazing selection always mirror the entry glazing, or can the frame have a separate glazing thickness?
+3. Which inventory systems should be seeded for the frame system dropdown in production beyond the draft placeholders?
