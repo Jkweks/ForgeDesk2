@@ -67,18 +67,25 @@ if (!function_exists('loadInventory')) {
      *
      * @return list<array{id:int,name:string,manufacturer:string,system:string,default_glazing:float|null,default_frame_parts:array,default_door_parts:array}>
      */
-    function inventoryListSystems(\PDO $db): array
+    function inventoryListSystems(\PDO $db, ?string $systemType = null): array
     {
         inventoryEnsureSystemSchema($db);
 
-        $statement = $db->query(
-            'SELECT id, name, manufacturer, system, default_glazing, default_frame_parts, default_door_parts
-             FROM inventory_systems
-             ORDER BY manufacturer ASC, system ASC'
-        );
-        if ($statement === false) {
-            return [];
+        $sql = 'SELECT id, name, manufacturer, system, default_glazing, default_frame_parts, default_door_parts, system_type
+             FROM inventory_systems';
+
+        if ($systemType !== null) {
+            $sql .= ' WHERE system_type = :system_type';
         }
+
+        $sql .= ' ORDER BY manufacturer ASC, system ASC';
+
+        $statement = $db->prepare($sql);
+        $statement->execute(
+            $systemType !== null
+                ? [':system_type' => $systemType]
+                : []
+        );
 
         return array_map(
             static fn (array $row): array => [
@@ -89,6 +96,7 @@ if (!function_exists('loadInventory')) {
                 'default_glazing' => $row['default_glazing'] !== null ? (float) $row['default_glazing'] : null,
                 'default_frame_parts' => json_decode((string) $row['default_frame_parts'], true) ?? [],
                 'default_door_parts' => json_decode((string) $row['default_door_parts'], true) ?? [],
+                'system_type' => (string) ($row['system_type'] ?? 'framing'),
             ],
             $statement->fetchAll()
         );
@@ -843,6 +851,7 @@ if (!function_exists('loadInventory')) {
                 default_glazing NUMERIC(10,4) NULL,
                 default_frame_parts JSONB NOT NULL DEFAULT '[]'::jsonb,
                 default_door_parts JSONB NOT NULL DEFAULT '[]'::jsonb,
+                system_type TEXT NOT NULL DEFAULT 'framing',
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )"
         );
@@ -853,6 +862,7 @@ if (!function_exists('loadInventory')) {
             'default_glazing NUMERIC(10,4) NULL',
             "default_frame_parts JSONB NOT NULL DEFAULT '[]'::jsonb",
             "default_door_parts JSONB NOT NULL DEFAULT '[]'::jsonb",
+            "system_type TEXT NOT NULL DEFAULT 'framing'",
         ] as $columnSql) {
             $db->exec('ALTER TABLE inventory_systems ADD COLUMN IF NOT EXISTS ' . $columnSql);
         }
@@ -871,14 +881,15 @@ if (!function_exists('loadInventory')) {
         );
 
         $seed = $db->prepare(
-            'INSERT INTO inventory_systems (name, manufacturer, system, default_glazing, default_frame_parts, default_door_parts)
-             VALUES (:name, :manufacturer, :system, :default_glazing, :default_frame_parts, :default_door_parts)
+            'INSERT INTO inventory_systems (name, manufacturer, system, default_glazing, default_frame_parts, default_door_parts, system_type)
+             VALUES (:name, :manufacturer, :system, :default_glazing, :default_frame_parts, :default_door_parts, :system_type)
              ON CONFLICT (name) DO UPDATE
              SET manufacturer = EXCLUDED.manufacturer,
                  system = EXCLUDED.system,
                  default_glazing = EXCLUDED.default_glazing,
                  default_frame_parts = EXCLUDED.default_frame_parts,
-                 default_door_parts = EXCLUDED.default_door_parts'
+                 default_door_parts = EXCLUDED.default_door_parts,
+                 system_type = EXCLUDED.system_type'
         );
 
         $defaultFrameParts = json_encode([
@@ -908,18 +919,69 @@ if (!function_exists('loadInventory')) {
         ], JSON_THROW_ON_ERROR);
 
         foreach ([
-            ['Tubelite E4500', 'Tubelite', 'E4500'],
-            ['Tubelite E14000', 'Tubelite', 'E14000'],
-            ['Tubelite E14000 I/O', 'Tubelite', 'E14000 I/O'],
-            ['Tubelite E24650', 'Tubelite', 'E24650'],
-        ] as [$name, $manufacturer, $system]) {
+            [
+                'name' => 'Tubelite E4500',
+                'manufacturer' => 'Tubelite',
+                'system' => 'E4500',
+                'default_glazing' => 0.25,
+                'default_frame_parts' => $defaultFrameParts,
+                'default_door_parts' => $defaultDoorParts,
+                'system_type' => 'framing',
+            ],
+            [
+                'name' => 'Tubelite E14000',
+                'manufacturer' => 'Tubelite',
+                'system' => 'E14000',
+                'default_glazing' => 0.25,
+                'default_frame_parts' => $defaultFrameParts,
+                'default_door_parts' => $defaultDoorParts,
+                'system_type' => 'framing',
+            ],
+            [
+                'name' => 'Tubelite E14000 I/O',
+                'manufacturer' => 'Tubelite',
+                'system' => 'E14000 I/O',
+                'default_glazing' => 0.25,
+                'default_frame_parts' => $defaultFrameParts,
+                'default_door_parts' => $defaultDoorParts,
+                'system_type' => 'framing',
+            ],
+            [
+                'name' => 'Tubelite E24650',
+                'manufacturer' => 'Tubelite',
+                'system' => 'E24650',
+                'default_glazing' => 0.25,
+                'default_frame_parts' => $defaultFrameParts,
+                'default_door_parts' => $defaultDoorParts,
+                'system_type' => 'framing',
+            ],
+            [
+                'name' => 'Tubelite WS Continuous',
+                'manufacturer' => 'Tubelite',
+                'system' => 'WS Continuous',
+                'default_glazing' => 0.25,
+                'default_frame_parts' => json_encode([], JSON_THROW_ON_ERROR),
+                'default_door_parts' => json_encode(['hinge rail a', 'lock rail', 'top rail', 'bottom rail'], JSON_THROW_ON_ERROR),
+                'system_type' => 'door',
+            ],
+            [
+                'name' => 'Tubelite WS Butt',
+                'manufacturer' => 'Tubelite',
+                'system' => 'WS Butt',
+                'default_glazing' => 0.25,
+                'default_frame_parts' => json_encode([], JSON_THROW_ON_ERROR),
+                'default_door_parts' => json_encode(['hinge rail b', 'lock rail', 'top rail', 'bottom rail'], JSON_THROW_ON_ERROR),
+                'system_type' => 'door',
+            ],
+        ] as $system) {
             $seed->execute([
-                ':name' => $name,
-                ':manufacturer' => $manufacturer,
-                ':system' => $system,
-                ':default_glazing' => 0.25,
-                ':default_frame_parts' => $defaultFrameParts,
-                ':default_door_parts' => $defaultDoorParts,
+                ':name' => $system['name'],
+                ':manufacturer' => $system['manufacturer'],
+                ':system' => $system['system'],
+                ':default_glazing' => $system['default_glazing'],
+                ':default_frame_parts' => $system['default_frame_parts'],
+                ':default_door_parts' => $system['default_door_parts'],
+                ':system_type' => $system['system_type'],
             ]);
         }
 

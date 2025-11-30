@@ -40,9 +40,6 @@ $entryFormData = [
     'hand_single' => 'LH - Inswing',
     'hand_pair' => 'RHR Active',
     'finish' => 'C2',
-    'door_glazing' => '1/4"',
-    'transom' => 'no',
-    'transom_glazing' => '1/4"',
     'door_opening_width' => '',
     'door_opening_height' => '',
     'hinging' => 'continuous',
@@ -59,19 +56,31 @@ $frameFormData = [
     'system_id' => '',
     'glazing' => '1/4"',
     'transom' => 'no',
+    'transom_glazing' => '1/4"',
     'transom_height' => '',
+    'parts' => [],
     'notes' => '',
 ];
 $doorLeafDefaults = [
     'stile' => 'Standard Medium Stile',
     'glazing' => '1/4"',
+    'parts' => [],
     'notes' => '',
 ];
 
 $doorFormData = [
+    'system_id' => '',
     'active' => $doorLeafDefaults,
     'inactive' => $doorLeafDefaults,
 ];
+
+$frameFormData['parts'] = configuratorFrameParts(
+    $entryFormData['opening_type'],
+    $frameFormData['transom'],
+    $frameFormData['transom_glazing']
+);
+$doorFormData['active']['parts'] = configuratorDoorParts($doorFormData['active']['glazing']);
+$doorFormData['inactive']['parts'] = configuratorDoorParts($doorFormData['inactive']['glazing']);
 $hardwareFormData = [
     'set_name' => 'Standard',
     'hinge_prep' => 'template_hinge',
@@ -177,6 +186,7 @@ $electrifiedOptions = [
     'fully_prepped' => 'Fully prepped',
 ];
 $frameSystemOptions = [];
+$doorSystemOptions = [];
 
 /**
  * @return list<string>
@@ -206,6 +216,14 @@ function configuratorFrameParts(string $openingType, string $transom, string $tr
     }
 
     if ($transom === 'yes') {
+        $adapter = null;
+
+        if ($transomGlazing === '1/2"') {
+            $adapter = '½ Glass adapter';
+        } elseif ($transomGlazing === '1/4"') {
+            $adapter = '¼ Glass adapter';
+        }
+
         $parts = array_merge(
             $parts,
             [
@@ -213,10 +231,11 @@ function configuratorFrameParts(string $openingType, string $transom, string $tr
                 'Door Head Transom Stop - Fixed',
                 'Vertical Transom Stop - Active',
                 'Vertical Transom Stop - Fixed',
-                sprintf('%s Glass adapter', $transomGlazing),
-                '¼ Glass adapter (if glazing step-down is required)',
+                $adapter,
             ]
         );
+
+        $parts = array_values(array_filter($parts, static fn (?string $part): bool => $part !== null && $part !== ''));
     }
 
     return $parts;
@@ -228,7 +247,9 @@ function configuratorFrameParts(string $openingType, string $transom, string $tr
 function configuratorDoorParts(string $glazing): array
 {
     return [
-        'Hinge Rail',
+        'Hinge Rail - Standard',
+        'Hinge Rail A (WS - Continuous Hinge)',
+        'Hinge Rail B (WS - Butt Hinge)',
         'Lock Rail',
         'Top Rail',
         'Bottom Rail',
@@ -324,13 +345,23 @@ unset($groupItems, $item);
             }
 
             try {
-                $systems = inventoryListSystems($db);
+                $systems = inventoryListSystems($db, 'framing');
                 foreach ($systems as $system) {
                     $frameSystemOptions[(string) $system['id']] = trim($system['manufacturer'] . ' ' . $system['system']);
                 }
             } catch (\Throwable $exception) {
                 $errors[] = 'Unable to load frame systems: ' . $exception->getMessage();
                 $frameSystemOptions = [];
+            }
+
+            try {
+                $doorSystems = inventoryListSystems($db, 'door');
+                foreach ($doorSystems as $system) {
+                    $doorSystemOptions[(string) $system['id']] = trim($system['manufacturer'] . ' ' . $system['system']);
+                }
+            } catch (\Throwable $exception) {
+                $errors[] = 'Unable to load door systems: ' . $exception->getMessage();
+                $doorSystemOptions = [];
             }
         }
 
@@ -339,6 +370,13 @@ unset($groupItems, $item);
                 'draft_system_alpha' => 'Draft - System Alpha',
                 'draft_system_beta' => 'Draft - System Beta',
                 'draft_system_gamma' => 'Draft - System Gamma',
+            ];
+        }
+
+        if ($doorSystemOptions === []) {
+            $doorSystemOptions = [
+                'draft_ws_continuous' => 'Draft - WS Continuous Hinge',
+                'draft_ws_butt' => 'Draft - WS Butt Hinge',
             ];
         }
 
@@ -469,16 +507,6 @@ unset($groupItems, $item);
         if ($finishRaw !== null && array_key_exists($finishRaw, $finishOptions)) {
             $entryFormData['finish'] = (string) $finishRaw;
         }
-        $entryFormData['door_glazing'] = in_array($_POST['entry_door_glazing'] ?? '', $glazingOptions, true)
-            ? (string) $_POST['entry_door_glazing']
-            : $entryFormData['door_glazing'];
-        $transomRaw = $_POST['entry_transom'] ?? null;
-        if ($transomRaw !== null && isset($transomOptions[$transomRaw])) {
-            $entryFormData['transom'] = (string) $transomRaw;
-        }
-        $entryFormData['transom_glazing'] = in_array($_POST['entry_transom_glazing'] ?? '', $glazingOptions, true)
-            ? (string) $_POST['entry_transom_glazing']
-            : $entryFormData['transom_glazing'];
         $entryFormData['door_opening_width'] = isset($_POST['entry_door_opening_width'])
             ? trim((string) $_POST['entry_door_opening_width'])
             : $entryFormData['door_opening_width'];
@@ -539,13 +567,36 @@ unset($groupItems, $item);
             $frameFormData['transom'] = (string) $frameTransomRaw;
         }
 
+        $frameTransomGlazingRaw = $_POST['frame_transom_glazing'] ?? null;
+        if ($frameTransomGlazingRaw !== null && in_array($frameTransomGlazingRaw, $glazingOptions, true)) {
+            $frameFormData['transom_glazing'] = (string) $frameTransomGlazingRaw;
+        }
+
         $frameFormData['transom_height'] = $frameFormData['transom'] === 'yes'
             ? trim((string) ($_POST['frame_transom_height'] ?? ''))
             : '';
 
+        $framePartsRaw = $_POST['frame_parts'] ?? null;
+        if (is_array($framePartsRaw)) {
+            $frameFormData['parts'] = array_values(array_unique(array_map('trim', array_filter($framePartsRaw, 'strlen'))));
+        }
+
+        if ($frameFormData['parts'] === []) {
+            $frameFormData['parts'] = configuratorFrameParts(
+                $entryFormData['opening_type'],
+                $frameFormData['transom'],
+                $frameFormData['transom_glazing']
+            );
+        }
+
         $frameFormData['notes'] = isset($_POST['frame_notes'])
             ? trim((string) $_POST['frame_notes'])
             : $frameFormData['notes'];
+
+        $doorSystemRaw = $_POST['door_system_id'] ?? null;
+        if ($doorSystemRaw !== null && array_key_exists($doorSystemRaw, $doorSystemOptions)) {
+            $doorFormData['system_id'] = (string) $doorSystemRaw;
+        }
 
         foreach (['active', 'inactive'] as $leafKey) {
             $stileRaw = $_POST['door_' . $leafKey . '_stile'] ?? null;
@@ -556,6 +607,17 @@ unset($groupItems, $item);
             $glazingRaw = $_POST['door_' . $leafKey . '_glazing'] ?? null;
             if ($glazingRaw !== null && in_array($glazingRaw, $glazingOptions, true)) {
                 $doorFormData[$leafKey]['glazing'] = (string) $glazingRaw;
+            }
+
+            $partsRaw = $_POST['door_' . $leafKey . '_parts'] ?? null;
+            if (is_array($partsRaw)) {
+                $doorFormData[$leafKey]['parts'] = array_values(
+                    array_unique(array_map('trim', array_filter($partsRaw, 'strlen')))
+                );
+            }
+
+            if ($doorFormData[$leafKey]['parts'] === []) {
+                $doorFormData[$leafKey]['parts'] = configuratorDoorParts($doorFormData[$leafKey]['glazing']);
             }
 
             $doorFormData[$leafKey]['notes'] = isset($_POST['door_' . $leafKey . '_notes'])
@@ -1080,30 +1142,6 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                     <p class="small muted" data-lhra-warning>LHRA Active is uncommon. Verify this choice with the team before continuing.</p>
                   </div>
                   <div class="field">
-                    <label for="entry_door_glazing">Door glazing</label>
-                    <select id="entry_door_glazing" name="entry_door_glazing">
-                      <?php foreach ($glazingOptions as $option): ?>
-                        <option value="<?= e($option) ?>"<?= $entryFormData['door_glazing'] === $option ? ' selected' : '' ?>><?= e($option) ?></option>
-                      <?php endforeach; ?>
-                    </select>
-                  </div>
-                  <div class="field">
-                    <label for="entry_transom">Transom</label>
-                    <select id="entry_transom" name="entry_transom" data-transom>
-                      <?php foreach ($transomOptions as $value => $label): ?>
-                        <option value="<?= e($value) ?>"<?= $entryFormData['transom'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
-                      <?php endforeach; ?>
-                    </select>
-                  </div>
-                  <div class="field" data-transom-glazing>
-                    <label for="entry_transom_glazing">Transom glazing</label>
-                    <select id="entry_transom_glazing" name="entry_transom_glazing">
-                      <?php foreach ($glazingOptions as $option): ?>
-                        <option value="<?= e($option) ?>"<?= $entryFormData['transom_glazing'] === $option ? ' selected' : '' ?>><?= e($option) ?></option>
-                      <?php endforeach; ?>
-                    </select>
-                  </div>
-                  <div class="field">
                     <label for="entry_hinging">Hinging</label>
                     <select id="entry_hinging" name="entry_hinging">
                       <?php foreach ($hingingOptions as $value => $label): ?>
@@ -1235,19 +1273,37 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                     <input type="text" id="frame_transom_height" name="frame_transom_height" placeholder="Example: 11' - 0\"" value="<?= e($frameFormData['transom_height']) ?>" />
                   </div>
                   <div class="field">
-                    <label>Transom glazing</label>
-                    <div class="pill muted">Uses frame glazing selection: <?= e($frameFormData['glazing']) ?></div>
+                    <label for="frame_transom_glazing">Transom glazing</label>
+                    <select id="frame_transom_glazing" name="frame_transom_glazing" data-frame-transom-glazing>
+                      <?php foreach ($glazingOptions as $option): ?>
+                        <option value="<?= e($option) ?>"<?= $frameFormData['transom_glazing'] === $option ? ' selected' : '' ?>><?= e($option) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                    <p class="small muted">Only required when a transom is present.</p>
                   </div>
                 </div>
 
                 <div class="field">
                   <label>Frame parts list</label>
-                  <p class="small muted">Auto-builds based on opening type and transom selection.</p>
-                  <ul class="stacked" aria-live="polite" data-frame-parts>
-                    <?php foreach (configuratorFrameParts($entryFormData['opening_type'], $frameFormData['transom'], $frameFormData['glazing']) as $part): ?>
-                      <li><?= e($part) ?></li>
+                  <div class="field-grid two-column">
+                    <div class="field">
+                      <label for="frame_parts_preset" class="small">Apply preset</label>
+                      <select id="frame_parts_preset" name="frame_parts_preset" data-frame-preset>
+                        <option value="recommended">Recommended (opening type + transom)</option>
+                        <option value="clear">Clear selection</option>
+                      </select>
+                      <p class="small muted">Use presets to seed stops and adapters, then override as needed.</p>
+                    </div>
+                    <div class="field"></div>
+                  </div>
+                  <div class="stacked gap-xs" aria-live="polite" data-frame-parts data-selected='<?= e(json_encode($frameFormData['parts'], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP)) ?>'>
+                    <?php foreach ($frameFormData['parts'] as $part): ?>
+                      <label class="checkbox">
+                        <input type="checkbox" name="frame_parts[]" value="<?= e($part) ?>" checked />
+                        <span><?= e($part) ?></span>
+                      </label>
                     <?php endforeach; ?>
-                  </ul>
+                  </div>
                 </div>
 
                 <div class="field-grid two-column">
@@ -1267,6 +1323,17 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
               <form method="post" class="form" novalidate>
                 <input type="hidden" name="action" value="stage_door" />
                 <p class="small muted">Configure each leaf independently. Tabs reflect the swing selected in the entry step.</p>
+
+                <div class="field">
+                  <label for="door_system_id">Door system</label>
+                  <select id="door_system_id" name="door_system_id">
+                    <option value="">Select a system</option>
+                    <?php foreach ($doorSystemOptions as $value => $label): ?>
+                      <option value="<?= e($value) ?>"<?= $doorFormData['system_id'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
+                    <?php endforeach; ?>
+                  </select>
+                  <p class="small muted">Pulled from the inventory systems directory and scoped to door packages.</p>
+                </div>
 
                 <div class="tabs" data-door-tabs>
                   <div class="tab-list" role="tablist">
@@ -1296,25 +1363,41 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                           </select>
                         </div>
                       </div>
+                      <div class="field-grid two-column">
+                        <div class="field">
+                          <label for="door_active_preset" class="small">Apply preset</label>
+                          <select id="door_active_preset" name="door_active_preset" data-door-preset="active">
+                            <option value="standard">Standard glazing-driven</option>
+                            <option value="ws_continuous">WS — Continuous hinge (hinge rail A)</option>
+                            <option value="ws_butt">WS — Butt hinge (hinge rail B)</option>
+                            <option value="clear">Clear selection</option>
+                          </select>
+                          <p class="small muted">Presets drive hinge rail choice while keeping glazing-driven stops.</p>
+                        </div>
+                        <div class="field"></div>
+                      </div>
+                      <div class="field">
+                        <label>Door parts list</label>
+                        <div class="stacked gap-xs" data-door-parts="active" aria-live="polite" data-selected='<?= e(json_encode($doorFormData['active']['parts'], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP)) ?>'>
+                          <?php foreach ($doorFormData['active']['parts'] as $part): ?>
+                            <label class="checkbox">
+                              <input type="checkbox" name="door_active_parts[]" value="<?= e($part) ?>" checked />
+                              <span><?= e($part) ?></span>
+                            </label>
+                          <?php endforeach; ?>
+                        </div>
+                      </div>
                       <div class="field">
                         <label for="door_active_notes">Leaf notes</label>
                         <textarea id="door_active_notes" name="door_active_notes" rows="3" placeholder="Rails, reinforcing, or glazing callouts."><?= e($doorFormData['active']['notes']) ?></textarea>
                       </div>
-                      <div class="field">
-                        <label>Door parts list</label>
-                        <ul class="stacked" data-door-parts="active" aria-live="polite">
-                          <?php foreach (configuratorDoorParts($doorFormData['active']['glazing']) as $part): ?>
-                            <li><?= e($part) ?></li>
-                          <?php endforeach; ?>
-                        </ul>
-                      </div>
                     </section>
 
-                    <?php if ($isPairOpening): ?>
-                      <section data-door-panel="inactive" role="tabpanel" hidden>
-                        <div class="field-grid two-column">
-                          <div class="field">
-                            <label for="door_inactive_stile">Stile</label>
+                      <?php if ($isPairOpening): ?>
+                        <section data-door-panel="inactive" role="tabpanel" hidden>
+                          <div class="field-grid two-column">
+                            <div class="field">
+                              <label for="door_inactive_stile">Stile</label>
                             <select id="door_inactive_stile" name="door_inactive_stile">
                               <?php foreach ($doorStileOptions as $value => $label): ?>
                                 <option value="<?= e($value) ?>"<?= $doorFormData['inactive']['stile'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
@@ -1330,20 +1413,36 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                             </select>
                           </div>
                         </div>
+                        <div class="field-grid two-column">
+                          <div class="field">
+                            <label for="door_inactive_preset" class="small">Apply preset</label>
+                            <select id="door_inactive_preset" name="door_inactive_preset" data-door-preset="inactive">
+                              <option value="standard">Standard glazing-driven</option>
+                              <option value="ws_continuous">WS — Continuous hinge (hinge rail A)</option>
+                              <option value="ws_butt">WS — Butt hinge (hinge rail B)</option>
+                              <option value="clear">Clear selection</option>
+                            </select>
+                            <p class="small muted">Presets drive hinge rail choice while keeping glazing-driven stops.</p>
+                          </div>
+                          <div class="field"></div>
+                        </div>
+                        <div class="field">
+                          <label>Door parts list</label>
+                          <div class="stacked gap-xs" data-door-parts="inactive" aria-live="polite" data-selected='<?= e(json_encode($doorFormData['inactive']['parts'], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP)) ?>'>
+                            <?php foreach ($doorFormData['inactive']['parts'] as $part): ?>
+                              <label class="checkbox">
+                                <input type="checkbox" name="door_inactive_parts[]" value="<?= e($part) ?>" checked />
+                                <span><?= e($part) ?></span>
+                              </label>
+                            <?php endforeach; ?>
+                          </div>
+                        </div>
                         <div class="field">
                           <label for="door_inactive_notes">Leaf notes</label>
                           <textarea id="door_inactive_notes" name="door_inactive_notes" rows="3" placeholder="Rails, reinforcing, or glazing callouts."><?= e($doorFormData['inactive']['notes']) ?></textarea>
                         </div>
-                        <div class="field">
-                          <label>Door parts list</label>
-                          <ul class="stacked" data-door-parts="inactive" aria-live="polite">
-                            <?php foreach (configuratorDoorParts($doorFormData['inactive']['glazing']) as $part): ?>
-                              <li><?= e($part) ?></li>
-                            <?php endforeach; ?>
-                          </ul>
-                        </div>
                       </section>
-                    <?php endif; ?>
+                      <?php endif; ?>
                   </div>
                 </div>
 
@@ -1424,11 +1523,8 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                       <li><strong>Opening type:</strong> <?= e($openingTypeOptions[$entryFormData['opening_type']] ?? $entryFormData['opening_type']) ?></li>
                       <li><strong>Hand:</strong> <?= e($entryFormData['opening_type'] === 'pair' ? ($handOptionsPair[$entryFormData['hand_pair']] ?? $entryFormData['hand_pair']) : ($handOptionsSingle[$entryFormData['hand_single']] ?? $entryFormData['hand_single'])) ?></li>
                       <li><strong>Finish:</strong> <?= e($finishOptions[$entryFormData['finish']] ?? $entryFormData['finish']) ?></li>
-                      <li><strong>Glazing:</strong> <?= e($entryFormData['door_glazing']) ?></li>
                       <li><strong>Hinging:</strong> <?= e($hingingOptions[$entryFormData['hinging']] ?? $entryFormData['hinging']) ?></li>
                       <li><strong>DOW × DOH:</strong> <?= e($entryFormData['door_opening_width'] !== '' ? $entryFormData['door_opening_width'] : 'TBD') ?> × <?= e($entryFormData['door_opening_height'] !== '' ? $entryFormData['door_opening_height'] : 'TBD') ?></li>
-                      <li><strong>Transom:</strong> <?= e($transomOptions[$entryFormData['transom']] ?? $entryFormData['transom']) ?></li>
-                      <li><strong>Transom glazing:</strong> <?= e($entryFormData['transom'] === 'yes' ? ($entryFormData['transom_glazing'] ?? '') : 'N/A') ?></li>
                       <li><strong>Elevation:</strong> <?= e($entryFormData['elevation'] !== '' ? $entryFormData['elevation'] : 'TBD') ?></li>
                       <li><strong>Opening location:</strong> <?= e($entryFormData['opening'] !== '' ? $entryFormData['opening'] : 'TBD') ?></li>
                     </ul>
@@ -1440,12 +1536,17 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                       <li><strong>System:</strong> <?= $frameFormData['system_id'] !== '' ? e($frameSystemOptions[$frameFormData['system_id']] ?? $frameFormData['system_id']) : 'Unassigned' ?></li>
                       <li><strong>Glazing:</strong> <?= e($frameFormData['glazing']) ?></li>
                       <li><strong>Transom:</strong> <?= e($transomOptions[$frameFormData['transom']] ?? $frameFormData['transom']) ?><?php if ($frameFormData['transom'] === 'yes' && $frameFormData['transom_height'] !== ''): ?> — <?= e($frameFormData['transom_height']) ?><?php endif; ?></li>
+                      <li><strong>Transom glazing:</strong> <?= e($frameFormData['transom'] === 'yes' ? $frameFormData['transom_glazing'] : 'N/A') ?></li>
+                      <li><strong>Frame parts:</strong> <?= e($frameFormData['parts'] !== [] ? implode(', ', $frameFormData['parts']) : 'None selected') ?></li>
                       <li><strong>Anchorage:</strong> <?= e($frameAnchorOptions[$frameFormData['anchor_type']] ?? $frameFormData['anchor_type']) ?></li>
                       <li><strong>Head:</strong> <?= e($headConditionOptions[$frameFormData['head_condition']] ?? $frameFormData['head_condition']) ?></li>
                       <li><strong>Sill:</strong> <?= e($sillConditionOptions[$frameFormData['sill_condition']] ?? $frameFormData['sill_condition']) ?></li>
+                      <li><strong>Door system:</strong> <?= $doorFormData['system_id'] !== '' ? e($doorSystemOptions[$doorFormData['system_id']] ?? $doorFormData['system_id']) : 'Unassigned' ?></li>
                       <li><strong>Door leaf (<?= e($doorLeafLabels['active']) ?>):</strong> <?= e($doorFormData['active']['stile']) ?> · <?= e($doorFormData['active']['glazing']) ?></li>
+                      <li><strong>Door parts (<?= e($doorLeafLabels['active']) ?>):</strong> <?= e($doorFormData['active']['parts'] !== [] ? implode(', ', $doorFormData['active']['parts']) : 'None selected') ?></li>
                       <?php if ($entryFormData['opening_type'] === 'pair'): ?>
                         <li><strong>Door leaf (<?= e($doorLeafLabels['inactive']) ?>):</strong> <?= e($doorFormData['inactive']['stile']) ?> · <?= e($doorFormData['inactive']['glazing']) ?></li>
+                        <li><strong>Door parts (<?= e($doorLeafLabels['inactive']) ?>):</strong> <?= e($doorFormData['inactive']['parts'] !== [] ? implode(', ', $doorFormData['inactive']['parts']) : 'None selected') ?></li>
                       <?php endif; ?>
                     </ul>
                   </div>
@@ -1615,14 +1716,14 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
       const templateButton = document.getElementById('template-door-start');
       const openingTypeSelect = document.querySelector('[data-opening-type]');
       const handFields = document.querySelectorAll('[data-hand]');
-      const transomSelect = document.querySelector('[data-transom]');
-      const transomGlazingField = document.querySelector('[data-transom-glazing]');
       const handPairSelect = document.getElementById('entry_hand_pair');
       const lhWarning = document.querySelector('[data-lhra-warning]');
       const frameTransomSelect = document.querySelector('[data-frame-transom]');
       const frameTransomHeightRow = document.querySelector('[data-frame-transom-height]');
+      const frameTransomGlazingSelect = document.getElementById('frame_transom_glazing');
       const framePartsList = document.querySelector('[data-frame-parts]');
       const frameGlazingSelect = document.getElementById('frame_glazing');
+      const framePresetSelect = document.querySelector('[data-frame-preset]');
       const doorTabs = document.querySelectorAll('[data-door-tab]');
       const doorPanels = document.querySelectorAll('[data-door-panel]');
       const doorPartsLists = document.querySelectorAll('[data-door-parts]');
@@ -1699,18 +1800,6 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
         renderFrameParts();
       }
 
-      function syncTransomGlazing() {
-        const hasTransom = (transomSelect instanceof HTMLSelectElement ? transomSelect.value : 'no') === 'yes';
-        if (transomGlazingField instanceof HTMLElement) {
-          transomGlazingField.hidden = !hasTransom;
-
-          const select = transomGlazingField.querySelector('select');
-          if (select instanceof HTMLSelectElement) {
-            select.disabled = !hasTransom;
-          }
-        }
-      }
-
       function syncPairWarning() {
         const shouldWarn = (openingTypeSelect instanceof HTMLSelectElement ? openingTypeSelect.value : 'single') === 'pair'
           && (handPairSelect instanceof HTMLSelectElement ? handPairSelect.value : '') === 'LHRA Active';
@@ -1728,6 +1817,10 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
             input.disabled = !hasFrameTransom;
           }
         }
+
+        if (frameTransomGlazingSelect instanceof HTMLSelectElement) {
+          frameTransomGlazingSelect.disabled = !hasFrameTransom;
+        }
       }
 
       function computeFrameParts() {
@@ -1735,52 +1828,87 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
           ? 'pair'
           : 'single';
         const hasTransom = (frameTransomSelect instanceof HTMLSelectElement ? frameTransomSelect.value : 'no') === 'yes';
-        const glazing = frameGlazingSelect instanceof HTMLSelectElement ? frameGlazingSelect.value : '1/4"';
+        const glazing = frameTransomGlazingSelect instanceof HTMLSelectElement ? frameTransomGlazingSelect.value : '1/4"';
         const parts = type === 'pair'
           ? ['LH Hinge Rail', 'RH Hinge Rail', 'Door Head', 'Head Door Stop', 'LH Door Stop', 'RH Door Stop']
           : ['Hinge Jamb', 'Lock Jamb', 'Door Head', 'Head Door Stop', 'Lock Door Stop', 'Hinge Door Stop'];
 
         if (hasTransom) {
+          const adapter = glazing === '1/2"'
+            ? '½ Glass adapter'
+            : glazing === '1/4"'
+              ? '¼ Glass adapter'
+              : null;
+
           parts.push(
             'Door Head Transom Stop - Active',
             'Door Head Transom Stop - Fixed',
             'Vertical Transom Stop - Active',
             'Vertical Transom Stop - Fixed',
-            `${glazing} Glass adapter`,
-            '¼ Glass adapter (if glazing step-down is required)',
+            adapter,
           );
         }
 
-        return parts;
+        return parts.filter(Boolean);
       }
 
-      function renderFrameParts() {
+      function renderFrameParts(selectedParts) {
         if (!(framePartsList instanceof HTMLElement)) {
           return;
         }
 
-        const parts = computeFrameParts();
-        framePartsList.innerHTML = '';
+        const recommended = computeFrameParts();
+        let selected = selectedParts instanceof Set
+          ? new Set(selectedParts)
+          : new Set(
+            framePartsList.dataset.selected
+              ? JSON.parse(framePartsList.dataset.selected)
+              : Array.from(framePartsList.querySelectorAll('input[name="frame_parts[]"]:checked')).map((input) => input.value)
+          );
 
-        const glazingLabel = frameGlazingSelect instanceof HTMLSelectElement ? frameGlazingSelect.value : '';
-        const glazingPill = frameTransomHeightRow?.querySelector('.pill');
-        if (glazingPill instanceof HTMLElement) {
-          glazingPill.textContent = glazingLabel
-            ? `Uses frame glazing selection: ${glazingLabel}`
-            : 'Uses frame glazing selection';
+        if (selected.size === 0) {
+          selected = new Set(recommended);
         }
 
-        parts.forEach((part) => {
-          const li = document.createElement('li');
-          li.textContent = part;
-          framePartsList.appendChild(li);
+        const allParts = Array.from(new Set([...recommended, ...selected]));
+        framePartsList.innerHTML = '';
+
+        allParts.forEach((part) => {
+          const label = document.createElement('label');
+          label.className = 'checkbox';
+
+          const input = document.createElement('input');
+          input.type = 'checkbox';
+          input.name = 'frame_parts[]';
+          input.value = part;
+          input.checked = selected.has(part);
+
+          const span = document.createElement('span');
+          span.textContent = part;
+
+          label.appendChild(input);
+          label.appendChild(span);
+          framePartsList.appendChild(label);
         });
+
+        framePartsList.dataset.selected = JSON.stringify(Array.from(selected));
+      }
+
+      function applyFramePreset(preset) {
+        if (preset === 'clear') {
+          renderFrameParts(new Set());
+          return;
+        }
+
+        renderFrameParts(new Set(computeFrameParts()));
       }
 
       function computeDoorParts(glazing) {
         const glazingLabel = glazing || 'N/A';
         return [
-          'Hinge Rail',
+          'Hinge Rail - Standard',
+          'Hinge Rail A (WS - Continuous Hinge)',
+          'Hinge Rail B (WS - Butt Hinge)',
           'Lock Rail',
           'Top Rail',
           'Bottom Rail',
@@ -1794,7 +1922,7 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
         ];
       }
 
-      function renderDoorPartsList() {
+      function renderDoorPartsList(selectedMap) {
         if (!doorPartsLists || doorPartsLists.length === 0) {
           return;
         }
@@ -1803,15 +1931,64 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
           const key = list.getAttribute('data-door-parts');
           const glazingSelect = document.getElementById(`door_${key}_glazing`);
           const glazing = glazingSelect instanceof HTMLSelectElement ? glazingSelect.value : '1/4"';
-          const parts = computeDoorParts(glazing);
+          const recommended = computeDoorParts(glazing);
+          const presetSelection = selectedMap?.[key];
+          let selected = presetSelection instanceof Set
+            ? new Set(presetSelection)
+            : new Set(
+              list.dataset.selected
+                ? JSON.parse(list.dataset.selected)
+                : Array.from(list.querySelectorAll('input[type="checkbox"]:checked')).map((input) => input.value)
+            );
 
+          if (selected.size === 0) {
+            selected = new Set(recommended);
+          }
+
+          const allParts = Array.from(new Set([...recommended, ...selected]));
           list.innerHTML = '';
-          parts.forEach((part) => {
-            const li = document.createElement('li');
-            li.textContent = part;
-            list.appendChild(li);
+
+          allParts.forEach((part) => {
+            const label = document.createElement('label');
+            label.className = 'checkbox';
+
+            const input = document.createElement('input');
+            input.type = 'checkbox';
+            input.name = `door_${key}_parts[]`;
+            input.value = part;
+            input.checked = selected.has(part);
+
+            const span = document.createElement('span');
+            span.textContent = part;
+
+            label.appendChild(input);
+            label.appendChild(span);
+            list.appendChild(label);
           });
+
+          list.dataset.selected = JSON.stringify(Array.from(selected));
         });
+      }
+
+      function applyDoorPreset(key, preset) {
+        const glazingSelect = document.getElementById(`door_${key}_glazing`);
+        const glazing = glazingSelect instanceof HTMLSelectElement ? glazingSelect.value : '1/4"';
+        const recommended = new Set(computeDoorParts(glazing));
+
+        if (preset === 'clear') {
+          renderDoorPartsList({ [key]: new Set() });
+          return;
+        }
+
+        if (preset === 'ws_continuous') {
+          recommended.add('Hinge Rail A (WS - Continuous Hinge)');
+          recommended.delete('Hinge Rail B (WS - Butt Hinge)');
+        } else if (preset === 'ws_butt') {
+          recommended.add('Hinge Rail B (WS - Butt Hinge)');
+          recommended.delete('Hinge Rail A (WS - Continuous Hinge)');
+        }
+
+        renderDoorPartsList({ [key]: recommended });
       }
 
       function activateDoorTab(target) {
@@ -1832,15 +2009,25 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
         syncHands();
         renderFrameParts();
       });
-      transomSelect?.addEventListener('change', syncTransomGlazing);
       handPairSelect?.addEventListener('change', syncPairWarning);
       frameTransomSelect?.addEventListener('change', () => {
         syncFrameTransom();
         renderFrameParts();
       });
+      frameTransomGlazingSelect?.addEventListener('change', renderFrameParts);
       frameGlazingSelect?.addEventListener('change', renderFrameParts);
-      document.getElementById('door_active_glazing')?.addEventListener('change', renderDoorPartsList);
-      document.getElementById('door_inactive_glazing')?.addEventListener('change', renderDoorPartsList);
+      framePresetSelect?.addEventListener('change', (event) => {
+        const value = event.target?.value || 'recommended';
+        applyFramePreset(value);
+      });
+      document.getElementById('door_active_glazing')?.addEventListener('change', () => renderDoorPartsList());
+      document.getElementById('door_inactive_glazing')?.addEventListener('change', () => renderDoorPartsList());
+      document.getElementById('door_active_preset')?.addEventListener('change', (event) => {
+        applyDoorPreset('active', event.target?.value || 'standard');
+      });
+      document.getElementById('door_inactive_preset')?.addEventListener('change', (event) => {
+        applyDoorPreset('inactive', event.target?.value || 'standard');
+      });
 
       doorTabs.forEach((tab) => {
         tab.addEventListener('click', () => {
@@ -1850,7 +2037,6 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
       });
 
       syncHands();
-      syncTransomGlazing();
       syncPairWarning();
       syncFrameTransom();
       renderFrameParts();
@@ -2125,12 +2311,6 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
         if (handSingle && entry.hand_single) handSingle.value = entry.hand_single;
         const handPair = document.getElementById('entry_hand_pair');
         if (handPair && entry.hand_pair) handPair.value = entry.hand_pair;
-        const glazing = document.getElementById('entry_door_glazing');
-        if (glazing && entry.door_glazing) glazing.value = entry.door_glazing;
-        const transom = document.getElementById('entry_transom');
-        if (transom && entry.transom) transom.value = entry.transom;
-        const transomGlazing = document.getElementById('entry_transom_glazing');
-        if (transomGlazing && entry.transom_glazing) transomGlazing.value = entry.transom_glazing;
         const dow = document.getElementById('entry_door_opening_width');
         if (dow) dow.value = entry.door_opening_width ?? '';
         const doh = document.getElementById('entry_door_opening_height');
@@ -2144,7 +2324,6 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
         const notes = document.getElementById('entry_notes');
         if (notes) notes.value = entry.notes ?? '';
         syncHands();
-        syncTransomGlazing();
         syncPairWarning();
         renderFrameParts();
       }
@@ -2166,23 +2345,33 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
         if (system && frame.system_id !== undefined) system.value = frame.system_id;
         if (frameGlazingSelect && frame.glazing) frameGlazingSelect.value = frame.glazing;
         if (frameTransomSelect && frame.transom) frameTransomSelect.value = frame.transom;
+        if (frameTransomGlazingSelect && frame.transom_glazing) frameTransomGlazingSelect.value = frame.transom_glazing;
         const frameHeight = document.getElementById('frame_transom_height');
         if (frameHeight) frameHeight.value = frame.transom_height ?? '';
         const notes = document.getElementById('frame_notes');
         if (notes) notes.value = frame.notes ?? '';
+        if (framePartsList && Array.isArray(frame.parts)) {
+          framePartsList.dataset.selected = JSON.stringify(frame.parts);
+        }
         syncFrameTransom();
-        renderFrameParts();
+        renderFrameParts(new Set(Array.isArray(frame.parts) ? frame.parts : []));
       }
 
       function applyDoorForm(data) {
         const door = data?.door;
         if (!door) return;
+        const doorSystem = document.getElementById('door_system_id');
+        if (doorSystem && door.system_id !== undefined) doorSystem.value = door.system_id;
         const activeStile = document.getElementById('door_active_stile');
         if (activeStile && door.active?.stile) activeStile.value = door.active.stile;
         const activeGlazing = document.getElementById('door_active_glazing');
         if (activeGlazing && door.active?.glazing) activeGlazing.value = door.active.glazing;
         const activeNotes = document.getElementById('door_active_notes');
         if (activeNotes) activeNotes.value = door.active?.notes ?? '';
+        const activeParts = document.querySelector('[data-door-parts="active"]');
+        if (activeParts && Array.isArray(door.active?.parts)) {
+          activeParts.dataset.selected = JSON.stringify(door.active.parts);
+        }
 
         const inactiveStile = document.getElementById('door_inactive_stile');
         if (inactiveStile && door.inactive?.stile) inactiveStile.value = door.inactive.stile;
@@ -2190,8 +2379,15 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
         if (inactiveGlazing && door.inactive?.glazing) inactiveGlazing.value = door.inactive.glazing;
         const inactiveNotes = document.getElementById('door_inactive_notes');
         if (inactiveNotes) inactiveNotes.value = door.inactive?.notes ?? '';
+        const inactiveParts = document.querySelector('[data-door-parts="inactive"]');
+        if (inactiveParts && Array.isArray(door.inactive?.parts)) {
+          inactiveParts.dataset.selected = JSON.stringify(door.inactive.parts);
+        }
 
-        renderDoorPartsList();
+        renderDoorPartsList({
+          active: new Set(Array.isArray(door.active?.parts) ? door.active.parts : []),
+          inactive: new Set(Array.isArray(door.inactive?.parts) ? door.inactive.parts : []),
+        });
       }
 
       function applyHardwareForm(data) {

@@ -18,7 +18,7 @@ ForgeDesk ERP is a fabrication-focused inventory, estimating, and production env
 
 Agents MUST follow existing structure and naming unless explicitly instructed to change it.
 
-Always consult `configurator.md` when modifying the door configurator. The document lists the required inputs, option labels, and UX notes (e.g., tabbed door leaf builder, default draft jobs) that must stay in sync with any configurator changes.
+Always consult `configurator.md` when modifying the door configurator. The document lists the required inputs, option labels, and UX notes (e.g., tabbed door leaf builder, default draft jobs) that must stay in sync with any configurator changes. Add open configurator questions to the bottom of `configurator.md` and remove questions once resolved so future agents see only active follow-ups.
 
 ---
 

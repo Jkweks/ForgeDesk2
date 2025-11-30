@@ -38,11 +38,12 @@ Door Configurator-
     - Pivot - Center
 - Frame (active only if scope is frame or frame and door)
   - Frame System
-    - Pull from Inventory systems table
+    - Pull from Inventory systems table (filter to systems flagged for framing)
   - Glazing
     - 1/4, 1/2, 1"
   - Transom?
     - If yes, prompt total frame height
+    - Select transom glazing (drives stop and adapter selection)
   - Frame Parts List
     - If single:
       - Hinge Jamb
@@ -56,34 +57,22 @@ Door Configurator-
         - Door Head Transom Stop - Fixed
         - Vertical Transom Stop - Active
         - Vertical Transom Stop - Fixed
-        - ½ Glass adapter
-
-If transom glass is ½"
-
-- - - - 1. ¼ glass adapter
-
-If transom glass is ¼" or
-
-- - 1. If pair
-            -  LH Hinge Rail
-            -  RH Hinge Rail
-            -  Door Head
-            -  Head Door Stop
-            -  LH Door Stop
-            -  RH door Stop
-            -  If transom:
-                -  Door Head Transom Stop - Active
-                -  Door Head Transom Stop - Fixed
-                -  Vertical Transom Stop - Active
-                -  Vertical Transom Stop - Fixed
-                -  ½ Glass adapter
-
-If transom glass is ½"
-
-- - - - 1. ¼ glass adapter
-
-If transom glass is ¼" or
-
+        - ½ Glass adapter (only if glazing selection is ½")
+        - ¼ Glass adapter (only if glazing selection is ¼")
+    - If pair
+      -  LH Hinge Rail
+      -  RH Hinge Rail
+      -  Door Head
+      -  Head Door Stop
+      -  LH Door Stop
+      -  RH door Stop
+      -  If transom:
+          -  Door Head Transom Stop - Active
+          -  Door Head Transom Stop - Fixed
+          -  Vertical Transom Stop - Active
+          -  Vertical Transom Stop - Fixed
+          -  ½ Glass adapter (only if glazing selection is ½")
+          -  ¼ glass adapter (only if glazing selection is ¼")
 - Door (active if scope is door or frame and door)
   - Note: lets make this a tabbed page each leaf being configured independently.
     - if the type is single the tab head should match the swing (i.e. LH - Inswing)
@@ -99,8 +88,12 @@ If transom glass is ¼" or
     - Monumental Wide Stile
   - Glazing
     - ¼, ½, 1"
+  - Door system
+    - Pull from inventory systems table (filter to systems flagged for doors)
   - Door Parts list
     - Hinge Rail
+      - Wide stile continuous hinge preset uses hinge rail A
+      - Wide stile butt hinge preset uses hinge rail B
     - Lock Rail
     - Top Rail
     - Bottom Rail
@@ -121,6 +114,4 @@ If transom glass is ¼" or
 
 Open questions
 
-1. The transom glazing callouts mention both “½ glass adapter” and “¼ glass adapter” but the formatting is ambiguous. Should adapters be required for every transom selection or only when stepping down from ½" to ¼" glass?
-2. Should the frame glazing selection always mirror the entry glazing, or can the frame have a separate glazing thickness?
-3. Which inventory systems should be seeded for the frame system dropdown in production beyond the draft placeholders?
+None at this time.
