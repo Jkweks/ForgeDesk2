@@ -26,12 +26,10 @@ $localSavePayload = null;
 $statusOptions = ['draft', 'in_progress', 'released'];
 $jobScopeOptions = configuratorJobScopes();
 $configFormData = [
-    'name' => '',
     'job_id' => '',
     'job_scope' => 'door_and_frame',
     'quantity' => 1,
     'status' => 'draft',
-    'notes' => '',
     'door_tags' => [],
 ];
 $db = null;
@@ -43,29 +41,19 @@ $entryFormData = [
     'door_opening_width' => '',
     'door_opening_height' => '',
     'hinging' => 'continuous',
-    'elevation' => '',
-    'opening' => '',
-    'notes' => '',
 ];
 $frameFormData = [
-    'material' => 'aluminum',
-    'profile' => 'narrow',
-    'anchor_type' => 'screw_anchor',
-    'head_condition' => 'standard_head',
-    'sill_condition' => 'standard_sill',
     'system_id' => '',
     'glazing' => '1/4"',
     'transom' => 'no',
     'transom_glazing' => '1/4"',
     'transom_height' => '',
     'parts' => [],
-    'notes' => '',
 ];
 $doorLeafDefaults = [
     'stile' => 'Standard Medium Stile',
     'glazing' => '1/4"',
     'parts' => [],
-    'notes' => '',
 ];
 
 $doorFormData = [
@@ -81,15 +69,6 @@ $frameFormData['parts'] = configuratorFrameParts(
 );
 $doorFormData['active']['parts'] = configuratorDoorParts($doorFormData['active']['glazing']);
 $doorFormData['inactive']['parts'] = configuratorDoorParts($doorFormData['inactive']['glazing']);
-$hardwareFormData = [
-    'set_name' => 'Standard',
-    'hinge_prep' => 'template_hinge',
-    'strike_prep' => 'asa_strike',
-    'closer' => 'surface',
-    'electrified' => 'no',
-    'notes' => '',
-];
-$summaryNotes = '';
 $openingTypeOptions = [
     'single' => 'Single',
     'pair' => 'Pair',
@@ -118,31 +97,6 @@ $transomOptions = [
     'yes' => 'Yes',
     'no' => 'No',
 ];
-$frameMaterialOptions = [
-    'aluminum' => 'Aluminum',
-    'steel' => 'Steel',
-    'wood' => 'Wood',
-];
-$frameProfileOptions = [
-    'narrow' => 'Narrow stile',
-    'medium' => 'Medium stile',
-    'wide' => 'Wide stile',
-];
-$frameAnchorOptions = [
-    'screw_anchor' => 'Screw anchor',
-    'expansion_bolt' => 'Expansion bolt',
-    'weld_plate' => 'Weld plate',
-];
-$headConditionOptions = [
-    'standard_head' => 'Standard head',
-    'transom_head' => 'Transom prep',
-    'sidelite_head' => 'Sidelite head',
-];
-$sillConditionOptions = [
-    'standard_sill' => 'Standard sill',
-    'threshold' => 'Threshold',
-    'no_sill' => 'No sill',
-];
 $hingingOptions = [
     'continuous' => 'Continuous Hinge',
     'butt' => 'Butt Hinge',
@@ -150,43 +104,9 @@ $hingingOptions = [
     'pivot_center' => 'Pivot - Center',
 ];
 $frameGlazingOptions = $glazingOptions;
-$doorStileOptions = [
-    'Standard Medium Stile' => 'Standard Medium Stile',
-    'Standard Wide Stile' => 'Standard Wide Stile',
-    'Standard Narrow Stile' => 'Standard Narrow Stile',
-    'Thermal Narrow Stile' => 'Thermal Narrow Stile',
-    'Thermal Wide Stile' => 'Thermal Wide Stile',
-    'Thermal Medium Stile' => 'Thermal Medium Stile',
-    'Monumental Medium Stile' => 'Monumental Medium Stile',
-    'Monumental Wide Stile' => 'Monumental Wide Stile',
-];
-$hardwareSetOptions = [
-    'Standard' => 'Standard template',
-    'Grade 1' => 'Grade 1 heavy duty',
-    'Custom' => 'Custom prep',
-];
-$hingePrepOptions = [
-    'template_hinge' => 'Template hinge',
-    'continuous' => 'Continuous hinge',
-    'pivot' => 'Pivot set',
-];
-$strikePrepOptions = [
-    'asa_strike' => 'ASA strike',
-    'cylindrical' => 'Cylindrical',
-    'mortise' => 'Mortise prep',
-];
-$closerOptions = [
-    'surface' => 'Surface closer',
-    'concealed' => 'Concealed closer',
-    'none' => 'No closer',
-];
-$electrifiedOptions = [
-    'no' => 'No electrified hardware',
-    'prewire' => 'Prewire and conduit',
-    'fully_prepped' => 'Fully prepped',
-];
 $frameSystemOptions = [];
 $doorSystemOptions = [];
+$doorStileOptions = [];
 
 /**
  * @return list<string>
@@ -267,16 +187,13 @@ $defaultBuilderForms = [
     'entry' => $entryFormData,
     'frame' => $frameFormData,
     'door' => $doorFormData,
-    'hardware' => $hardwareFormData,
-    'summary_notes' => $summaryNotes,
 ];
 $editingConfigId = null;
 $builderSteps = [
-    ['id' => 'configuration', 'label' => 'Configuration data', 'description' => 'Name, job, scope, and lifecycle status'],
-    ['id' => 'entry', 'label' => 'Entry data', 'description' => 'Elevation information and opening measurements'],
-    ['id' => 'frame', 'label' => 'Frame data', 'description' => 'Profiles, anchors, and accessories (if required)'],
-    ['id' => 'door', 'label' => 'Door data', 'description' => 'Leaf construction and lite kit details (if required)'],
-    ['id' => 'hardware', 'label' => 'Door hardware data', 'description' => 'Sets, preps, and templated routing'],
+    ['id' => 'configuration', 'label' => 'Configuration data', 'description' => 'Job, scope, quantity, and door IDs'],
+    ['id' => 'entry', 'label' => 'Entry data', 'description' => 'Opening type, hand, finish, and measurements'],
+    ['id' => 'frame', 'label' => 'Frame data', 'description' => 'System, glazing, and transom parts (if required)'],
+    ['id' => 'door', 'label' => 'Door data', 'description' => 'Stile, glazing, and leaf parts (if required)'],
     ['id' => 'summary', 'label' => 'Summary & cut list', 'description' => 'Bill of materials and cut information'],
 ];
 $stepIds = array_map(static fn (array $step): string => $step['id'], $builderSteps);
@@ -380,6 +297,16 @@ unset($groupItems, $item);
             ];
         }
 
+        $doorStileOptions = $doorSystemOptions;
+
+        $defaultDoorStile = array_key_first($doorStileOptions) ?? '';
+        if (!array_key_exists($doorFormData['active']['stile'], $doorStileOptions)) {
+            $doorFormData['active']['stile'] = $defaultDoorStile;
+        }
+        if (!array_key_exists($doorFormData['inactive']['stile'], $doorStileOptions)) {
+            $doorFormData['inactive']['stile'] = $defaultDoorStile;
+        }
+
     $requestedConfigId = isset($_GET['id']) && ctype_digit((string) $_GET['id'])
         ? (int) $_GET['id']
         : null;
@@ -408,12 +335,10 @@ unset($groupItems, $item);
             $existingConfig = configuratorFindConfiguration($db, $requestedConfigId);
             if ($existingConfig !== null) {
                 $builderState['forms']['configuration'] = [
-                    'name' => $existingConfig['name'],
                     'job_id' => $existingConfig['job_id'] !== null ? (string) $existingConfig['job_id'] : '',
                     'job_scope' => $existingConfig['job_scope'],
                     'quantity' => $existingConfig['quantity'],
                     'status' => $existingConfig['status'],
-                    'notes' => $existingConfig['notes'] ?? '',
                     'door_tags' => $existingConfig['door_tags'],
                 ];
                 $builderState['config_payload'] = [
@@ -422,7 +347,6 @@ unset($groupItems, $item);
                     'job_scope' => $existingConfig['job_scope'],
                     'quantity' => (int) $existingConfig['quantity'],
                     'status' => $existingConfig['status'],
-                    'notes' => $existingConfig['notes'],
                     'door_tags' => $existingConfig['door_tags'],
                 ];
                 $builderState['current_step'] = 'configuration';
@@ -443,12 +367,10 @@ unset($groupItems, $item);
             $template = configuratorFindDoorTagTemplate($db, (int) $_GET['template_door_id']);
             if ($template !== null) {
                 $configFormData = [
-                    'name' => $template['configuration_name'] . ' — ' . $template['door_tag'],
                     'job_id' => $template['job_id'] !== null ? (string) $template['job_id'] : '',
                     'job_scope' => $template['job_scope'],
                     'quantity' => 1,
                     'status' => $template['status'],
-                    'notes' => $template['notes'] ?? '',
                     'door_tags' => [$template['door_tag']],
                 ];
                 $builderState['forms']['configuration'] = $configFormData;
@@ -517,40 +439,6 @@ unset($groupItems, $item);
         if ($hingingRaw !== null && array_key_exists($hingingRaw, $hingingOptions)) {
             $entryFormData['hinging'] = (string) $hingingRaw;
         }
-        $entryFormData['elevation'] = isset($_POST['entry_elevation'])
-            ? trim((string) $_POST['entry_elevation'])
-            : $entryFormData['elevation'];
-        $entryFormData['opening'] = isset($_POST['entry_opening'])
-            ? trim((string) $_POST['entry_opening'])
-            : $entryFormData['opening'];
-        $entryFormData['notes'] = isset($_POST['entry_notes'])
-            ? trim((string) $_POST['entry_notes'])
-            : $entryFormData['notes'];
-
-        $frameMaterialRaw = $_POST['frame_material'] ?? null;
-        if ($frameMaterialRaw !== null && array_key_exists($frameMaterialRaw, $frameMaterialOptions)) {
-            $frameFormData['material'] = (string) $frameMaterialRaw;
-        }
-
-        $frameProfileRaw = $_POST['frame_profile'] ?? null;
-        if ($frameProfileRaw !== null && array_key_exists($frameProfileRaw, $frameProfileOptions)) {
-            $frameFormData['profile'] = (string) $frameProfileRaw;
-        }
-
-        $frameAnchorRaw = $_POST['frame_anchor_type'] ?? null;
-        if ($frameAnchorRaw !== null && array_key_exists($frameAnchorRaw, $frameAnchorOptions)) {
-            $frameFormData['anchor_type'] = (string) $frameAnchorRaw;
-        }
-
-        $frameHeadRaw = $_POST['frame_head_condition'] ?? null;
-        if ($frameHeadRaw !== null && array_key_exists($frameHeadRaw, $headConditionOptions)) {
-            $frameFormData['head_condition'] = (string) $frameHeadRaw;
-        }
-
-        $frameSillRaw = $_POST['frame_sill_condition'] ?? null;
-        if ($frameSillRaw !== null && array_key_exists($frameSillRaw, $sillConditionOptions)) {
-            $frameFormData['sill_condition'] = (string) $frameSillRaw;
-        }
 
         $frameSystemRaw = $_POST['frame_system_id'] ?? null;
         if ($frameSystemRaw !== null && array_key_exists($frameSystemRaw, $frameSystemOptions)) {
@@ -589,10 +477,6 @@ unset($groupItems, $item);
             );
         }
 
-        $frameFormData['notes'] = isset($_POST['frame_notes'])
-            ? trim((string) $_POST['frame_notes'])
-            : $frameFormData['notes'];
-
         $doorSystemRaw = $_POST['door_system_id'] ?? null;
         if ($doorSystemRaw !== null && array_key_exists($doorSystemRaw, $doorSystemOptions)) {
             $doorFormData['system_id'] = (string) $doorSystemRaw;
@@ -619,44 +503,7 @@ unset($groupItems, $item);
             if ($doorFormData[$leafKey]['parts'] === []) {
                 $doorFormData[$leafKey]['parts'] = configuratorDoorParts($doorFormData[$leafKey]['glazing']);
             }
-
-            $doorFormData[$leafKey]['notes'] = isset($_POST['door_' . $leafKey . '_notes'])
-                ? trim((string) $_POST['door_' . $leafKey . '_notes'])
-                : $doorFormData[$leafKey]['notes'];
         }
-
-        $hardwareSetRaw = $_POST['hardware_set'] ?? null;
-        if ($hardwareSetRaw !== null && array_key_exists($hardwareSetRaw, $hardwareSetOptions)) {
-            $hardwareFormData['set_name'] = (string) $hardwareSetRaw;
-        }
-
-        $hingePrepRaw = $_POST['hardware_hinge_prep'] ?? null;
-        if ($hingePrepRaw !== null && array_key_exists($hingePrepRaw, $hingePrepOptions)) {
-            $hardwareFormData['hinge_prep'] = (string) $hingePrepRaw;
-        }
-
-        $strikePrepRaw = $_POST['hardware_strike_prep'] ?? null;
-        if ($strikePrepRaw !== null && array_key_exists($strikePrepRaw, $strikePrepOptions)) {
-            $hardwareFormData['strike_prep'] = (string) $strikePrepRaw;
-        }
-
-        $closerRaw = $_POST['hardware_closer'] ?? null;
-        if ($closerRaw !== null && array_key_exists($closerRaw, $closerOptions)) {
-            $hardwareFormData['closer'] = (string) $closerRaw;
-        }
-
-        $electrifiedRaw = $_POST['hardware_electrified'] ?? null;
-        if ($electrifiedRaw !== null && array_key_exists($electrifiedRaw, $electrifiedOptions)) {
-            $hardwareFormData['electrified'] = (string) $electrifiedRaw;
-        }
-
-        $hardwareFormData['notes'] = isset($_POST['hardware_notes'])
-            ? trim((string) $_POST['hardware_notes'])
-            : $hardwareFormData['notes'];
-
-        $summaryNotes = isset($_POST['summary_notes'])
-            ? trim((string) $_POST['summary_notes'])
-            : $summaryNotes;
 
         if ($action === 'create_job') {
             $jobNumber = trim((string) ($_POST['job_number'] ?? ''));
@@ -685,27 +532,19 @@ unset($groupItems, $item);
                 }
             }
         } elseif ($action === 'stage_configuration') {
-            $configName = trim((string) ($_POST['config_name'] ?? ''));
             $jobIdRaw = trim((string) ($_POST['config_job_id'] ?? ''));
             $configScope = (string) ($_POST['config_job_scope'] ?? 'door_and_frame');
             $configQuantityRaw = trim((string) ($_POST['config_quantity'] ?? '1'));
             $configStatus = trim((string) ($_POST['config_status'] ?? 'draft'));
-            $configNotes = trim((string) ($_POST['config_notes'] ?? ''));
             $doorTagsRaw = isset($_POST['door_tags']) && is_array($_POST['door_tags']) ? $_POST['door_tags'] : [];
 
             $configFormData = [
-                'name' => $configName,
                 'job_id' => $jobIdRaw,
                 'job_scope' => $configScope,
                 'quantity' => $configQuantityRaw,
                 'status' => $configStatus,
-                'notes' => $configNotes,
                 'door_tags' => array_map('strval', $doorTagsRaw),
             ];
-
-            if ($configName === '') {
-                $errors['config_name'] = 'Configuration name is required.';
-            }
 
             $jobId = $jobIdRaw !== '' ? $jobIdRaw : null;
 
@@ -744,13 +583,13 @@ unset($groupItems, $item);
             }
 
             if ($errors === []) {
+                $configName = $builderState['config_payload']['name'] ?? ($doorTags[0] ?? 'Door configuration');
                 $payload = [
                     'name' => $configName,
                     'job_id' => $jobId,
                     'job_scope' => array_key_exists($configScope, $jobScopeOptions) ? $configScope : 'door_and_frame',
                     'quantity' => $quantity,
                     'status' => $configStatus,
-                    'notes' => $configNotes !== '' ? $configNotes : null,
                     'door_tags' => $doorTags,
                 ];
 
@@ -776,16 +615,9 @@ unset($groupItems, $item);
         } elseif ($action === 'stage_door') {
             $builderState['forms']['door'] = $doorFormData;
             $builderState['completed'] = array_values(array_unique(array_merge($builderState['completed'], ['configuration', 'entry', 'frame', 'door'])));
-            $builderState['current_step'] = $computeTargetStep('door', $targetStep ?? 'hardware');
-            $redirectStep = $builderState['current_step'];
-        } elseif ($action === 'stage_hardware') {
-            $builderState['forms']['hardware'] = $hardwareFormData;
-            $builderState['forms']['summary_notes'] = $summaryNotes;
-            $builderState['completed'] = array_values(array_unique(array_merge($builderState['completed'], ['configuration', 'entry', 'frame', 'door', 'hardware'])));
-            $builderState['current_step'] = $computeTargetStep('hardware', $targetStep ?? 'summary');
+            $builderState['current_step'] = $computeTargetStep('door', $targetStep ?? 'summary');
             $redirectStep = $builderState['current_step'];
         } elseif ($action === 'finalize_configuration') {
-            $builderState['forms']['summary_notes'] = $summaryNotes;
             $requiredSteps = array_slice($stepIds, 0, count($stepIds) - 1);
             $missingStep = null;
 
@@ -812,14 +644,11 @@ unset($groupItems, $item);
                     'entry' => $entryFormData,
                     'frame' => $frameFormData,
                     'door' => $doorFormData,
-                    'hardware' => $hardwareFormData,
-                    'summary_notes' => $summaryNotes,
                     'updated_at' => date(DATE_ATOM),
                 ];
 
                 $builderState['config_id'] = $localSavePayload['id'];
                 $builderState['completed'] = $stepIds;
-                $builderState['forms']['summary_notes'] = $summaryNotes;
                 $builderState['current_step'] = 'summary';
                 $successMessage = 'Configuration saved locally in this browser. Database storage will be added later.';
             }
@@ -851,8 +680,6 @@ unset($groupItems, $item);
     $entryFormData = $builderState['forms']['entry'];
     $frameFormData = $builderState['forms']['frame'];
     $doorFormData = $builderState['forms']['door'];
-    $hardwareFormData = $builderState['forms']['hardware'];
-    $summaryNotes = $builderState['forms']['summary_notes'];
     $isPairOpening = $entryFormData['opening_type'] === 'pair';
     $doorLeafLabels = $isPairOpening
         ? ['active' => $entryFormData['hand_pair'], 'inactive' => $entryFormData['hand_pair'] === 'LHRA Active' ? 'RHR Inactive' : 'LHR Inactive']
@@ -885,7 +712,6 @@ $editorMode = ($editingConfigId !== null)
         'stage_entry',
         'stage_frame',
         'stage_door',
-        'stage_hardware',
         'finalize_configuration',
     ], true))
     || (isset($_GET['create']) && $_GET['create'] === '1')
@@ -999,14 +825,6 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
 
                 <div class="field-grid two-column">
                   <div class="field">
-                    <label for="config_name">Configuration Name<span aria-hidden="true">*</span></label>
-                    <input type="text" id="config_name" name="config_name" value="<?= e($configFormData['name']) ?>" required />
-                    <?php if (!empty($errors['config_name'])): ?>
-                      <p class="field-error"><?= e($errors['config_name']) ?></p>
-                    <?php endif; ?>
-                  </div>
-
-                  <div class="field">
                     <label for="config_job_id">Job (optional)</label>
                     <select id="config_job_id" name="config_job_id">
                       <option value="">Unassigned</option>
@@ -1020,9 +838,7 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                       <p class="field-error"><?= e($errors['config_job_id']) ?></p>
                     <?php endif; ?>
                   </div>
-                </div>
 
-                <div class="field-grid two-column">
                   <div class="field">
                     <label for="config_job_scope">Job Scope</label>
                     <select id="config_job_scope" name="config_job_scope">
@@ -1034,18 +850,18 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                       <p class="field-error"><?= e($errors['config_job_scope']) ?></p>
                     <?php endif; ?>
                   </div>
+                </div>
 
+                <div class="field-grid two-column">
                   <div class="field">
                     <label for="config_quantity">Quantity<span aria-hidden="true">*</span></label>
                     <input type="number" min="1" id="config_quantity" name="config_quantity" value="<?= e((string) $configFormData['quantity']) ?>" required />
-                    <p class="small muted">Door tag count must match this quantity.</p>
+                    <p class="small muted">Door ID count must match this quantity.</p>
                     <?php if (!empty($errors['config_quantity'])): ?>
                       <p class="field-error"><?= e($errors['config_quantity']) ?></p>
                     <?php endif; ?>
                   </div>
-                </div>
 
-                <div class="field-grid two-column">
                   <div class="field">
                     <label for="config_status">Status</label>
                     <select id="config_status" name="config_status">
@@ -1057,16 +873,11 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                       <p class="field-error"><?= e($errors['config_status']) ?></p>
                     <?php endif; ?>
                   </div>
-
-                  <div class="field">
-                    <label for="config_notes">Notes</label>
-                    <textarea id="config_notes" name="config_notes" rows="3" placeholder="Add scope, opening counts, or prep details."><?= e($configFormData['notes']) ?></textarea>
-                  </div>
                 </div>
 
                 <div class="field">
-                  <label>Door Tags<span aria-hidden="true">*</span></label>
-                  <p class="small muted">Provide one tag per opening. The number of tags must equal the quantity.</p>
+                  <label>Door IDs<span aria-hidden="true">*</span></label>
+                  <p class="small muted">Provide one ID per opening. The number of IDs must equal the quantity.</p>
                   <?php if (!empty($errors['door_tags'])): ?>
                     <p class="field-error"><?= e($errors['door_tags']) ?></p>
                   <?php endif; ?>
@@ -1161,22 +972,7 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                     <input type="text" id="entry_door_opening_height" name="entry_door_opening_height" placeholder="DOH" value="<?= e($entryFormData['door_opening_height']) ?>" />
                   </div>
                 </div>
-
-                <div class="field-grid two-column">
-                  <div class="field">
-                    <label for="entry_elevation">Elevation / Mark</label>
-                    <input type="text" id="entry_elevation" name="entry_elevation" placeholder="Example: Elevation A" value="<?= e($entryFormData['elevation']) ?>" />
-                  </div>
-                  <div class="field">
-                    <label for="entry_opening">Opening location</label>
-                    <input type="text" id="entry_opening" name="entry_opening" placeholder="Floor, room, or grid reference" value="<?= e($entryFormData['opening']) ?>" />
-                  </div>
-                </div>
-                <div class="field">
-                  <label for="entry_notes">Elevation notes</label>
-                  <textarea id="entry_notes" name="entry_notes" rows="3" placeholder="List elevation details, head heights, and any unique conditions."><?= e($entryFormData['notes']) ?></textarea>
-                </div>
-                <p class="small muted">These entry details are staged for the workflow and will be wired into persistence and calculations in a follow-up update.</p>
+                <p class="small muted">Opening dimensions and hand drive every downstream step. Elevation notes will be added in a future update.</p>
                 <div class="form-actions">
                   <button type="submit" class="button secondary" name="navigate_to" value="configuration">Back to configuration</button>
                   <button type="submit" class="button primary" name="navigate_to" value="frame">Continue to frame data</button>
@@ -1188,44 +984,6 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                 <?php if (($configFormData['job_scope'] ?? 'door_and_frame') === 'door_only'): ?>
                   <div class="alert info" role="status">Frame selections are optional for a door-only scope. Keep values blank if no frame is required.</div>
                 <?php endif; ?>
-
-                <div class="field-grid two-column">
-                  <div class="field">
-                    <label for="frame_material">Frame material</label>
-                    <select id="frame_material" name="frame_material">
-                      <?php foreach ($frameMaterialOptions as $value => $label): ?>
-                        <option value="<?= e($value) ?>"<?= $frameFormData['material'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
-                      <?php endforeach; ?>
-                    </select>
-                  </div>
-                  <div class="field">
-                    <label for="frame_profile">Frame profile</label>
-                    <select id="frame_profile" name="frame_profile">
-                      <?php foreach ($frameProfileOptions as $value => $label): ?>
-                        <option value="<?= e($value) ?>"<?= $frameFormData['profile'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
-                      <?php endforeach; ?>
-                    </select>
-                  </div>
-                </div>
-
-                <div class="field-grid two-column">
-                  <div class="field">
-                    <label for="frame_anchor_type">Anchor type</label>
-                    <select id="frame_anchor_type" name="frame_anchor_type">
-                      <?php foreach ($frameAnchorOptions as $value => $label): ?>
-                        <option value="<?= e($value) ?>"<?= $frameFormData['anchor_type'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
-                      <?php endforeach; ?>
-                    </select>
-                  </div>
-                  <div class="field">
-                    <label for="frame_head_condition">Head condition</label>
-                    <select id="frame_head_condition" name="frame_head_condition">
-                      <?php foreach ($headConditionOptions as $value => $label): ?>
-                        <option value="<?= e($value) ?>"<?= $frameFormData['head_condition'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
-                      <?php endforeach; ?>
-                    </select>
-                  </div>
-                </div>
 
                 <div class="field-grid two-column">
                   <div class="field">
@@ -1250,14 +1008,6 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
 
                 <div class="field-grid two-column">
                   <div class="field">
-                    <label for="frame_sill_condition">Sill condition</label>
-                    <select id="frame_sill_condition" name="frame_sill_condition">
-                      <?php foreach ($sillConditionOptions as $value => $label): ?>
-                        <option value="<?= e($value) ?>"<?= $frameFormData['sill_condition'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
-                      <?php endforeach; ?>
-                    </select>
-                  </div>
-                  <div class="field">
                     <label for="frame_transom">Transom</label>
                     <select id="frame_transom" name="frame_transom" data-frame-transom>
                       <?php foreach ($transomOptions as $value => $label): ?>
@@ -1265,6 +1015,7 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                       <?php endforeach; ?>
                     </select>
                   </div>
+                  <div class="field"></div>
                 </div>
 
                 <div class="field-grid two-column" data-frame-transom-height>
@@ -1285,17 +1036,6 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
 
                 <div class="field">
                   <label>Frame parts list</label>
-                  <div class="field-grid two-column">
-                    <div class="field">
-                      <label for="frame_parts_preset" class="small">Apply preset</label>
-                      <select id="frame_parts_preset" name="frame_parts_preset" data-frame-preset>
-                        <option value="recommended">Recommended (opening type + transom)</option>
-                        <option value="clear">Clear selection</option>
-                      </select>
-                      <p class="small muted">Use presets to seed stops and adapters, then override as needed.</p>
-                    </div>
-                    <div class="field"></div>
-                  </div>
                   <div class="stacked gap-xs" aria-live="polite" data-frame-parts data-selected='<?= e(json_encode($frameFormData['parts'], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP)) ?>'>
                     <?php foreach ($frameFormData['parts'] as $part): ?>
                       <label class="checkbox">
@@ -1305,15 +1045,7 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                     <?php endforeach; ?>
                   </div>
                 </div>
-
-                <div class="field-grid two-column">
-                  <div class="field">
-                    <label for="frame_notes">Frame notes</label>
-                    <textarea id="frame_notes" name="frame_notes" rows="3" placeholder="Anchors, shims, and reinforcing details."><?= e($frameFormData['notes']) ?></textarea>
-                  </div>
-                  <div class="field"></div>
-                </div>
-                <p class="small muted">Use this stage to outline frame makeup and installation needs. These values will map to frame part selection and cut lists.</p>
+                <p class="small muted">Use this stage to outline frame system, glazing, and transom stops. Additional frame details will be added later.</p>
                 <div class="form-actions">
                   <button type="submit" class="button secondary" name="navigate_to" value="entry">Back to entry</button>
                   <button type="submit" class="button primary" name="navigate_to" value="door">Continue to door data</button>
@@ -1387,10 +1119,6 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                           <?php endforeach; ?>
                         </div>
                       </div>
-                      <div class="field">
-                        <label for="door_active_notes">Leaf notes</label>
-                        <textarea id="door_active_notes" name="door_active_notes" rows="3" placeholder="Rails, reinforcing, or glazing callouts."><?= e($doorFormData['active']['notes']) ?></textarea>
-                      </div>
                     </section>
 
                       <?php if ($isPairOpening): ?>
@@ -1437,10 +1165,6 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                             <?php endforeach; ?>
                           </div>
                         </div>
-                        <div class="field">
-                          <label for="door_inactive_notes">Leaf notes</label>
-                          <textarea id="door_inactive_notes" name="door_inactive_notes" rows="3" placeholder="Rails, reinforcing, or glazing callouts."><?= e($doorFormData['inactive']['notes']) ?></textarea>
-                        </div>
                       </section>
                       <?php endif; ?>
                   </div>
@@ -1449,74 +1173,32 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                 <p class="small muted">Outline the leaf construction to drive BOM selection. Parts lists react to the glazing choice for each leaf.</p>
                 <div class="form-actions">
                   <button type="submit" class="button secondary" name="navigate_to" value="frame">Back to frame</button>
-                  <button type="submit" class="button primary" name="navigate_to" value="hardware">Continue to hardware</button>
-                </div>
-              </form>
-            <?php elseif ($currentStep === 'hardware'): ?>
-              <form method="post" class="form" novalidate>
-                <input type="hidden" name="action" value="stage_hardware" />
-                <div class="field-grid two-column">
-                  <div class="field">
-                    <label for="hardware_set">Hardware set</label>
-                    <select id="hardware_set" name="hardware_set">
-                      <?php foreach ($hardwareSetOptions as $value => $label): ?>
-                        <option value="<?= e($value) ?>"<?= $hardwareFormData['set_name'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
-                      <?php endforeach; ?>
-                    </select>
-                  </div>
-                  <div class="field">
-                    <label for="hardware_hinge_prep">Hinge prep</label>
-                    <select id="hardware_hinge_prep" name="hardware_hinge_prep">
-                      <?php foreach ($hingePrepOptions as $value => $label): ?>
-                        <option value="<?= e($value) ?>"<?= $hardwareFormData['hinge_prep'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
-                      <?php endforeach; ?>
-                    </select>
-                  </div>
-                </div>
-
-                <div class="field-grid two-column">
-                  <div class="field">
-                    <label for="hardware_strike_prep">Strike prep</label>
-                    <select id="hardware_strike_prep" name="hardware_strike_prep">
-                      <?php foreach ($strikePrepOptions as $value => $label): ?>
-                        <option value="<?= e($value) ?>"<?= $hardwareFormData['strike_prep'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
-                      <?php endforeach; ?>
-                    </select>
-                  </div>
-                  <div class="field">
-                    <label for="hardware_closer">Closer</label>
-                    <select id="hardware_closer" name="hardware_closer">
-                      <?php foreach ($closerOptions as $value => $label): ?>
-                        <option value="<?= e($value) ?>"<?= $hardwareFormData['closer'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
-                      <?php endforeach; ?>
-                    </select>
-                  </div>
-                </div>
-
-                <div class="field-grid two-column">
-                  <div class="field">
-                    <label for="hardware_electrified">Electrified hardware</label>
-                    <select id="hardware_electrified" name="hardware_electrified">
-                      <?php foreach ($electrifiedOptions as $value => $label): ?>
-                        <option value="<?= e($value) ?>"<?= $hardwareFormData['electrified'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
-                      <?php endforeach; ?>
-                    </select>
-                  </div>
-                  <div class="field">
-                    <label for="hardware_notes">Hardware notes</label>
-                    <textarea id="hardware_notes" name="hardware_notes" rows="3" placeholder="Handing, power transfers, or security devices."><?= e($hardwareFormData['notes']) ?></textarea>
-                  </div>
-                </div>
-                <p class="small muted">Hardware selections will drive preps and required parts lists. Use notes to call out special conditions.</p>
-                <div class="form-actions">
-                  <button type="submit" class="button secondary" name="navigate_to" value="door">Back to door</button>
-                  <button type="submit" class="button primary" name="navigate_to" value="summary">Continue to summary</button>
+                  <button type="submit" class="button primary" name="navigate_to" value="summary">Review summary</button>
                 </div>
               </form>
             <?php elseif ($currentStep === 'summary'): ?>
               <form method="post" class="form" novalidate>
                 <input type="hidden" name="action" value="finalize_configuration" />
                 <div class="card-grid two-column">
+                  <div class="card">
+                    <h3>Configuration</h3>
+                    <ul class="stacked gap-xs">
+                      <li><strong>Job:</strong> <?php
+                        $jobLabel = 'Unassigned';
+                        foreach ($jobs as $job) {
+                            if ((string) $job['id'] === $configFormData['job_id']) {
+                                $jobLabel = $job['job_number'] . ' — ' . $job['name'];
+                                break;
+                            }
+                        }
+                        echo e($jobLabel);
+                      ?></li>
+                      <li><strong>Scope:</strong> <?= e($jobScopeOptions[$configFormData['job_scope']] ?? $configFormData['job_scope']) ?></li>
+                      <li><strong>Quantity:</strong> <?= e((string) $configFormData['quantity']) ?></li>
+                      <li><strong>Status:</strong> <?= e(ucwords(str_replace('_', ' ', $configFormData['status']))) ?></li>
+                      <li><strong>Door IDs:</strong> <?= e($configFormData['door_tags'] !== [] ? implode(', ', $configFormData['door_tags']) : 'Pending') ?></li>
+                    </ul>
+                  </div>
                   <div class="card">
                     <h3>Entry overview</h3>
                     <ul class="stacked gap-xs">
@@ -1525,52 +1207,42 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                       <li><strong>Finish:</strong> <?= e($finishOptions[$entryFormData['finish']] ?? $entryFormData['finish']) ?></li>
                       <li><strong>Hinging:</strong> <?= e($hingingOptions[$entryFormData['hinging']] ?? $entryFormData['hinging']) ?></li>
                       <li><strong>DOW × DOH:</strong> <?= e($entryFormData['door_opening_width'] !== '' ? $entryFormData['door_opening_width'] : 'TBD') ?> × <?= e($entryFormData['door_opening_height'] !== '' ? $entryFormData['door_opening_height'] : 'TBD') ?></li>
-                      <li><strong>Elevation:</strong> <?= e($entryFormData['elevation'] !== '' ? $entryFormData['elevation'] : 'TBD') ?></li>
-                      <li><strong>Opening location:</strong> <?= e($entryFormData['opening'] !== '' ? $entryFormData['opening'] : 'TBD') ?></li>
-                    </ul>
-                  </div>
-                  <div class="card">
-                    <h3>Frame and door</h3>
-                    <ul class="stacked gap-xs">
-                      <li><strong>Frame:</strong> <?= e($frameMaterialOptions[$frameFormData['material']] ?? $frameFormData['material']) ?> · <?= e($frameProfileOptions[$frameFormData['profile']] ?? $frameFormData['profile']) ?></li>
-                      <li><strong>System:</strong> <?= $frameFormData['system_id'] !== '' ? e($frameSystemOptions[$frameFormData['system_id']] ?? $frameFormData['system_id']) : 'Unassigned' ?></li>
-                      <li><strong>Glazing:</strong> <?= e($frameFormData['glazing']) ?></li>
-                      <li><strong>Transom:</strong> <?= e($transomOptions[$frameFormData['transom']] ?? $frameFormData['transom']) ?><?php if ($frameFormData['transom'] === 'yes' && $frameFormData['transom_height'] !== ''): ?> — <?= e($frameFormData['transom_height']) ?><?php endif; ?></li>
-                      <li><strong>Transom glazing:</strong> <?= e($frameFormData['transom'] === 'yes' ? $frameFormData['transom_glazing'] : 'N/A') ?></li>
-                      <li><strong>Frame parts:</strong> <?= e($frameFormData['parts'] !== [] ? implode(', ', $frameFormData['parts']) : 'None selected') ?></li>
-                      <li><strong>Anchorage:</strong> <?= e($frameAnchorOptions[$frameFormData['anchor_type']] ?? $frameFormData['anchor_type']) ?></li>
-                      <li><strong>Head:</strong> <?= e($headConditionOptions[$frameFormData['head_condition']] ?? $frameFormData['head_condition']) ?></li>
-                      <li><strong>Sill:</strong> <?= e($sillConditionOptions[$frameFormData['sill_condition']] ?? $frameFormData['sill_condition']) ?></li>
-                      <li><strong>Door system:</strong> <?= $doorFormData['system_id'] !== '' ? e($doorSystemOptions[$doorFormData['system_id']] ?? $doorFormData['system_id']) : 'Unassigned' ?></li>
-                      <li><strong>Door leaf (<?= e($doorLeafLabels['active']) ?>):</strong> <?= e($doorFormData['active']['stile']) ?> · <?= e($doorFormData['active']['glazing']) ?></li>
-                      <li><strong>Door parts (<?= e($doorLeafLabels['active']) ?>):</strong> <?= e($doorFormData['active']['parts'] !== [] ? implode(', ', $doorFormData['active']['parts']) : 'None selected') ?></li>
-                      <?php if ($entryFormData['opening_type'] === 'pair'): ?>
-                        <li><strong>Door leaf (<?= e($doorLeafLabels['inactive']) ?>):</strong> <?= e($doorFormData['inactive']['stile']) ?> · <?= e($doorFormData['inactive']['glazing']) ?></li>
-                        <li><strong>Door parts (<?= e($doorLeafLabels['inactive']) ?>):</strong> <?= e($doorFormData['inactive']['parts'] !== [] ? implode(', ', $doorFormData['inactive']['parts']) : 'None selected') ?></li>
-                      <?php endif; ?>
                     </ul>
                   </div>
                 </div>
 
                 <div class="card-grid two-column">
                   <div class="card">
-                    <h3>Hardware</h3>
+                    <h3>Frame</h3>
                     <ul class="stacked gap-xs">
-                      <li><strong>Set:</strong> <?= e($hardwareFormData['set_name']) ?></li>
-                      <li><strong>Hinge prep:</strong> <?= e($hingePrepOptions[$hardwareFormData['hinge_prep']] ?? $hardwareFormData['hinge_prep']) ?></li>
-                      <li><strong>Strike prep:</strong> <?= e($strikePrepOptions[$hardwareFormData['strike_prep']] ?? $hardwareFormData['strike_prep']) ?></li>
-                      <li><strong>Closer:</strong> <?= e($closerOptions[$hardwareFormData['closer']] ?? $hardwareFormData['closer']) ?></li>
-                      <li><strong>Electrified:</strong> <?= e($electrifiedOptions[$hardwareFormData['electrified']] ?? $hardwareFormData['electrified']) ?></li>
+                      <li><strong>System:</strong> <?= $frameFormData['system_id'] !== '' ? e($frameSystemOptions[$frameFormData['system_id']] ?? $frameFormData['system_id']) : 'Unassigned' ?></li>
+                      <li><strong>Glazing:</strong> <?= e($frameFormData['glazing']) ?></li>
+                      <li><strong>Transom:</strong> <?= e($transomOptions[$frameFormData['transom']] ?? $frameFormData['transom']) ?><?php if ($frameFormData['transom'] === 'yes' && $frameFormData['transom_height'] !== ''): ?> — <?= e($frameFormData['transom_height']) ?><?php endif; ?></li>
+                      <li><strong>Transom glazing:</strong> <?= e($frameFormData['transom'] === 'yes' ? $frameFormData['transom_glazing'] : 'N/A') ?></li>
+                      <li><strong>Frame parts:</strong> <?= e($frameFormData['parts'] !== [] ? implode(', ', $frameFormData['parts']) : 'None selected') ?></li>
                     </ul>
+                    <?php if ($frameFormData['parts'] === []): ?>
+                      <p class="small muted">Frame section is upcoming.</p>
+                    <?php endif; ?>
                   </div>
                   <div class="card">
-                    <h3>Notes</h3>
-                    <p class="small muted">These notes help the team visualize outstanding questions before we wire persistence and BOM calculations.</p>
-                    <textarea name="summary_notes" rows="6" placeholder="Document open items or approvals needed."><?= e($summaryNotes) ?></textarea>
+                    <h3>Door</h3>
+                    <ul class="stacked gap-xs">
+                      <li><strong>Door system:</strong> <?= $doorFormData['system_id'] !== '' ? e($doorSystemOptions[$doorFormData['system_id']] ?? $doorFormData['system_id']) : 'Unassigned' ?></li>
+                      <li><strong>Active leaf:</strong> <?= e($doorFormData['active']['stile']) ?> · <?= e($doorFormData['active']['glazing']) ?></li>
+                      <li><strong>Active parts:</strong> <?= e($doorFormData['active']['parts'] !== [] ? implode(', ', $doorFormData['active']['parts']) : 'None selected') ?></li>
+                      <?php if ($entryFormData['opening_type'] === 'pair'): ?>
+                        <li><strong><?= e($doorLeafLabels['inactive']) ?> leaf:</strong> <?= e($doorFormData['inactive']['stile']) ?> · <?= e($doorFormData['inactive']['glazing']) ?></li>
+                        <li><strong><?= e($doorLeafLabels['inactive']) ?> parts:</strong> <?= e($doorFormData['inactive']['parts'] !== [] ? implode(', ', $doorFormData['inactive']['parts']) : 'None selected') ?></li>
+                      <?php endif; ?>
+                    </ul>
+                    <?php if ($doorFormData['active']['parts'] === []): ?>
+                      <p class="small muted">Door section is upcoming.</p>
+                    <?php endif; ?>
                   </div>
                 </div>
                 <div class="form-actions">
-                  <button type="submit" class="button secondary" name="navigate_to" value="hardware">Back to hardware</button>
+                  <button type="submit" class="button secondary" name="navigate_to" value="door">Back to door</button>
                   <a class="button ghost" href="configurator.php">Return to list</a>
                   <button type="submit" class="button primary">Save configuration</button>
                 </div>
@@ -1587,7 +1259,7 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                 <th scope="col">Job</th>
                 <th scope="col">Scope</th>
                 <th scope="col">Quantity</th>
-                <th scope="col">Door Tags</th>
+                <th scope="col">Door IDs</th>
                 <th scope="col">Status</th>
                 <th scope="col">Updated</th>
                 <th scope="col">Actions</th>
@@ -1702,8 +1374,6 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
         'entry' => $entryFormData,
         'frame' => $frameFormData,
         'door' => $doorFormData,
-        'hardware' => $hardwareFormData,
-        'summary_notes' => $summaryNotes,
     ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
     window.localBuilderConfigId = <?= json_encode($builderState['config_id'] ?? null, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
     window.localJobScopes = <?= json_encode($jobScopeOptions, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
@@ -1723,7 +1393,6 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
       const frameTransomGlazingSelect = document.getElementById('frame_transom_glazing');
       const framePartsList = document.querySelector('[data-frame-parts]');
       const frameGlazingSelect = document.getElementById('frame_glazing');
-      const framePresetSelect = document.querySelector('[data-frame-preset]');
       const doorTabs = document.querySelectorAll('[data-door-tab]');
       const doorPanels = document.querySelectorAll('[data-door-panel]');
       const doorPartsLists = document.querySelectorAll('[data-door-parts]');
@@ -1894,15 +1563,6 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
         framePartsList.dataset.selected = JSON.stringify(Array.from(selected));
       }
 
-      function applyFramePreset(preset) {
-        if (preset === 'clear') {
-          renderFrameParts(new Set());
-          return;
-        }
-
-        renderFrameParts(new Set(computeFrameParts()));
-      }
-
       function computeDoorParts(glazing) {
         const glazingLabel = glazing || 'N/A';
         return [
@@ -2016,10 +1676,6 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
       });
       frameTransomGlazingSelect?.addEventListener('change', renderFrameParts);
       frameGlazingSelect?.addEventListener('change', renderFrameParts);
-      framePresetSelect?.addEventListener('change', (event) => {
-        const value = event.target?.value || 'recommended';
-        applyFramePreset(value);
-      });
       document.getElementById('door_active_glazing')?.addEventListener('change', () => renderDoorPartsList());
       document.getElementById('door_inactive_glazing')?.addEventListener('change', () => renderDoorPartsList());
       document.getElementById('door_active_preset')?.addEventListener('change', (event) => {
@@ -2258,9 +1914,6 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
         const config = data?.configuration;
         if (!config) return;
 
-        const name = document.getElementById('config_name');
-        if (name) name.value = config.name ?? '';
-
         if (jobSelect) {
           jobSelect.value = config.job_id ?? '';
           if (jobSelect.value === '' && config.job_id) {
@@ -2282,9 +1935,6 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
 
         const status = document.getElementById('config_status');
         if (status && config.status) status.value = config.status;
-
-        const notes = document.getElementById('config_notes');
-        if (notes) notes.value = config.notes ?? '';
 
         if (Array.isArray(config.door_tags) && doorTagsContainer) {
           syncDoorTags();
@@ -2317,12 +1967,6 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
         if (doh) doh.value = entry.door_opening_height ?? '';
         const hinging = document.getElementById('entry_hinging');
         if (hinging && entry.hinging) hinging.value = entry.hinging;
-        const elevation = document.getElementById('entry_elevation');
-        if (elevation) elevation.value = entry.elevation ?? '';
-        const opening = document.getElementById('entry_opening');
-        if (opening) opening.value = entry.opening ?? '';
-        const notes = document.getElementById('entry_notes');
-        if (notes) notes.value = entry.notes ?? '';
         syncHands();
         syncPairWarning();
         renderFrameParts();
@@ -2331,16 +1975,6 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
       function applyFrameForm(data) {
         const frame = data?.frame;
         if (!frame) return;
-        const material = document.getElementById('frame_material');
-        if (material && frame.material) material.value = frame.material;
-        const profile = document.getElementById('frame_profile');
-        if (profile && frame.profile) profile.value = frame.profile;
-        const anchor = document.getElementById('frame_anchor_type');
-        if (anchor && frame.anchor_type) anchor.value = frame.anchor_type;
-        const head = document.getElementById('frame_head_condition');
-        if (head && frame.head_condition) head.value = frame.head_condition;
-        const sill = document.getElementById('frame_sill_condition');
-        if (sill && frame.sill_condition) sill.value = frame.sill_condition;
         const system = document.getElementById('frame_system_id');
         if (system && frame.system_id !== undefined) system.value = frame.system_id;
         if (frameGlazingSelect && frame.glazing) frameGlazingSelect.value = frame.glazing;
@@ -2348,8 +1982,6 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
         if (frameTransomGlazingSelect && frame.transom_glazing) frameTransomGlazingSelect.value = frame.transom_glazing;
         const frameHeight = document.getElementById('frame_transom_height');
         if (frameHeight) frameHeight.value = frame.transom_height ?? '';
-        const notes = document.getElementById('frame_notes');
-        if (notes) notes.value = frame.notes ?? '';
         if (framePartsList && Array.isArray(frame.parts)) {
           framePartsList.dataset.selected = JSON.stringify(frame.parts);
         }
@@ -2366,8 +1998,6 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
         if (activeStile && door.active?.stile) activeStile.value = door.active.stile;
         const activeGlazing = document.getElementById('door_active_glazing');
         if (activeGlazing && door.active?.glazing) activeGlazing.value = door.active.glazing;
-        const activeNotes = document.getElementById('door_active_notes');
-        if (activeNotes) activeNotes.value = door.active?.notes ?? '';
         const activeParts = document.querySelector('[data-door-parts="active"]');
         if (activeParts && Array.isArray(door.active?.parts)) {
           activeParts.dataset.selected = JSON.stringify(door.active.parts);
@@ -2377,8 +2007,6 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
         if (inactiveStile && door.inactive?.stile) inactiveStile.value = door.inactive.stile;
         const inactiveGlazing = document.getElementById('door_inactive_glazing');
         if (inactiveGlazing && door.inactive?.glazing) inactiveGlazing.value = door.inactive.glazing;
-        const inactiveNotes = document.getElementById('door_inactive_notes');
-        if (inactiveNotes) inactiveNotes.value = door.inactive?.notes ?? '';
         const inactiveParts = document.querySelector('[data-door-parts="inactive"]');
         if (inactiveParts && Array.isArray(door.inactive?.parts)) {
           inactiveParts.dataset.selected = JSON.stringify(door.inactive.parts);
@@ -2390,37 +2018,11 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
         });
       }
 
-      function applyHardwareForm(data) {
-        const hardware = data?.hardware;
-        if (!hardware) return;
-        const set = document.getElementById('hardware_set');
-        if (set && hardware.set_name) set.value = hardware.set_name;
-        const hinge = document.getElementById('hardware_hinge_prep');
-        if (hinge && hardware.hinge_prep) hinge.value = hardware.hinge_prep;
-        const strike = document.getElementById('hardware_strike_prep');
-        if (strike && hardware.strike_prep) strike.value = hardware.strike_prep;
-        const closer = document.getElementById('hardware_closer');
-        if (closer && hardware.closer) closer.value = hardware.closer;
-        const electrified = document.getElementById('hardware_electrified');
-        if (electrified && hardware.electrified) electrified.value = hardware.electrified;
-        const notes = document.getElementById('hardware_notes');
-        if (notes) notes.value = hardware.notes ?? '';
-      }
-
-      function applySummary(data) {
-        const summary = document.querySelector('textarea[name="summary_notes"]');
-        if (summary && data?.summary_notes !== undefined) {
-          summary.value = data.summary_notes ?? '';
-        }
-      }
-
       function applyActiveRecord(record) {
         applyConfigurationForm(record);
         applyEntryForm(record);
         applyFrameForm(record);
         applyDoorForm(record);
-        applyHardwareForm(record);
-        applySummary(record);
       }
 
       function attachJobForm() {

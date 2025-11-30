@@ -78,14 +78,7 @@ Door Configurator-
     - if the type is single the tab head should match the swing (i.e. LH - Inswing)
     - if the type is pair the two tabs should be named to match the leafs being configured. (RHR or LHR, with the active leaf being first)
   - Stile:
-    - Standard Medium Stile
-    - Standard Wide Stile
-    - Standard Narrow Stile
-    - Thermal Narrow Stile
-    - Thermal Wide Stile
-    - Thermal Medium Stile
-    - Monumental Medium Stile
-    - Monumental Wide Stile
+    - Pull from inventory systems table (filter to systems flagged for doors) since systems are saved per stile (e.g., Std MS Door, Std WS Door)
   - Glazing
     - ¼, ½, 1"
   - Door system
