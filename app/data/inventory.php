@@ -63,6 +63,81 @@ if (!function_exists('loadInventory')) {
     }
 
     /**
+     * Seed and list supported fabrication systems for inventory classification.
+     *
+     * @return list<array{id:int,name:string,manufacturer:string,system:string,default_glazing:float|null,default_frame_parts:array,default_door_parts:array}>
+     */
+    function inventoryListSystems(\PDO $db): array
+    {
+        inventoryEnsureSystemSchema($db);
+
+        $statement = $db->query(
+            'SELECT id, name, manufacturer, system, default_glazing, default_frame_parts, default_door_parts
+             FROM inventory_systems
+             ORDER BY manufacturer ASC, system ASC'
+        );
+        if ($statement === false) {
+            return [];
+        }
+
+        return array_map(
+            static fn (array $row): array => [
+                'id' => (int) $row['id'],
+                'name' => (string) $row['name'],
+                'manufacturer' => (string) ($row['manufacturer'] ?? ''),
+                'system' => (string) ($row['system'] ?? ''),
+                'default_glazing' => $row['default_glazing'] !== null ? (float) $row['default_glazing'] : null,
+                'default_frame_parts' => json_decode((string) $row['default_frame_parts'], true) ?? [],
+                'default_door_parts' => json_decode((string) $row['default_door_parts'], true) ?? [],
+            ],
+            $statement->fetchAll()
+        );
+    }
+
+    /**
+     * @return list<int>
+     */
+    function inventoryLoadItemSystems(\PDO $db, int $inventoryItemId): array
+    {
+        inventoryEnsureSystemSchema($db);
+
+        $statement = $db->prepare(
+            'SELECT system_id FROM inventory_item_systems WHERE inventory_item_id = :id ORDER BY system_id ASC'
+        );
+        $statement->execute([':id' => $inventoryItemId]);
+
+        return array_map('intval', $statement->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    /**
+     * @param list<int> $systemIds
+     */
+    function inventorySyncItemSystems(\PDO $db, int $inventoryItemId, array $systemIds): void
+    {
+        inventoryEnsureSystemSchema($db);
+
+        $db->prepare('DELETE FROM inventory_item_systems WHERE inventory_item_id = :id')
+            ->execute([':id' => $inventoryItemId]);
+
+        if ($systemIds === []) {
+            return;
+        }
+
+        $insert = $db->prepare(
+            'INSERT INTO inventory_item_systems (inventory_item_id, system_id) VALUES (:inventory_item_id, :system_id)'
+        );
+
+        $uniqueIds = array_values(array_unique(array_map('intval', $systemIds)));
+
+        foreach ($uniqueIds as $systemId) {
+            $insert->execute([
+                ':inventory_item_id' => $inventoryItemId,
+                ':system_id' => $systemId,
+            ]);
+        }
+    }
+
+    /**
      * Parse a SKU into its base part number and optional finish code.
      *
      * @return array{part_number:string,finish:?string}
@@ -739,11 +814,116 @@ if (!function_exists('loadInventory')) {
             $ensuredItems = true;
         }
 
+        inventoryEnsureSystemSchema($db);
+
         inventoryEnsureTransactionsSchema($db);
 
         if (inventorySupportsReservations($db)) {
             inventoryEnsureCommitmentView($db);
         }
+    }
+
+    /**
+     * Ensure system reference tables exist for inventory classification.
+     */
+    function inventoryEnsureSystemSchema(\PDO $db): void
+    {
+        static $ensured = false;
+
+        if ($ensured) {
+            return;
+        }
+
+        $db->exec(
+            "CREATE TABLE IF NOT EXISTS inventory_systems (
+                id BIGSERIAL PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                manufacturer TEXT NOT NULL DEFAULT '',
+                system TEXT NOT NULL DEFAULT '',
+                default_glazing NUMERIC(10,4) NULL,
+                default_frame_parts JSONB NOT NULL DEFAULT '[]'::jsonb,
+                default_door_parts JSONB NOT NULL DEFAULT '[]'::jsonb,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )"
+        );
+
+        foreach ([
+            "manufacturer TEXT NOT NULL DEFAULT ''",
+            "system TEXT NOT NULL DEFAULT ''",
+            'default_glazing NUMERIC(10,4) NULL',
+            "default_frame_parts JSONB NOT NULL DEFAULT '[]'::jsonb",
+            "default_door_parts JSONB NOT NULL DEFAULT '[]'::jsonb",
+        ] as $columnSql) {
+            $db->exec('ALTER TABLE inventory_systems ADD COLUMN IF NOT EXISTS ' . $columnSql);
+        }
+
+        $db->exec(
+            'CREATE TABLE IF NOT EXISTS inventory_item_systems (
+                inventory_item_id BIGINT NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
+                system_id BIGINT NOT NULL REFERENCES inventory_systems(id) ON DELETE CASCADE,
+                PRIMARY KEY (inventory_item_id, system_id)
+            )'
+        );
+
+        $db->exec(
+            'CREATE INDEX IF NOT EXISTS idx_inventory_item_systems_system_id
+                ON inventory_item_systems(system_id)'
+        );
+
+        $seed = $db->prepare(
+            'INSERT INTO inventory_systems (name, manufacturer, system, default_glazing, default_frame_parts, default_door_parts)
+             VALUES (:name, :manufacturer, :system, :default_glazing, :default_frame_parts, :default_door_parts)
+             ON CONFLICT (name) DO UPDATE
+             SET manufacturer = EXCLUDED.manufacturer,
+                 system = EXCLUDED.system,
+                 default_glazing = EXCLUDED.default_glazing,
+                 default_frame_parts = EXCLUDED.default_frame_parts,
+                 default_door_parts = EXCLUDED.default_door_parts'
+        );
+
+        $defaultFrameParts = json_encode([
+            'hinge jamb',
+            'lock jamb',
+            'door head',
+            'threshold',
+            'transom head',
+            'horizontal transom stop - fixed',
+            'horizontal transom stop - active',
+            'vertical transom stop - fixed',
+            'vertical transom stop - active',
+            'head transom stop - fixed',
+            'head transom stop - active',
+            'head door stop',
+            'lock door stop',
+            'hinge door stop',
+        ], JSON_THROW_ON_ERROR);
+
+        $defaultDoorParts = json_encode([
+            'hinge rail',
+            'lock rail',
+            'top rail',
+            'bottom rail',
+            'interior glass stop',
+            'exterior glass stop',
+        ], JSON_THROW_ON_ERROR);
+
+        foreach ([
+            ['Tubelite E4500', 'Tubelite', 'E4500'],
+            ['Tubelite E14000', 'Tubelite', 'E14000'],
+            ['Tubelite E14000 I/O', 'Tubelite', 'E14000 I/O'],
+            ['Tubelite E24650', 'Tubelite', 'E24650'],
+        ] as [$name, $manufacturer, $system]) {
+            $seed->execute([
+                ':name' => $name,
+                ':manufacturer' => $manufacturer,
+                ':system' => $system,
+                ':default_glazing' => 0.25,
+                ':default_frame_parts' => $defaultFrameParts,
+                ':default_door_parts' => $defaultDoorParts,
+            ]);
+        }
+
+        $ensured = true;
     }
 
     /**

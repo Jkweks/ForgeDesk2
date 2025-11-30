@@ -10,6 +10,7 @@ require_once __DIR__ . '/../app/helpers/view.php';
 require_once __DIR__ . '/../app/data/inventory.php';
 require_once __DIR__ . '/../app/data/suppliers.php';
 require_once __DIR__ . '/../app/data/storage_locations.php';
+require_once __DIR__ . '/../app/data/configurator.php';
 require_once __DIR__ . '/../app/views/components/inventory_table.php';
 
 $databaseConfig = $app['database'];
@@ -46,14 +47,92 @@ $formData = [
     'stock_uom' => '',
     'category' => '',
     'subcategories' => [],
+    'systems' => [],
     'discontinued' => false,
     'locations' => [],
+    'configurator_enabled' => false,
+    'configurator_part_type' => '',
+    'configurator_uses' => [],
+    'configurator_requires' => [],
+    'configurator_height_lz' => '',
+    'configurator_depth_ly' => '',
 ];
 $storageLocations = [];
 $storageLocationMap = [];
 $locationAssignmentsList = [];
 $suppliers = [];
 $supplierMap = [];
+$configuratorUseOptions = [];
+$configuratorUseMap = [];
+$configuratorUsePaths = [];
+$configuratorRequirementOptions = [];
+$configuratorRequirementMap = [];
+$systemOptions = [];
+$systemMap = [];
+
+/**
+ * Build representative use paths from selected use IDs.
+ *
+ * @param list<int> $selectedUseIds
+ * @param array<int,array{id:int,name:string,parent_id:int|null}> $useMap
+ * @return list<list<int>>
+ */
+function configuratorSelectedUsePaths(array $selectedUseIds, array $useMap): array
+{
+    $selected = [];
+    foreach ($selectedUseIds as $id) {
+        if (isset($useMap[$id])) {
+            $selected[$id] = true;
+        }
+    }
+
+    if ($selected === []) {
+        return [];
+    }
+
+    $hasSelectedDescendant = [];
+
+    foreach (array_keys($selected) as $selectedId) {
+        $current = $useMap[$selectedId]['parent_id'] ?? null;
+        while ($current !== null) {
+            if (!isset($useMap[$current])) {
+                break;
+            }
+
+            if (isset($selected[$current])) {
+                $hasSelectedDescendant[$current] = true;
+            }
+
+            $current = $useMap[$current]['parent_id'] ?? null;
+        }
+    }
+
+    $paths = [];
+
+    foreach (array_keys($selected) as $selectedId) {
+        if (isset($hasSelectedDescendant[$selectedId])) {
+            continue;
+        }
+
+        $path = [];
+        $cursor = $selectedId;
+
+        while (isset($useMap[$cursor])) {
+            array_unshift($path, (int) $cursor);
+            $parentId = $useMap[$cursor]['parent_id'] ?? null;
+            if ($parentId === null || !isset($useMap[$parentId])) {
+                break;
+            }
+            $cursor = $parentId;
+        }
+
+        if ($path !== []) {
+            $paths[] = $path;
+        }
+    }
+
+    return $paths;
+}
 
 foreach ($nav as &$groupItems) {
     foreach ($groupItems as &$item) {
@@ -103,6 +182,35 @@ if ($dbError === null) {
         $supplierMap = [];
     }
 
+    try {
+        $systemOptions = inventoryListSystems($db);
+        foreach ($systemOptions as $system) {
+            $systemMap[$system['id']] = $system;
+        }
+    } catch (\Throwable $exception) {
+        $errors[] = 'Unable to load inventory systems: ' . $exception->getMessage();
+        $systemOptions = [];
+        $systemMap = [];
+    }
+
+    try {
+        $configuratorUseOptions = configuratorListUseOptions($db);
+        foreach ($configuratorUseOptions as $option) {
+            $configuratorUseMap[$option['id']] = $option;
+        }
+
+        $configuratorRequirementOptions = configuratorInventoryOptions($db);
+        foreach ($configuratorRequirementOptions as $option) {
+            $configuratorRequirementMap[$option['id']] = $option;
+        }
+    } catch (\Throwable $exception) {
+        $errors[] = 'Unable to load configurator options: ' . $exception->getMessage();
+        $configuratorUseOptions = [];
+        $configuratorUseMap = [];
+        $configuratorRequirementOptions = [];
+        $configuratorRequirementMap = [];
+    }
+
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $action = $_POST['action'] ?? 'create';
 
@@ -126,6 +234,12 @@ if ($dbError === null) {
         $packSizeRaw = trim((string) ($_POST['pack_size'] ?? ''));
         $purchaseUomRaw = strtolower(trim((string) ($_POST['purchase_uom'] ?? '')));
         $stockUomRaw = trim((string) ($_POST['stock_uom'] ?? ''));
+        $configuratorEnabled = isset($_POST['configurator_enabled']) && (string) $_POST['configurator_enabled'] === '1';
+        $configuratorHeightRaw = trim((string) ($_POST['configurator_height_lz'] ?? ''));
+        $configuratorDepthRaw = trim((string) ($_POST['configurator_depth_ly'] ?? ''));
+        $systemSelections = isset($_POST['systems']) && is_array($_POST['systems'])
+            ? array_values(array_map('intval', $_POST['systems']))
+            : [];
         $formData = [
             'item' => $payload['item'],
             'part_number' => $payload['part_number'],
@@ -143,8 +257,127 @@ if ($dbError === null) {
             'stock_uom' => $stockUomRaw,
             'category' => trim((string) ($_POST['category'] ?? '')),
             'subcategories' => [],
+            'systems' => [],
             'discontinued' => $isDiscontinued,
+            'configurator_enabled' => $configuratorEnabled,
+            'configurator_part_type' => '',
+            'configurator_uses' => [],
+            'configurator_requires' => [],
+            'configurator_height_lz' => $configuratorHeightRaw,
+            'configurator_depth_ly' => $configuratorDepthRaw,
         ];
+
+        $submittedConfiguratorUsePaths = isset($_POST['configurator_use_paths']) && is_array($_POST['configurator_use_paths'])
+            ? $_POST['configurator_use_paths']
+            : [];
+        $submittedConfiguratorUses = isset($_POST['configurator_uses']) && is_array($_POST['configurator_uses'])
+            ? array_values(array_unique(array_map('intval', $_POST['configurator_uses'])))
+            : [];
+        $submittedConfiguratorRequires = isset($_POST['configurator_requires']) && is_array($_POST['configurator_requires'])
+            ? $_POST['configurator_requires']
+            : [];
+
+        $validConfiguratorUsePaths = [];
+        if ($submittedConfiguratorUsePaths !== []) {
+            foreach ($submittedConfiguratorUsePaths as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+
+                $path = [];
+                foreach ($row as $value) {
+                    $candidate = trim((string) $value);
+                    if ($candidate === '' || !ctype_digit($candidate)) {
+                        continue;
+                    }
+
+                    $candidateId = (int) $candidate;
+                    if (!isset($configuratorUseMap[$candidateId])) {
+                        continue;
+                    }
+
+                    $path[] = $candidateId;
+                }
+
+                if ($path !== []) {
+                    $validConfiguratorUsePaths[] = $path;
+                }
+            }
+        }
+
+        $validConfiguratorUses = [];
+
+        foreach ($validConfiguratorUsePaths as $path) {
+            foreach ($path as $id) {
+                $validConfiguratorUses[$id] = $id;
+            }
+        }
+
+        if ($validConfiguratorUses === []) {
+            $validConfiguratorUses = array_values(array_filter(
+                $submittedConfiguratorUses,
+                static fn (int $id): bool => isset($configuratorUseMap[$id])
+            ));
+        } else {
+            $validConfiguratorUses = array_values($validConfiguratorUses);
+        }
+
+        $validConfiguratorRequires = [];
+        $requirementRows = [];
+
+        foreach ($submittedConfiguratorRequires as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $itemIdRaw = trim((string) ($row['item_id'] ?? ''));
+            $quantityRaw = trim((string) ($row['quantity'] ?? ''));
+            $labelRaw = trim((string) ($row['label'] ?? ''));
+
+            if ($itemIdRaw === '' && $quantityRaw === '' && $labelRaw === '') {
+                continue;
+            }
+
+            $requirementRows[] = [
+                'item_id' => $itemIdRaw,
+                'label' => $labelRaw,
+                'quantity' => $quantityRaw,
+            ];
+
+            if ($itemIdRaw === '' || !ctype_digit($itemIdRaw) || !isset($configuratorRequirementMap[(int) $itemIdRaw])) {
+                $errors['configurator_requires'] = 'Select valid required parts from the list.';
+                continue;
+            }
+
+            if ($editingId !== null && (int) $itemIdRaw === $editingId) {
+                $errors['configurator_requires'] = 'Parts cannot require themselves.';
+                continue;
+            }
+
+            $quantity = filter_var($quantityRaw, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+            if ($quantity === false) {
+                $errors['configurator_requires'] = 'Quantities must be positive whole numbers.';
+                continue;
+            }
+
+            $requiredId = (int) $itemIdRaw;
+
+            if (!isset($validConfiguratorRequires[$requiredId])) {
+                $validConfiguratorRequires[$requiredId] = [
+                    'item_id' => $requiredId,
+                    'quantity' => $quantity,
+                    'label' => $configuratorRequirementMap[$requiredId]['label'] ?? '',
+                ];
+            } else {
+                $validConfiguratorRequires[$requiredId]['quantity'] += $quantity;
+            }
+        }
+
+        $formData['configurator_uses'] = $validConfiguratorUses;
+        $configuratorUsePaths = $validConfiguratorUsePaths !== []
+            ? $validConfiguratorUsePaths
+            : configuratorSelectedUsePaths($validConfiguratorUses, $configuratorUseMap);
+        $formData['configurator_requires'] = $requirementRows;
 
         $submittedSubcategories = isset($_POST['subcategories']) && is_array($_POST['subcategories'])
             ? array_values(array_filter(
@@ -218,6 +451,12 @@ if ($dbError === null) {
         $locationAssignmentsList = array_values($locationAssignmentsList);
         $payload['location'] = inventoryFormatLocationSummary($locationAssignmentsList);
 
+        $validSystems = array_values(array_filter(
+            $systemSelections,
+            static fn (int $id): bool => isset($systemMap[$id])
+        ));
+        $formData['systems'] = $validSystems;
+
         if ($formData['category'] !== '' && !isset($categoryOptions[$formData['category']])) {
             $errors['category'] = 'Select a valid category.';
             $formData['category'] = '';
@@ -228,6 +467,50 @@ if ($dbError === null) {
             $validSubcategories = array_values(array_intersect($categoryOptions[$formData['category']], $formData['subcategories']));
             $formData['subcategories'] = $validSubcategories;
         }
+
+        if (!$configuratorEnabled) {
+            $validConfiguratorUses = [];
+            $validConfiguratorRequires = [];
+            $formData['configurator_uses'] = [];
+            $configuratorUsePaths = [];
+            $formData['configurator_requires'] = [];
+            $formData['configurator_part_type'] = '';
+            $formData['configurator_height_lz'] = '';
+            $formData['configurator_depth_ly'] = '';
+        } else {
+            if ($validConfiguratorUses === []) {
+                $errors['configurator_uses'] = 'Select at least one configurator type/use.';
+            }
+
+            $derivedPartType = configuratorInferPartType($validConfiguratorUses, $configuratorUseMap);
+            if ($derivedPartType === null && $validConfiguratorUses !== []) {
+                $errors['configurator_uses'] = 'Pick uses under a single part type (door, frame, hardware, or accessory).';
+            }
+
+            $formData['configurator_part_type'] = $derivedPartType ?? '';
+
+            if ($formData['configurator_height_lz'] !== '') {
+                if (!is_numeric($formData['configurator_height_lz'])) {
+                    $errors['configurator_height_lz'] = 'Enter a numeric height (lz) or leave blank.';
+                } elseif ((float) $formData['configurator_height_lz'] <= 0) {
+                    $errors['configurator_height_lz'] = 'Height (lz) must be greater than zero if provided.';
+                }
+            }
+
+            if ($formData['configurator_depth_ly'] !== '') {
+                if (!is_numeric($formData['configurator_depth_ly'])) {
+                    $errors['configurator_depth_ly'] = 'Enter a numeric depth (ly) or leave blank.';
+                } elseif ((float) $formData['configurator_depth_ly'] <= 0) {
+                    $errors['configurator_depth_ly'] = 'Depth (ly) must be greater than zero if provided.';
+                }
+            }
+
+            if ($formData['configurator_requires'] === []) {
+                $formData['configurator_requires'][] = ['item_id' => '', 'label' => '', 'quantity' => '1'];
+            }
+        }
+
+        $validConfiguratorRequires = array_values($validConfiguratorRequires);
 
         if ($payload['item'] === '') {
             $errors['item'] = 'Item name is required.';
@@ -354,6 +637,16 @@ if ($dbError === null) {
             $existingItem = null;
         }
 
+        $configuratorPartType = $formData['configurator_part_type'] !== ''
+            ? $formData['configurator_part_type']
+            : null;
+        $configuratorHeight = $formData['configurator_height_lz'] !== '' && !isset($errors['configurator_height_lz'])
+            ? round((float) $formData['configurator_height_lz'], 4)
+            : null;
+        $configuratorDepth = $formData['configurator_depth_ly'] !== '' && !isset($errors['configurator_depth_ly'])
+            ? round((float) $formData['configurator_depth_ly'], 4)
+            : null;
+
         if ($errors === []) {
             $committedQty = $existingItem['committed_qty'] ?? 0;
             $availableQty = $payload['stock'] - $committedQty;
@@ -365,10 +658,32 @@ if ($dbError === null) {
                 if ($action === 'update' && $editingId !== null) {
                     updateInventoryItem($db, $editingId, $payload);
                     inventorySyncLocationAssignments($db, $editingId, $locationAssignmentsList);
+                    inventorySyncItemSystems($db, $editingId, $validSystems);
+                    configuratorSyncPartProfile(
+                        $db,
+                        $editingId,
+                        $configuratorEnabled,
+                        $configuratorPartType,
+                        $validConfiguratorUses,
+                        $validConfiguratorRequires,
+                        $configuratorHeight,
+                        $configuratorDepth
+                    );
                     header('Location: inventory.php?success=updated');
                 } else {
                     $newItemId = createInventoryItem($db, $payload);
                     inventorySyncLocationAssignments($db, $newItemId, $locationAssignmentsList);
+                    inventorySyncItemSystems($db, $newItemId, $validSystems);
+                    configuratorSyncPartProfile(
+                        $db,
+                        $newItemId,
+                        $configuratorEnabled,
+                        $configuratorPartType,
+                        $validConfiguratorUses,
+                        $validConfiguratorRequires,
+                        $configuratorHeight,
+                        $configuratorDepth
+                    );
                     header('Location: inventory.php?success=created');
                 }
 
@@ -434,6 +749,44 @@ if ($dbError === null) {
                     );
                 }
 
+                $formData['systems'] = inventoryLoadItemSystems($db, $editingId);
+
+                $configuratorProfile = configuratorLoadPartProfile($db, $editingId);
+                $formData['configurator_enabled'] = $configuratorProfile['enabled'];
+                $formData['configurator_uses'] = array_values(array_filter(
+                    $configuratorProfile['use_ids'],
+                    static fn (int $id): bool => isset($configuratorUseMap[$id])
+                ));
+                $formData['configurator_part_type'] = configuratorInferPartType(
+                    $formData['configurator_uses'],
+                    $configuratorUseMap
+                ) ?? ($configuratorProfile['part_type'] ?? '');
+                $formData['configurator_height_lz'] = $configuratorProfile['height_lz'] !== null
+                    ? rtrim(rtrim(number_format((float) $configuratorProfile['height_lz'], 4, '.', ''), '0'), '.')
+                    : '';
+                $formData['configurator_depth_ly'] = $configuratorProfile['depth_ly'] !== null
+                    ? rtrim(rtrim(number_format((float) $configuratorProfile['depth_ly'], 4, '.', ''), '0'), '.')
+                    : '';
+                $formData['configurator_requires'] = [];
+
+                foreach ($configuratorProfile['requirements'] as $requirement) {
+                    $requiredId = (int) $requirement['item_id'];
+                    if (!isset($configuratorRequirementMap[$requiredId])) {
+                        continue;
+                    }
+
+                    $formData['configurator_requires'][] = [
+                        'item_id' => (string) $requiredId,
+                        'label' => $configuratorRequirementMap[$requiredId]['label'] ?? '',
+                        'quantity' => (string) $requirement['quantity'],
+                    ];
+                }
+
+                $configuratorUsePaths = configuratorSelectedUsePaths(
+                    $formData['configurator_uses'],
+                    $configuratorUseMap
+                );
+
                 $itemActivity = inventoryLoadItemActivity($db, $editingId, 50);
             } else {
                 $successMessage = null;
@@ -449,6 +802,24 @@ if ($dbError === null) {
 
 if ($formData['locations'] === []) {
     $formData['locations'][] = ['location_id' => '', 'label' => '', 'quantity' => ''];
+}
+
+if ($formData['configurator_requires'] === []) {
+    $formData['configurator_requires'][] = ['item_id' => '', 'label' => '', 'quantity' => '1'];
+}
+
+if ($configuratorUsePaths === []) {
+    $configuratorUsePaths = configuratorSelectedUsePaths($formData['configurator_uses'], $configuratorUseMap);
+}
+
+$configuratorUseOptionsJson = json_encode($configuratorUseOptions, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+if ($configuratorUseOptionsJson === false) {
+    $configuratorUseOptionsJson = '[]';
+}
+
+$configuratorUsePathsJson = json_encode($configuratorUsePaths, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+if ($configuratorUsePathsJson === false) {
+    $configuratorUsePathsJson = '[]';
 }
 
 if (isset($_GET['success'])) {
@@ -467,7 +838,10 @@ if ($formData['sku'] === '' && $formData['part_number'] !== '') {
 }
 
 $activeModalTab = !empty($errors['category']) ? 'categories' : 'details';
-if (isset($_GET['tab']) && in_array($_GET['tab'], ['details', 'categories', 'activity'], true)) {
+if (!empty($errors['configurator_uses']) || !empty($errors['configurator_requires'])) {
+    $activeModalTab = 'configurator';
+}
+if (isset($_GET['tab']) && in_array($_GET['tab'], ['details', 'categories', 'configurator', 'activity'], true)) {
     $activeModalTab = $_GET['tab'];
 }
 
@@ -612,11 +986,13 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
         <?php
         $detailsActive = $activeModalTab === 'details';
         $categoriesActive = $activeModalTab === 'categories';
+        $configuratorActive = $activeModalTab === 'configurator';
         $activityActive = $activeModalTab === 'activity';
         ?>
         <div class="modal-tabs" role="tablist">
           <button type="button" role="tab" id="inventory-tab-details" aria-controls="inventory-panel-details" aria-selected="<?= $detailsActive ? 'true' : 'false' ?>" tabindex="<?= $detailsActive ? '0' : '-1' ?>">Part Details</button>
           <button type="button" role="tab" id="inventory-tab-categories" aria-controls="inventory-panel-categories" aria-selected="<?= $categoriesActive ? 'true' : 'false' ?>" tabindex="<?= $categoriesActive ? '0' : '-1' ?>">Categories</button>
+          <button type="button" role="tab" id="inventory-tab-configurator" aria-controls="inventory-panel-configurator" aria-selected="<?= $configuratorActive ? 'true' : 'false' ?>" tabindex="<?= $configuratorActive ? '0' : '-1' ?>">Configurator</button>
           <button type="button" role="tab" id="inventory-tab-activity" aria-controls="inventory-panel-activity" aria-selected="<?= $activityActive ? 'true' : 'false' ?>" tabindex="<?= $activityActive ? '0' : '-1' ?>">Activity</button>
         </div>
 
@@ -896,6 +1272,155 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
             </div>
             <p class="field-help">Select all applicable specialty groupings. These selections are informational today and will be stored in a future project.</p>
           </div>
+
+          <div class="field">
+            <label for="systems">Systems</label>
+            <select id="systems" name="systems[]" multiple size="4">
+              <?php foreach ($systemOptions as $system): ?>
+                <?php
+                  $labelParts = array_filter([
+                      $system['manufacturer'] ?? null,
+                      $system['system'] ?? null,
+                  ]);
+                  $systemLabel = $labelParts !== [] ? implode(' — ', $labelParts) : $system['name'];
+                ?>
+                <option value="<?= e((string) $system['id']) ?>"<?= in_array((int) $system['id'], $formData['systems'], true) ? ' selected' : '' ?>>
+                  <?= e($systemLabel) ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+            <p class="field-help">Choose all systems that apply to this inventory item.</p>
+          </div>
+        </div>
+
+        <div id="inventory-panel-configurator" class="tab-panel" role="tabpanel" aria-labelledby="inventory-tab-configurator"<?= $configuratorActive ? '' : ' hidden' ?>>
+          <div class="field">
+            <div class="checkbox-field">
+              <input type="checkbox" id="configurator_enabled" name="configurator_enabled" value="1"<?= $formData['configurator_enabled'] ? ' checked' : '' ?>>
+              <label for="configurator_enabled">Available in configurator</label>
+            </div>
+            <p class="field-help">Include this part when building door and frame assemblies.</p>
+          </div>
+
+          <fieldset class="field-group" data-configurator-fields>
+            <legend class="sr-only">Configurator details</legend>
+            <div class="field">
+              <label for="configurator_use_paths">Configurator type and uses<span aria-hidden="true">*</span></label>
+              <div
+                id="configurator_use_paths"
+                class="stacked gap-sm"
+                data-use-path-list
+                data-configurator-toggle
+                data-use-options='<?= e($configuratorUseOptionsJson) ?>'
+                data-initial-paths='<?= e($configuratorUsePathsJson) ?>'
+              ></div>
+              <button type="button" class="button ghost" data-add-use-path data-configurator-toggle>Add use path</button>
+              <?php if ($formData['configurator_part_type'] !== ''): ?>
+                <p class="field-help"><strong>Detected part type:</strong> <?= e(ucfirst($formData['configurator_part_type'])) ?></p>
+              <?php endif; ?>
+              <p class="field-help">Select cascading type and use details (for example: Hardware → Door Hardware → Hinge → Butt Hinge → Heavy Duty).</p>
+              <?php if (!empty($errors['configurator_uses'])): ?>
+                <p class="field-error"><?= e($errors['configurator_uses']) ?></p>
+              <?php endif; ?>
+            </div>
+
+            <div class="field-grid two-column">
+              <div class="field">
+                <label for="configurator_height_lz">Part height (lz)</label>
+                <input
+                  type="text"
+                  id="configurator_height_lz"
+                  name="configurator_height_lz"
+                  value="<?= e($formData['configurator_height_lz']) ?>"
+                  inputmode="decimal"
+                  autocomplete="off"
+                  placeholder="Example: 2.375"
+                  data-configurator-toggle
+                />
+                <p class="field-help">Captured for configurator math; leave blank if not applicable.</p>
+                <?php if (!empty($errors['configurator_height_lz'])): ?>
+                  <p class="field-error"><?= e($errors['configurator_height_lz']) ?></p>
+                <?php endif; ?>
+              </div>
+              <div class="field">
+                <label for="configurator_depth_ly">Part depth (ly)</label>
+                <input
+                  type="text"
+                  id="configurator_depth_ly"
+                  name="configurator_depth_ly"
+                  value="<?= e($formData['configurator_depth_ly']) ?>"
+                  inputmode="decimal"
+                  autocomplete="off"
+                  placeholder="Example: 1.125"
+                  data-configurator-toggle
+                />
+                <p class="field-help">Stored for future frame and door calculations.</p>
+                <?php if (!empty($errors['configurator_depth_ly'])): ?>
+                  <p class="field-error"><?= e($errors['configurator_depth_ly']) ?></p>
+                <?php endif; ?>
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="configurator_requires">Requires</label>
+              <div class="stacked" data-requirement-list>
+                <?php foreach ($formData['configurator_requires'] as $index => $requirement): ?>
+                  <div class="requirement-row" data-requirement-row>
+                    <div class="field">
+                      <label class="sr-only" for="configurator-requirement-label-<?= e((string) $index) ?>">Required part</label>
+                      <input
+                        type="search"
+                        id="configurator-requirement-label-<?= e((string) $index) ?>"
+                        name="configurator_requires[<?= e((string) $index) ?>][label]"
+                        list="configurator-requirement-options"
+                        value="<?= e((string) ($requirement['label'] ?? '')) ?>"
+                        placeholder="Search configurator-ready parts"
+                        autocomplete="off"
+                        data-configurator-toggle
+                        data-requirement-input="label"
+                      />
+                      <input
+                        type="hidden"
+                        name="configurator_requires[<?= e((string) $index) ?>][item_id]"
+                        value="<?= e((string) ($requirement['item_id'] ?? '')) ?>"
+                        data-requirement-input="item_id"
+                      />
+                    </div>
+                    <div class="field narrow">
+                      <label class="sr-only" for="configurator-requirement-quantity-<?= e((string) $index) ?>">Quantity</label>
+                      <input
+                        type="number"
+                        id="configurator-requirement-quantity-<?= e((string) $index) ?>"
+                        name="configurator_requires[<?= e((string) $index) ?>][quantity]"
+                        min="1"
+                        step="1"
+                        value="<?= e((string) ($requirement['quantity'] ?? '1')) ?>"
+                        data-configurator-toggle
+                        data-requirement-input="quantity"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      class="button ghost icon-only"
+                      aria-label="Remove required part"
+                      data-remove-requirement
+                    >&times;</button>
+                  </div>
+                <?php endforeach; ?>
+              </div>
+              <button type="button" class="button ghost" data-add-requirement>Add required part</button>
+              <datalist id="configurator-requirement-options">
+                <?php foreach ($configuratorRequirementOptions as $option): ?>
+                  <?php if ($editingId !== null && (int) $option['id'] === $editingId) { continue; } ?>
+                  <option value="<?= e($option['label']) ?>" data-item-id="<?= e((string) $option['id']) ?>"></option>
+                <?php endforeach; ?>
+              </datalist>
+              <p class="field-help">Search configurator-enabled parts, set quantities, and add as many required components as needed. Required parts cascade into the final bill of material.</p>
+              <?php if (!empty($errors['configurator_requires'])): ?>
+                <p class="field-error"><?= e($errors['configurator_requires']) ?></p>
+              <?php endif; ?>
+            </div>
+          </fieldset>
         </div>
 
         <div id="inventory-panel-activity" class="tab-panel" role="tabpanel" aria-labelledby="inventory-tab-activity"<?= $activityActive ? '' : ' hidden' ?>>
@@ -995,12 +1520,83 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
           <button type="button" class="button ghost icon-only" data-remove-location aria-label="Remove location">&times;</button>
         </div>
       </template>
+      <template id="use-path-template">
+        <div class="use-path-row" data-use-path-row>
+          <div class="stacked gap-xs" data-use-levels></div>
+          <button type="button" class="button ghost icon-only" aria-label="Remove use path" data-remove-use-path>&times;</button>
+        </div>
+      </template>
+      <template id="requirement-row-template">
+        <div class="requirement-row" data-requirement-row>
+          <div class="field">
+            <label class="sr-only">Required part</label>
+            <input
+              type="search"
+              list="configurator-requirement-options"
+              placeholder="Search configurator-ready parts"
+              autocomplete="off"
+              data-configurator-toggle
+              data-requirement-input="label"
+              data-name-key="label"
+            />
+            <input type="hidden" data-requirement-input="item_id" data-name-key="item_id" />
+          </div>
+          <div class="field narrow">
+            <label class="sr-only">Quantity</label>
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value="1"
+              data-configurator-toggle
+              data-requirement-input="quantity"
+              data-name-key="quantity"
+            />
+          </div>
+          <button type="button" class="button ghost icon-only" aria-label="Remove required part" data-remove-requirement>&times;</button>
+        </div>
+      </template>
     </div>
   </div>
 
   <script src="js/dashboard.js"></script>
   <script src="js/inventory-table.js"></script>
   <script>
+  (function () {
+    const modal = document.getElementById('inventory-modal');
+    if (!modal) {
+      return;
+    }
+
+    const configuratorCheckbox = modal.querySelector('#configurator_enabled');
+    const configuratorFieldset = modal.querySelector('[data-configurator-fields]');
+
+    function syncConfiguratorControls() {
+      const isEnabled = configuratorCheckbox instanceof HTMLInputElement && configuratorCheckbox.checked;
+
+      const configuratorInputs = Array.from(modal.querySelectorAll('[data-configurator-toggle]'));
+
+      configuratorInputs.forEach((input) => {
+        if (input instanceof HTMLInputElement || input instanceof HTMLSelectElement) {
+          input.disabled = !isEnabled;
+        }
+      });
+
+      if (configuratorFieldset instanceof HTMLElement) {
+        if (isEnabled) {
+          configuratorFieldset.removeAttribute('aria-disabled');
+        } else {
+          configuratorFieldset.setAttribute('aria-disabled', 'true');
+        }
+      }
+    }
+
+    if (configuratorCheckbox instanceof HTMLInputElement) {
+      configuratorCheckbox.addEventListener('change', syncConfiguratorControls);
+      syncConfiguratorControls();
+    }
+  })();
+
   (function () {
     const modal = document.getElementById('inventory-modal');
     if (!modal) {
@@ -1276,6 +1872,319 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
       const qtyInput = newRow.querySelector('[data-location-input="quantity"]');
       if (qtyInput instanceof HTMLInputElement && Object.prototype.hasOwnProperty.call(defaults, 'quantity')) {
         qtyInput.value = defaults.quantity;
+      }
+
+      attachRow(newRow);
+      syncNames();
+    }
+
+    getRows().forEach(attachRow);
+    syncNames();
+
+    if (addButton instanceof HTMLButtonElement) {
+      addButton.addEventListener('click', function (event) {
+        event.preventDefault();
+        addRow();
+      });
+    }
+  })();
+
+  (function () {
+    const modal = document.getElementById('inventory-modal');
+    if (!modal) {
+      return;
+    }
+
+    const list = modal.querySelector('[data-use-path-list]');
+    const addButton = modal.querySelector('[data-add-use-path]');
+    const template = document.getElementById('use-path-template');
+
+    if (!(list instanceof HTMLElement) || !(template instanceof HTMLTemplateElement)) {
+      return;
+    }
+
+    const optionsRaw = list.getAttribute('data-use-options') || '[]';
+    const initialPathsRaw = list.getAttribute('data-initial-paths') || '[]';
+
+    let useOptions = [];
+    let initialPaths = [];
+
+    try {
+      useOptions = JSON.parse(optionsRaw);
+    } catch (error) {
+      console.error('Unable to parse configurator use options', error);
+    }
+
+    try {
+      initialPaths = JSON.parse(initialPathsRaw);
+    } catch (error) {
+      console.error('Unable to parse configurator use paths', error);
+    }
+
+    const optionsByParent = new Map();
+
+    useOptions.forEach((option) => {
+      const key = option.parent_id === null ? 'root' : String(option.parent_id);
+      if (!optionsByParent.has(key)) {
+        optionsByParent.set(key, []);
+      }
+      optionsByParent.get(key).push(option);
+    });
+
+    optionsByParent.forEach((options) => {
+      options.sort((a, b) => a.name.localeCompare(b.name));
+    });
+
+    function availableChildren(parentId) {
+      const key = parentId === null ? 'root' : String(parentId);
+      return optionsByParent.get(key) || [];
+    }
+
+    function getRows() {
+      return Array.from(list.querySelectorAll('[data-use-path-row]'));
+    }
+
+    function syncNames() {
+      getRows().forEach((row, rowIndex) => {
+        const selects = Array.from(row.querySelectorAll('select[data-use-level]'));
+        selects.forEach((select) => {
+          select.name = 'configurator_use_paths[' + rowIndex + '][]';
+        });
+      });
+    }
+
+    function appendLevel(levelsContainer, parentId, presetId = null) {
+      const options = availableChildren(parentId);
+      if (options.length === 0) {
+        return null;
+      }
+
+      const select = document.createElement('select');
+      select.setAttribute('data-use-level', '1');
+      select.setAttribute('data-configurator-toggle', 'true');
+
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = parentId === null ? 'Select use' : 'Select detail';
+      select.appendChild(placeholder);
+
+      options.forEach((option) => {
+        const optionNode = document.createElement('option');
+        optionNode.value = String(option.id);
+        optionNode.textContent = option.name;
+        if (presetId !== null && String(option.id) === String(presetId)) {
+          optionNode.selected = true;
+        }
+        select.appendChild(optionNode);
+      });
+
+      select.addEventListener('change', () => {
+        const siblingSelects = Array.from(levelsContainer.querySelectorAll('select[data-use-level]'));
+        const index = siblingSelects.indexOf(select);
+        if (index >= 0) {
+          siblingSelects.slice(index + 1).forEach((node) => node.remove());
+        }
+
+        const chosenId = select.value === '' ? null : parseInt(select.value, 10);
+        if (Number.isFinite(chosenId)) {
+          const children = availableChildren(chosenId);
+          if (children.length > 0) {
+            appendLevel(levelsContainer, chosenId);
+          }
+        }
+
+        syncNames();
+      });
+
+      levelsContainer.appendChild(select);
+      return select;
+    }
+
+    function attachRow(row) {
+      const removeButton = row.querySelector('[data-remove-use-path]');
+      if (removeButton instanceof HTMLButtonElement) {
+        removeButton.addEventListener('click', (event) => {
+          event.preventDefault();
+          const rows = getRows();
+          if (rows.length <= 1) {
+            row.querySelectorAll('select[data-use-level]').forEach((select) => {
+              if (select instanceof HTMLSelectElement) {
+                select.selectedIndex = 0;
+              }
+            });
+            return;
+          }
+
+          row.remove();
+          syncNames();
+        });
+      }
+    }
+
+    function addRow(path = []) {
+      const fragment = template.content.cloneNode(true);
+      list.appendChild(fragment);
+      const rows = getRows();
+      const row = rows[rows.length - 1];
+      if (!row) {
+        return;
+      }
+
+      const levelsContainer = row.querySelector('[data-use-levels]');
+      if (!(levelsContainer instanceof HTMLElement)) {
+        row.remove();
+        return;
+      }
+
+      let currentParent = null;
+
+      if (Array.isArray(path)) {
+        path.forEach((id) => {
+          const selectedId = typeof id === 'number' ? id : parseInt(String(id), 10);
+          const select = appendLevel(levelsContainer, currentParent, Number.isFinite(selectedId) ? selectedId : null);
+          if (select && select.value !== '') {
+            currentParent = parseInt(select.value, 10);
+          }
+        });
+      }
+
+      if (levelsContainer.querySelectorAll('select').length === 0) {
+        appendLevel(levelsContainer, null);
+      } else {
+        const children = availableChildren(currentParent);
+        if (children.length > 0) {
+          appendLevel(levelsContainer, currentParent);
+        }
+      }
+
+      attachRow(row);
+      syncNames();
+    }
+
+    const normalizedPaths = Array.isArray(initialPaths)
+      ? initialPaths.filter((path) => Array.isArray(path) && path.length > 0)
+      : [];
+
+    if (normalizedPaths.length === 0) {
+      addRow();
+    } else {
+      normalizedPaths.forEach((path) => addRow(path));
+    }
+
+    if (addButton instanceof HTMLButtonElement) {
+      addButton.addEventListener('click', (event) => {
+        event.preventDefault();
+        addRow();
+      });
+    }
+  })();
+
+  (function () {
+    const modal = document.getElementById('inventory-modal');
+    if (!modal) {
+      return;
+    }
+
+    const requirementOptions = <?php echo json_encode($configuratorRequirementOptions, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+    const list = modal.querySelector('[data-requirement-list]');
+    const template = document.getElementById('requirement-row-template');
+    const addButton = modal.querySelector('[data-add-requirement]');
+
+    if (!(list instanceof HTMLElement) || !(template instanceof HTMLTemplateElement)) {
+      return;
+    }
+
+    function getRows() {
+      return Array.from(list.querySelectorAll('[data-requirement-row]'));
+    }
+
+    function syncNames() {
+      getRows().forEach((row, index) => {
+        row.querySelectorAll('[data-requirement-input]').forEach((input) => {
+          const key = input.getAttribute('data-name-key');
+          if (!key) {
+            return;
+          }
+
+          input.setAttribute('name', 'configurator_requires[' + index + '][' + key + ']');
+
+          if (input instanceof HTMLInputElement) {
+            const baseId = 'configurator-requirement-' + key + '-' + index;
+            input.id = baseId;
+            const label = input.closest('.field')?.querySelector('label');
+            if (label instanceof HTMLLabelElement) {
+              label.setAttribute('for', baseId);
+            }
+          }
+        });
+      });
+    }
+
+    function findOptionByLabel(labelValue) {
+      return requirementOptions.find((option) => option.label === labelValue) || null;
+    }
+
+    function attachRow(row) {
+      const removeButton = row.querySelector('[data-remove-requirement]');
+      if (removeButton instanceof HTMLButtonElement) {
+        removeButton.addEventListener('click', function (event) {
+          event.preventDefault();
+          const rows = getRows();
+          if (rows.length <= 1) {
+            const labelInput = row.querySelector('[data-requirement-input="label"]');
+            const itemIdInput = row.querySelector('[data-requirement-input="item_id"]');
+            const qtyInput = row.querySelector('[data-requirement-input="quantity"]');
+            if (labelInput instanceof HTMLInputElement) {
+              labelInput.value = '';
+            }
+            if (itemIdInput instanceof HTMLInputElement) {
+              itemIdInput.value = '';
+            }
+            if (qtyInput instanceof HTMLInputElement) {
+              qtyInput.value = '1';
+            }
+            return;
+          }
+
+          row.remove();
+          syncNames();
+        });
+      }
+
+      const labelInput = row.querySelector('[data-requirement-input="label"]');
+      const itemIdInput = row.querySelector('[data-requirement-input="item_id"]');
+
+      if (labelInput instanceof HTMLInputElement && itemIdInput instanceof HTMLInputElement) {
+        labelInput.addEventListener('input', function () {
+          const match = findOptionByLabel(labelInput.value.trim());
+          itemIdInput.value = match ? String(match.id) : '';
+        });
+      }
+    }
+
+    function addRow(defaults = {}) {
+      const fragment = template.content.cloneNode(true);
+      list.appendChild(fragment);
+      const rows = getRows();
+      const newRow = rows[rows.length - 1];
+      if (!newRow) {
+        return;
+      }
+
+      const labelInput = newRow.querySelector('[data-requirement-input="label"]');
+      const itemIdInput = newRow.querySelector('[data-requirement-input="item_id"]');
+      const qtyInput = newRow.querySelector('[data-requirement-input="quantity"]');
+
+      if (labelInput instanceof HTMLInputElement && defaults.label) {
+        labelInput.value = String(defaults.label);
+      }
+
+      if (itemIdInput instanceof HTMLInputElement && defaults.item_id) {
+        itemIdInput.value = String(defaults.item_id);
+      }
+
+      if (qtyInput instanceof HTMLInputElement && Object.prototype.hasOwnProperty.call(defaults, 'quantity')) {
+        qtyInput.value = String(defaults.quantity);
       }
 
       attachRow(newRow);

@@ -566,3 +566,189 @@ class MaintenanceRecord(models.Model):
 
     def __str__(self) -> str:  # pragma: no cover - trivial
         return f"{self.machine} maintenance"
+
+
+class ConfiguratorPartUseOption(models.Model):
+    """Configurator use tree that also encodes part type roots."""
+
+    id = models.BigAutoField(primary_key=True)
+    name = models.TextField(unique=True)
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        db_column="parent_id",
+        related_name="children",
+        blank=True,
+        null=True,
+    )
+
+    class Meta:
+        managed = False
+        db_table = "configurator_part_use_options"
+        ordering = ["name"]
+        verbose_name = "Configurator use option"
+        verbose_name_plural = "Configurator use options"
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return self.name
+
+
+class ConfiguratorPartProfile(models.Model):
+    """Configurator metadata tied to inventory items."""
+
+    inventory_item = models.OneToOneField(
+        InventoryItem,
+        on_delete=models.CASCADE,
+        db_column="inventory_item_id",
+        primary_key=True,
+        related_name="configurator_profile",
+    )
+    is_enabled = models.BooleanField(default=False)
+    part_type = models.TextField(blank=True, null=True)
+    height_lz = models.DecimalField(max_digits=12, decimal_places=4, blank=True, null=True)
+    depth_ly = models.DecimalField(max_digits=12, decimal_places=4, blank=True, null=True)
+    created_at = models.DateTimeField()
+
+    class Meta:
+        managed = False
+        db_table = "configurator_part_profiles"
+        ordering = ["inventory_item"]
+        verbose_name = "Configurator part profile"
+        verbose_name_plural = "Configurator part profiles"
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return f"Configurator profile for {self.inventory_item}"
+
+
+class ConfiguratorPartUseLink(models.Model):
+    """Mapping between inventory items and configurator use nodes."""
+
+    id = models.BigAutoField(primary_key=True)
+    inventory_item = models.ForeignKey(
+        InventoryItem,
+        on_delete=models.CASCADE,
+        db_column="inventory_item_id",
+        related_name="configurator_use_links",
+    )
+    use_option = models.ForeignKey(
+        ConfiguratorPartUseOption,
+        on_delete=models.CASCADE,
+        db_column="use_option_id",
+        related_name="part_links",
+    )
+
+    class Meta:
+        managed = False
+        db_table = "configurator_part_use_links"
+        ordering = ["inventory_item", "use_option"]
+        unique_together = ("inventory_item", "use_option")
+        verbose_name = "Configurator part use link"
+        verbose_name_plural = "Configurator part use links"
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return f"{self.inventory_item} → {self.use_option}"
+
+
+class ConfiguratorPartRequirement(models.Model):
+    """Dependency rows for configurator components."""
+
+    id = models.BigAutoField(primary_key=True)
+    inventory_item = models.ForeignKey(
+        InventoryItem,
+        on_delete=models.CASCADE,
+        db_column="inventory_item_id",
+        related_name="configurator_requirements",
+    )
+    required_inventory_item = models.ForeignKey(
+        InventoryItem,
+        on_delete=models.CASCADE,
+        db_column="required_inventory_item_id",
+        related_name="configurator_dependents",
+    )
+    quantity = models.IntegerField(default=1)
+
+    class Meta:
+        managed = False
+        db_table = "configurator_part_requirements"
+        ordering = ["inventory_item", "required_inventory_item"]
+        unique_together = ("inventory_item", "required_inventory_item")
+        verbose_name = "Configurator part requirement"
+        verbose_name_plural = "Configurator part requirements"
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return f"{self.inventory_item} requires {self.required_inventory_item}"
+
+
+class ConfiguratorJob(models.Model):
+    """Job directory entries for configurator workflows."""
+
+    id = models.BigAutoField(primary_key=True)
+    job_number = models.TextField(unique=True)
+    name = models.TextField()
+    created_at = models.DateTimeField()
+
+    class Meta:
+        managed = False
+        db_table = "configurator_jobs"
+        ordering = ["-created_at"]
+        verbose_name = "Configurator job"
+        verbose_name_plural = "Configurator jobs"
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return f"{self.job_number} — {self.name}"
+
+
+class ConfiguratorConfiguration(models.Model):
+    """Configurator header with job, scope, and door tags."""
+
+    id = models.BigAutoField(primary_key=True)
+    name = models.TextField()
+    job = models.ForeignKey(
+        ConfiguratorJob,
+        on_delete=models.SET_NULL,
+        db_column="job_id",
+        related_name="configurations",
+        blank=True,
+        null=True,
+    )
+    job_scope = models.TextField(default="door_and_frame")
+    quantity = models.IntegerField(default=1)
+    status = models.TextField(default="draft")
+    notes = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField()
+    updated_at = models.DateTimeField()
+
+    class Meta:
+        managed = False
+        db_table = "configurator_configurations"
+        ordering = ["-updated_at"]
+        verbose_name = "Configurator configuration"
+        verbose_name_plural = "Configurator configurations"
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return self.name
+
+
+class ConfiguratorConfigurationDoor(models.Model):
+    """Door tags attached to configurator configurations."""
+
+    id = models.BigAutoField(primary_key=True)
+    configuration = models.ForeignKey(
+        ConfiguratorConfiguration,
+        on_delete=models.CASCADE,
+        db_column="configuration_id",
+        related_name="doors",
+    )
+    door_tag = models.TextField()
+    created_at = models.DateTimeField()
+
+    class Meta:
+        managed = False
+        db_table = "configurator_configuration_doors"
+        ordering = ["door_tag"]
+        unique_together = ("configuration", "door_tag")
+        verbose_name = "Configurator configuration door"
+        verbose_name_plural = "Configurator configuration doors"
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return self.door_tag
