@@ -256,10 +256,19 @@ if ($dbError === null || $localStorageOnly) {
     $requestedConfigId = isset($_GET['id']) && ctype_digit((string) $_GET['id'])
         ? (int) $_GET['id']
         : null;
+    $requestedStepQuery = isset($_GET['step']) && in_array($_GET['step'], $stepIds, true)
+        ? (string) $_GET['step']
+        : null;
 
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        $hasActiveBuilder = $builderState['config_payload'] !== null
+            || $builderState['config_id'] !== null
+            || $builderState['completed'] !== [];
+
         if (isset($_GET['create'])) {
-            $resetBuilderState(null);
+            if (!$hasActiveBuilder || $requestedStepQuery === null || $requestedStepQuery === 'configuration') {
+                $resetBuilderState(null);
+            }
         } elseif ($builderState['config_id'] !== $requestedConfigId) {
             $resetBuilderState($requestedConfigId);
         }
