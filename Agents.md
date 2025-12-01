@@ -49,6 +49,7 @@ Always search for similar patterns before introducing new logic.
 
 ### 3.1 General Rules
 - Use **migrations** for production schema changes.
+- Add new migrations as Django `.py` migrations (e.g., under `admin_service/*/migrations`) so they run through the admin panel; avoid new raw SQL migration files going forward.
 - Use `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` when adding columns.
 - Prefer foreign keys when appropriate.
 - Add indexes for columns used in filters/joins.
