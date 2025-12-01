@@ -12,6 +12,12 @@ class InventoryItemLocationInline(admin.TabularInline):
     autocomplete_fields = ("storage_location",)
 
 
+class InventoryItemSystemInline(admin.TabularInline):
+    model = models.InventoryItemSystem
+    extra = 0
+    autocomplete_fields = ("system",)
+
+
 @admin.register(models.InventoryItem)
 class InventoryItemAdmin(admin.ModelAdmin):
     list_display = (
@@ -40,7 +46,7 @@ class InventoryItemAdmin(admin.ModelAdmin):
     ordering = ("item",)
     readonly_fields = ("average_daily_use",)
     autocomplete_fields = ("supplier_ref",)
-    inlines = [InventoryItemLocationInline]
+    inlines = [InventoryItemLocationInline, InventoryItemSystemInline]
 
 
 @admin.register(models.InventoryMetric)
@@ -49,6 +55,22 @@ class InventoryMetricAdmin(admin.ModelAdmin):
     list_editable = ("value", "delta", "timeframe", "accent", "sort_order")
     search_fields = ("label",)
     ordering = ("sort_order", "label")
+
+
+@admin.register(models.InventorySystem)
+class InventorySystemAdmin(admin.ModelAdmin):
+    list_display = (
+        "name",
+        "manufacturer",
+        "system",
+        "system_type",
+        "default_glazing",
+        "created_at",
+    )
+    search_fields = ("name", "manufacturer", "system", "system_type")
+    list_filter = ("system_type",)
+    readonly_fields = ("created_at",)
+    ordering = ("name",)
 
 
 class JobReservationItemInline(admin.TabularInline):
@@ -125,6 +147,24 @@ class InventoryTransactionLineAdmin(admin.ModelAdmin):
     )
     search_fields = ("transaction__reference", "inventory_item__item", "inventory_item__sku")
     autocomplete_fields = ("transaction", "inventory_item")
+
+
+@admin.register(models.InventoryItemSystem)
+class InventoryItemSystemAdmin(admin.ModelAdmin):
+    list_display = ("inventory_item", "system")
+    search_fields = ("inventory_item__item", "inventory_item__sku", "system__name")
+    autocomplete_fields = ("inventory_item", "system")
+    ordering = ("inventory_item", "system")
+
+
+@admin.register(models.InventoryDailyUsage)
+class InventoryDailyUsageAdmin(admin.ModelAdmin):
+    list_display = ("inventory_item", "usage_date", "quantity_used")
+    search_fields = ("inventory_item__item", "inventory_item__sku")
+    list_filter = ("usage_date",)
+    autocomplete_fields = ("inventory_item",)
+    date_hierarchy = "usage_date"
+    ordering = ("-usage_date",)
 
 
 @admin.register(models.Supplier)
@@ -292,17 +332,47 @@ class MaintenanceTaskInline(admin.TabularInline):
 class MaintenanceRecordInline(admin.TabularInline):
     model = models.MaintenanceRecord
     extra = 0
-    autocomplete_fields = ("task",)
+    autocomplete_fields = ("task", "asset")
     readonly_fields = ("created_at",)
+
+
+class MaintenanceAssetMachineInline(admin.TabularInline):
+    model = models.MaintenanceAssetMachine
+    extra = 0
+    autocomplete_fields = ("asset",)
+
+
+@admin.register(models.MaintenanceMachineType)
+class MaintenanceMachineTypeAdmin(admin.ModelAdmin):
+    list_display = ("name", "created_at", "updated_at")
+    search_fields = ("name",)
+    ordering = ("name",)
 
 
 @admin.register(models.MaintenanceMachine)
 class MaintenanceMachineAdmin(admin.ModelAdmin):
-    list_display = ("name", "equipment_type", "manufacturer", "model", "location", "updated_at")
-    search_fields = ("name", "equipment_type", "manufacturer", "model", "serial_number", "location")
-    list_filter = ("equipment_type",)
+    list_display = (
+        "name",
+        "equipment_type",
+        "machine_type",
+        "manufacturer",
+        "model",
+        "location",
+        "updated_at",
+    )
+    search_fields = (
+        "name",
+        "equipment_type",
+        "machine_type__name",
+        "manufacturer",
+        "model",
+        "serial_number",
+        "location",
+    )
+    list_filter = ("equipment_type", "machine_type")
     ordering = ("name",)
-    inlines = [MaintenanceTaskInline, MaintenanceRecordInline]
+    autocomplete_fields = ("machine_type",)
+    inlines = [MaintenanceTaskInline, MaintenanceRecordInline, MaintenanceAssetMachineInline]
 
 
 @admin.register(models.MaintenanceTask)
@@ -338,6 +408,7 @@ class MaintenanceRecordAdmin(admin.ModelAdmin):
     list_display = (
         "machine",
         "task",
+        "asset",
         "performed_by",
         "performed_at",
         "downtime_minutes",
@@ -347,14 +418,32 @@ class MaintenanceRecordAdmin(admin.ModelAdmin):
     search_fields = (
         "machine__name",
         "task__title",
+        "asset__name",
         "performed_by",
         "notes",
         "parts_used",
     )
     list_filter = ("performed_at", "downtime_minutes")
-    autocomplete_fields = ("machine", "task")
+    autocomplete_fields = ("machine", "task", "asset")
     date_hierarchy = "performed_at"
     ordering = ("-performed_at", "-created_at")
+
+
+@admin.register(models.MaintenanceAsset)
+class MaintenanceAssetAdmin(admin.ModelAdmin):
+    list_display = ("name", "created_at", "updated_at")
+    search_fields = ("name", "description", "notes")
+    readonly_fields = ("created_at", "updated_at")
+    inlines = [MaintenanceAssetMachineInline]
+    ordering = ("name",)
+
+
+@admin.register(models.MaintenanceAssetMachine)
+class MaintenanceAssetMachineAdmin(admin.ModelAdmin):
+    list_display = ("asset", "machine")
+    search_fields = ("asset__name", "machine__name")
+    autocomplete_fields = ("asset", "machine")
+    ordering = ("asset", "machine")
 
 
 @admin.register(models.ConfiguratorPartUseOption)
