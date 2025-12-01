@@ -137,7 +137,7 @@ class InventorySystem(models.Model):
     """Inventory systems used for framing and door selections."""
 
     id = models.BigAutoField(primary_key=True)
-    name = models.TextField(unique=True)
+    name = models.TextField()
     manufacturer = models.TextField(default="")
     system = models.TextField(default="")
     default_glazing = models.DecimalField(max_digits=10, decimal_places=4, blank=True, null=True)
@@ -582,7 +582,7 @@ class MaintenanceMachineType(models.Model):
     """Reference data for categorizing maintenance machines."""
 
     id = models.BigAutoField(primary_key=True)
-    name = models.TextField(unique=True)
+    name = models.TextField()
     created_at = models.DateTimeField()
     updated_at = models.DateTimeField()
 
@@ -730,7 +730,7 @@ class ConfiguratorPartUseOption(models.Model):
     """Configurator use tree that also encodes part type roots."""
 
     id = models.BigAutoField(primary_key=True)
-    name = models.TextField(unique=True)
+    name = models.TextField()
     parent = models.ForeignKey(
         "self",
         on_delete=models.SET_NULL,
@@ -841,7 +841,7 @@ class ConfiguratorJob(models.Model):
     """Job directory entries for configurator workflows."""
 
     id = models.BigAutoField(primary_key=True)
-    job_number = models.TextField(unique=True)
+    job_number = models.TextField()
     name = models.TextField()
     created_at = models.DateTimeField()
 
