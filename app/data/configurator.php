@@ -193,6 +193,19 @@ if (!function_exists('configuratorEnsureSchema')) {
         );
 
         $db->exec(
+            "DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'configurator_part_profiles_inventory_item_id_key'
+                ) THEN
+                    ALTER TABLE configurator_part_profiles
+                        ADD CONSTRAINT configurator_part_profiles_inventory_item_id_key UNIQUE (inventory_item_id);
+                END IF;
+            END$$;"
+        );
+
+        $db->exec(
             "ALTER TABLE configurator_configurations
                 ADD COLUMN IF NOT EXISTS quantity INTEGER NOT NULL DEFAULT 1"
         );
