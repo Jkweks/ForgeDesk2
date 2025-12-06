@@ -273,12 +273,12 @@ if (!function_exists('configuratorEnsureSchema')) {
              SELECT :name, :parent_id
              WHERE NOT EXISTS (
                  SELECT 1 FROM configurator_part_use_options
-                 WHERE name = :name AND ((parent_id IS NULL AND :parent_id IS NULL) OR parent_id = :parent_id)
+                 WHERE name = :name AND parent_id IS NOT DISTINCT FROM :parent_id
              )'
         );
         $parentLookup = $db->prepare(
             'SELECT id FROM configurator_part_use_options
-             WHERE name = :name AND ((parent_id IS NULL AND :parent_id IS NULL) OR parent_id = :parent_id)
+             WHERE name = :name AND parent_id IS NOT DISTINCT FROM :parent_id
              ORDER BY id ASC
              LIMIT 1'
         );
@@ -409,7 +409,7 @@ if (!function_exists('configuratorEnsureSchema')) {
 
         $lookup = $db->prepare(
             'SELECT id FROM configurator_part_use_options
-             WHERE name = :name AND ((parent_id IS NULL AND :parent_id IS NULL) OR parent_id = :parent_id)
+             WHERE name = :name AND parent_id IS NOT DISTINCT FROM :parent_id
              ORDER BY id ASC
              LIMIT 1'
         );
