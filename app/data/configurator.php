@@ -36,7 +36,7 @@ if (!function_exists('configuratorEnsureSchema')) {
         $db->exec(
             'CREATE TABLE IF NOT EXISTS configurator_part_use_options (
                 id BIGSERIAL PRIMARY KEY,
-                name TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL,
                 parent_id BIGINT NULL REFERENCES configurator_part_use_options(id) ON DELETE SET NULL
             )'
         );
@@ -107,6 +107,19 @@ if (!function_exists('configuratorEnsureSchema')) {
         $db->exec(
             "ALTER TABLE configurator_part_use_options
                 ADD COLUMN IF NOT EXISTS parent_id BIGINT NULL REFERENCES configurator_part_use_options(id) ON DELETE SET NULL"
+        );
+
+        $db->exec(
+            "DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'configurator_part_use_options_name_key'
+                        OR (conrelid = 'configurator_part_use_options'::regclass AND contype = 'u')
+                ) THEN
+                    ALTER TABLE configurator_part_use_options DROP CONSTRAINT IF EXISTS configurator_part_use_options_name_key;
+                END IF;
+            END$$;"
         );
 
         $db->exec(
@@ -244,14 +257,17 @@ if (!function_exists('configuratorEnsureSchema')) {
 
         $seed = $db->prepare(
             'INSERT INTO configurator_part_use_options (name, parent_id)
-             VALUES (:name, :parent_id)
-             ON CONFLICT (name) DO NOTHING'
-        );
-        $updateParent = $db->prepare(
-            'UPDATE configurator_part_use_options SET parent_id = :parent_id WHERE name = :name'
+             SELECT :name, :parent_id
+             WHERE NOT EXISTS (
+                 SELECT 1 FROM configurator_part_use_options
+                 WHERE name = :name AND ((parent_id IS NULL AND :parent_id IS NULL) OR parent_id = :parent_id)
+             )'
         );
         $parentLookup = $db->prepare(
-            'SELECT id FROM configurator_part_use_options WHERE name = :name'
+            'SELECT id FROM configurator_part_use_options
+             WHERE name = :name AND ((parent_id IS NULL AND :parent_id IS NULL) OR parent_id = :parent_id)
+             ORDER BY id ASC
+             LIMIT 1'
         );
 
         $seedOptions = [
@@ -264,21 +280,56 @@ if (!function_exists('configuratorEnsureSchema')) {
             ['name' => 'Fire Rated', 'parent' => 'Door'],
             ['name' => 'Pair Door', 'parent' => 'Door'],
             ['name' => 'Single Door', 'parent' => 'Door'],
-            ['name' => 'Hardware Set', 'parent' => 'Hardware'],
-            ['name' => 'Door Hardware', 'parent' => 'Hardware'],
-            ['name' => 'Hinge', 'parent' => 'Door Hardware'],
-            ['name' => 'Butt Hinge', 'parent' => 'Hinge'],
-            ['name' => 'Heavy Duty', 'parent' => 'Butt Hinge'],
+            ['name' => 'Stiles', 'parent' => 'Door'],
+            ['name' => 'Hinge Rail', 'parent' => 'Stiles'],
+            ['name' => 'Lock Rail', 'parent' => 'Stiles'],
+            ['name' => 'Top Rail', 'parent' => 'Stiles'],
+            ['name' => 'Bottom Rail', 'parent' => 'Stiles'],
+            ['name' => 'Glazing', 'parent' => 'Door'],
+            ['name' => 'Interior Glass Stop', 'parent' => 'Glazing'],
+            ['name' => 'Exterior Glass Stop', 'parent' => 'Glazing'],
+            ['name' => 'Interior Glass Vinyl', 'parent' => 'Glazing'],
+            ['name' => 'Exterior Glass Vinyl', 'parent' => 'Glazing'],
+            ['name' => 'Door Set block', 'parent' => 'Glazing'],
+            ['name' => 'Door glass jack', 'parent' => 'Glazing'],
+            ['name' => 'Frame Jambs', 'parent' => 'Frame'],
+            ['name' => 'Hinge Jamb', 'parent' => 'Frame Jambs'],
+            ['name' => 'Lock Jamb', 'parent' => 'Frame Jambs'],
+            ['name' => 'Frame Head', 'parent' => 'Frame'],
+            ['name' => 'Door Head', 'parent' => 'Frame Head'],
+            ['name' => 'Frame Stops', 'parent' => 'Frame'],
+            ['name' => 'Head Door Stop', 'parent' => 'Frame Stops'],
+            ['name' => 'Lock Door Stop', 'parent' => 'Frame Stops'],
+            ['name' => 'Hinge Door Stop', 'parent' => 'Frame Stops'],
+            ['name' => 'Transom', 'parent' => 'Frame'],
+            ['name' => 'Door Head Transom Stop - Active', 'parent' => 'Transom'],
+            ['name' => 'Door Head Transom Stop - Fixed', 'parent' => 'Transom'],
+            ['name' => 'Vertical Transom Stop - Active', 'parent' => 'Transom'],
+            ['name' => 'Vertical Transom Stop - Fixed', 'parent' => 'Transom'],
+            ['name' => '½ Glass adapter', 'parent' => 'Transom'],
+            ['name' => '¼ Glass adapter', 'parent' => 'Transom'],
+            ['name' => 'Pair Frame Rails', 'parent' => 'Frame'],
+            ['name' => 'LH Hinge Rail', 'parent' => 'Pair Frame Rails'],
+            ['name' => 'RH Hinge Rail', 'parent' => 'Pair Frame Rails'],
         ];
+
+        $resolvedParents = [];
 
         foreach ($seedOptions as $option) {
             $parentId = null;
 
             if ($option['parent'] !== null) {
-                $parentLookup->execute([':name' => $option['parent']]);
-                $parentCandidate = $parentLookup->fetchColumn();
-                if ($parentCandidate !== false) {
-                    $parentId = (int) $parentCandidate;
+                $parentId = $resolvedParents[$option['parent']] ?? null;
+
+                if ($parentId === null) {
+                    $parentLookup->execute([
+                        ':name' => $option['parent'],
+                        ':parent_id' => $resolvedParents[$option['parent']] ?? null,
+                    ]);
+                    $parentCandidate = $parentLookup->fetchColumn();
+                    if ($parentCandidate !== false) {
+                        $parentId = (int) $parentCandidate;
+                    }
                 }
             }
 
@@ -287,11 +338,13 @@ if (!function_exists('configuratorEnsureSchema')) {
                 ':parent_id' => $parentId,
             ]);
 
-            if ($parentId !== null) {
-                $updateParent->execute([
-                    ':name' => $option['name'],
-                    ':parent_id' => $parentId,
-                ]);
+            $parentLookup->execute([
+                ':name' => $option['name'],
+                ':parent_id' => $parentId,
+            ]);
+            $insertedId = $parentLookup->fetchColumn();
+            if ($insertedId !== false) {
+                $resolvedParents[$option['name']] = (int) $insertedId;
             }
         }
 
@@ -333,6 +386,80 @@ if (!function_exists('configuratorEnsureSchema')) {
         }
 
         return $map;
+    }
+
+    function configuratorResolveUsePath(\PDO $db, array $path): ?int
+    {
+        if ($path === []) {
+            return null;
+        }
+
+        $lookup = $db->prepare(
+            'SELECT id FROM configurator_part_use_options
+             WHERE name = :name AND ((parent_id IS NULL AND :parent_id IS NULL) OR parent_id = :parent_id)
+             ORDER BY id ASC
+             LIMIT 1'
+        );
+
+        $parentId = null;
+
+        foreach ($path as $name) {
+            $lookup->execute([
+                ':name' => $name,
+                ':parent_id' => $parentId,
+            ]);
+
+            $found = $lookup->fetchColumn();
+            if ($found === false) {
+                return null;
+            }
+
+            $parentId = (int) $found;
+        }
+
+        return $parentId;
+    }
+
+    /**
+     * @param list<string> $usePath
+     * @return list<array{id:int,label:string}>
+     */
+    function configuratorInventoryOptionsByUse(\PDO $db, array $usePath, string $partType): array
+    {
+        configuratorEnsureSchema($db);
+
+        $useId = configuratorResolveUsePath($db, $usePath);
+        if ($useId === null) {
+            return [];
+        }
+
+        $statement = $db->prepare(
+            'SELECT ii.id, ii.sku, ii.item
+             FROM configurator_part_use_links cpul
+             JOIN configurator_part_profiles cpp ON cpp.inventory_item_id = cpul.inventory_item_id AND cpp.is_enabled = TRUE AND cpp.part_type = :part_type
+             JOIN inventory_items ii ON ii.id = cpp.inventory_item_id
+             WHERE cpul.use_option_id = :use_id
+             ORDER BY ii.item ASC'
+        );
+
+        $statement->execute([
+            ':use_id' => $useId,
+            ':part_type' => $partType,
+        ]);
+
+        return array_map(
+            static function (array $row): array {
+                $sku = trim((string) $row['sku']);
+                $item = trim((string) $row['item']);
+                $label = $sku !== '' ? $sku . ' – ' . $item : $item;
+
+                return [
+                    'id' => (int) $row['id'],
+                    'label' => $label,
+                ];
+            },
+            $statement->fetchAll()
+        );
     }
 
     /**
