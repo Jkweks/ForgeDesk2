@@ -273,7 +273,7 @@ unset($groupItems, $item);
             try {
                 $systems = inventoryListSystems($db, 'framing');
                 foreach ($systems as $system) {
-                    $frameSystemOptions[(string) $system['id']] = trim($system['manufacturer'] . ' ' . $system['system']);
+                    $frameSystemOptions[(string) $system['id']] = (string) $system['system'];
                 }
             } catch (\Throwable $exception) {
                 $errors[] = 'Unable to load frame systems: ' . $exception->getMessage();
