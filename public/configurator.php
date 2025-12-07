@@ -108,6 +108,12 @@ $hingingOptions = [
 ];
 $frameGlazingOptions = $glazingOptions;
 $frameSystemOptions = [];
+$frameSystemTrace = [
+    'loaded' => [],
+    'error' => null,
+    'fallback_used' => false,
+    'fallback_values' => [],
+];
 $doorSystemOptions = [];
 $doorStileOptions = [];
 
@@ -274,9 +280,14 @@ unset($groupItems, $item);
                 $systems = inventoryListSystems($db, 'framing');
                 foreach ($systems as $system) {
                     $frameSystemOptions[(string) $system['id']] = (string) $system['system'];
+                    $frameSystemTrace['loaded'][] = [
+                        'id' => (string) $system['id'],
+                        'label' => (string) $system['system'],
+                    ];
                 }
             } catch (\Throwable $exception) {
                 $errors[] = 'Unable to load frame systems: ' . $exception->getMessage();
+                $frameSystemTrace['error'] = $exception->getMessage();
                 $frameSystemOptions = [];
             }
 
@@ -297,7 +308,11 @@ unset($groupItems, $item);
                 'draft_system_beta' => 'Draft - System Beta',
                 'draft_system_gamma' => 'Draft - System Gamma',
             ];
+            $frameSystemTrace['fallback_used'] = true;
+            $frameSystemTrace['fallback_values'] = array_values($frameSystemOptions);
         }
+
+        $frameSystemTrace['options'] = $frameSystemOptions;
 
         if ($doorSystemOptions === []) {
             $doorSystemOptions = [
@@ -1492,6 +1507,14 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
     ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
     window.localBuilderConfigId = <?= json_encode($builderState['config_id'] ?? null, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
     window.localJobScopes = <?= json_encode($jobScopeOptions, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
+    window.frameSystemTrace = <?= json_encode($frameSystemTrace, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
+    console.info('Configurator frame systems (framing system_type)', window.frameSystemTrace);
+    if (window.frameSystemTrace.error) {
+      console.error('Error loading framing systems from inventory_systems:', window.frameSystemTrace.error);
+    }
+    if (Array.isArray(window.frameSystemTrace.loaded) && window.frameSystemTrace.loaded.length === 0) {
+      console.warn('No framing systems available from inventory_systems; using fallback options:', window.frameSystemTrace.fallback_values);
+    }
   </script>
   <script>
     (function () {
