@@ -78,7 +78,7 @@ if (!function_exists('loadInventory')) {
             $sql .= ' WHERE system_type = :system_type';
         }
 
-        $sql .= ' ORDER BY manufacturer ASC, system ASC';
+        $sql .= ' ORDER BY id ASC';
 
         $statement = $db->prepare($sql);
         $statement->execute(

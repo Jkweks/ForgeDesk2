@@ -109,8 +109,17 @@ $hingingOptions = [
 $frameGlazingOptions = $glazingOptions;
 $frameSystemOptions = [];
 $frameSystemTrace = [
+    'db_config' => [
+        'host' => $databaseConfig['host'],
+        'port' => $databaseConfig['port'],
+        'name' => $databaseConfig['name'],
+        'user' => $databaseConfig['user'],
+    ],
+    'db_error' => null,
+    'query' => "SELECT system FROM public.inventory_systems WHERE system_type = 'framing' ORDER BY id ASC",
     'loaded' => [],
     'error' => null,
+    'no_results' => false,
     'fallback_used' => false,
     'fallback_values' => [],
 ];
@@ -248,6 +257,8 @@ if (!$localStorageOnly) {
     } catch (\Throwable $exception) {
         $dbError = $exception->getMessage();
     }
+
+    $frameSystemTrace['db_error'] = $dbError;
 }
 
 foreach ($nav as &$groupItems) {
@@ -290,6 +301,8 @@ unset($groupItems, $item);
                 $frameSystemTrace['error'] = $exception->getMessage();
                 $frameSystemOptions = [];
             }
+
+            $frameSystemTrace['no_results'] = $frameSystemOptions === [];
 
             try {
                 $doorSystems = inventoryListSystems($db, 'door');
