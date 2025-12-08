@@ -229,10 +229,10 @@ function configuratorLoadFrameSystems(\PDO $db, array $databaseConfig): array
 
     $options = [];
     $errors = [];
+    $diagnostics = null;
 
     try {
-        $statement = $db->prepare($trace['query']);
-        $statement->execute();
+        $statement = $db->query($trace['query']);
 
         while ($row = $statement->fetch(PDO::FETCH_ASSOC)) {
             $label = (string) ($row['system'] ?? '');
@@ -257,8 +257,38 @@ function configuratorLoadFrameSystems(\PDO $db, array $databaseConfig): array
         $trace['error'] = $exception->getMessage();
     }
 
+    if ($options === []) {
+        try {
+            $diagnostics = configuratorDiagnoseFrameSystems($db);
+            $trace['diagnostics'] = $diagnostics;
+
+            if (!empty($diagnostics['sample_rows'])) {
+                foreach ($diagnostics['sample_rows'] as $row) {
+                    $id = (string) ($row['id'] ?? '');
+                    $label = (string) ($row['system'] ?? '');
+
+                    if ($id === '' || $label === '') {
+                        continue;
+                    }
+
+                    $options[$id] = $label;
+                }
+
+                if ($options !== []) {
+                    $errors[] = 'Framing systems were loaded from diagnostics because the primary query returned no rows.';
+                }
+            }
+        } catch (\Throwable $exception) {
+            $trace['diagnostics_error'] = $exception->getMessage();
+            $errors[] = 'Diagnostics failed while checking framing systems: ' . $exception->getMessage();
+        }
+    }
+
     $trace['no_results'] = $options === [];
     $trace['options'] = $options;
+    if ($diagnostics !== null) {
+        $trace['diagnostics'] = $diagnostics;
+    }
 
     return [
         'options' => $options,
@@ -368,9 +398,9 @@ if (!$localStorageOnly) {
 
     if ($dbError !== null) {
         $errors[] = 'Database connection failed; frame systems cannot be loaded: ' . $dbError;
-    $frameSystemTrace['error'] = $dbError;
-    $frameSystemTrace['no_results'] = true;
-}
+        $frameSystemTrace['error'] = $dbError;
+        $frameSystemTrace['no_results'] = true;
+    }
 }
 
 foreach ($nav as &$groupItems) {
@@ -402,12 +432,13 @@ if ($dbError === null || $localStorageOnly) {
         $frameSystemResult = configuratorLoadFrameSystems($db, $databaseConfig);
         $frameSystemOptions = $frameSystemResult['options'];
         $frameSystemTrace = $frameSystemResult['trace'];
+        $frameSystemDiagnostics = $frameSystemResult['trace']['diagnostics'] ?? null;
         $frameSystemTrace['db_error'] = $dbError;
         $errors = array_merge($errors, $frameSystemResult['errors']);
 
         if ($frameSystemOptions === [] || isset($_GET['debug_frame_systems'])) {
             try {
-                $frameSystemDiagnostics = configuratorDiagnoseFrameSystems($db);
+                $frameSystemDiagnostics = $frameSystemDiagnostics ?? configuratorDiagnoseFrameSystems($db);
             } catch (\Throwable $exception) {
                 $frameSystemDiagnostics = [
                     'table_exists' => null,
