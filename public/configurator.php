@@ -127,6 +127,17 @@ $frameSystemTrace = [
 $doorSystemOptions = [];
 $doorStileOptions = [];
 
+function configuratorNormalizeOptionMap(array $options): array
+{
+    $normalized = [];
+
+    foreach ($options as $value => $label) {
+        $normalized[(string) $value] = (string) $label;
+    }
+
+    return $normalized;
+}
+
 function configuratorNormalizePartSelections(array $definitions, array $existing): array
 {
     $normalized = [];
@@ -431,7 +442,7 @@ if ($dbError === null || $localStorageOnly) {
         }
 
         $frameSystemResult = configuratorLoadFrameSystems($db, $databaseConfig);
-        $frameSystemOptions = $frameSystemResult['options'];
+        $frameSystemOptions = configuratorNormalizeOptionMap($frameSystemResult['options']);
         $frameSystemTrace = $frameSystemResult['trace'];
         $frameSystemDiagnostics = $frameSystemResult['trace']['diagnostics'] ?? null;
 
@@ -483,7 +494,7 @@ if ($dbError === null || $localStorageOnly) {
             $cachedTrace = isset($_SESSION['frame_system_cache']['trace']) && is_array($_SESSION['frame_system_cache']['trace'])
                 ? $_SESSION['frame_system_cache']['trace']
                 : [];
-            $frameSystemOptions = $_SESSION['frame_system_cache']['options'];
+            $frameSystemOptions = configuratorNormalizeOptionMap($_SESSION['frame_system_cache']['options']);
             if (!empty($cachedTrace)) {
                 $frameSystemTrace = array_merge($frameSystemTrace, $cachedTrace);
             }
