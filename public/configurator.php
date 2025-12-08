@@ -433,6 +433,18 @@ if ($dbError === null || $localStorageOnly) {
         $frameSystemOptions = $frameSystemResult['options'];
         $frameSystemTrace = $frameSystemResult['trace'];
         $frameSystemDiagnostics = $frameSystemResult['trace']['diagnostics'] ?? null;
+
+        // If the trace shows loaded systems but the options array is empty, rebuild the options
+        // so the dropdown renders the values returned by the inventory query.
+        if ($frameSystemOptions === [] && !empty($frameSystemTrace['loaded'])) {
+            foreach ($frameSystemTrace['loaded'] as $row) {
+                $id = (string) ($row['id'] ?? '');
+                $label = (string) ($row['label'] ?? '');
+                if ($id !== '' && $label !== '') {
+                    $frameSystemOptions[$id] = $label;
+                }
+            }
+        }
         $frameSystemTrace['db_error'] = $dbError;
         $errors = array_merge($errors, $frameSystemResult['errors']);
 
