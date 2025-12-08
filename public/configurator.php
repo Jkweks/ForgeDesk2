@@ -288,12 +288,24 @@ if ($dbError === null || $localStorageOnly) {
         }
 
         try {
-            $systems = inventoryListSystems($db, 'framing');
-            foreach ($systems as $system) {
-                $frameSystemOptions[(string) $system['id']] = (string) $system['system'];
+            $frameSystemSql = "SELECT id, system FROM public.inventory_systems WHERE system_type = 'framing' ORDER BY id ASC";
+            $frameSystemTrace['query'] = $frameSystemSql;
+
+            $statement = $db->prepare($frameSystemSql);
+            $statement->execute();
+
+            while ($row = $statement->fetch(PDO::FETCH_ASSOC)) {
+                $label = (string) ($row['system'] ?? '');
+                $value = (string) ($row['id'] ?? '');
+
+                if ($value === '') {
+                    continue;
+                }
+
+                $frameSystemOptions[$value] = $label;
                 $frameSystemTrace['loaded'][] = [
-                    'id' => (string) $system['id'],
-                    'label' => (string) $system['system'],
+                    'id' => $value,
+                    'label' => $label,
                 ];
             }
         } catch (\Throwable $exception) {
