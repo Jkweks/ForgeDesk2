@@ -271,78 +271,79 @@ foreach ($nav as &$groupItems) {
 }
 unset($groupItems, $item);
 
-    if ($dbError === null || $localStorageOnly) {
-        if (!$localStorageOnly) {
-            try {
-                $jobs = configuratorListJobs($db);
-            } catch (\Throwable $exception) {
-                $errors[] = 'Unable to load jobs: ' . $exception->getMessage();
-                $jobs = [];
+if ($dbError === null || $localStorageOnly) {
+    if (!$localStorageOnly) {
+        try {
+            $jobs = configuratorListJobs($db);
+        } catch (\Throwable $exception) {
+            $errors[] = 'Unable to load jobs: ' . $exception->getMessage();
+            $jobs = [];
+        }
+
+        try {
+            $doorTagTemplates = configuratorListDoorTagTemplates($db);
+        } catch (\Throwable $exception) {
+            $errors[] = 'Unable to load door tags: ' . $exception->getMessage();
+            $doorTagTemplates = [];
+        }
+
+        try {
+            $systems = inventoryListSystems($db, 'framing');
+            foreach ($systems as $system) {
+                $frameSystemOptions[(string) $system['id']] = (string) $system['system'];
+                $frameSystemTrace['loaded'][] = [
+                    'id' => (string) $system['id'],
+                    'label' => (string) $system['system'],
+                ];
             }
+        } catch (\Throwable $exception) {
+            $errors[] = 'Unable to load frame systems: ' . $exception->getMessage();
+            $frameSystemTrace['error'] = $exception->getMessage();
+            $frameSystemOptions = [];
+        }
 
-            try {
-                $doorTagTemplates = configuratorListDoorTagTemplates($db);
-            } catch (\Throwable $exception) {
-                $errors[] = 'Unable to load door tags: ' . $exception->getMessage();
-                $doorTagTemplates = [];
+        $frameSystemTrace['no_results'] = $frameSystemOptions === [];
+
+        try {
+            $doorSystems = inventoryListSystems($db, 'door');
+            foreach ($doorSystems as $system) {
+                $doorSystemOptions[(string) $system['id']] = trim($system['manufacturer'] . ' ' . $system['system']);
             }
-
-            try {
-                $systems = inventoryListSystems($db, 'framing');
-                foreach ($systems as $system) {
-                    $frameSystemOptions[(string) $system['id']] = (string) $system['system'];
-                    $frameSystemTrace['loaded'][] = [
-                        'id' => (string) $system['id'],
-                        'label' => (string) $system['system'],
-                    ];
-                }
-            } catch (\Throwable $exception) {
-                $errors[] = 'Unable to load frame systems: ' . $exception->getMessage();
-                $frameSystemTrace['error'] = $exception->getMessage();
-                $frameSystemOptions = [];
-            }
-
-            $frameSystemTrace['no_results'] = $frameSystemOptions === [];
-
-            try {
-                $doorSystems = inventoryListSystems($db, 'door');
-                foreach ($doorSystems as $system) {
-                    $doorSystemOptions[(string) $system['id']] = trim($system['manufacturer'] . ' ' . $system['system']);
-                }
-            } catch (\Throwable $exception) {
-                $errors[] = 'Unable to load door systems: ' . $exception->getMessage();
-                $doorSystemOptions = [];
-            }
+        } catch (\Throwable $exception) {
+            $errors[] = 'Unable to load door systems: ' . $exception->getMessage();
+            $doorSystemOptions = [];
         }
+    }
+}
 
-        if ($frameSystemOptions === []) {
-            $frameSystemOptions = [
-                'draft_system_alpha' => 'Draft - System Alpha',
-                'draft_system_beta' => 'Draft - System Beta',
-                'draft_system_gamma' => 'Draft - System Gamma',
-            ];
-            $frameSystemTrace['fallback_used'] = true;
-            $frameSystemTrace['fallback_values'] = array_values($frameSystemOptions);
-        }
+if ($frameSystemOptions === []) {
+    $frameSystemOptions = [
+        'draft_system_alpha' => 'Draft - System Alpha',
+        'draft_system_beta' => 'Draft - System Beta',
+        'draft_system_gamma' => 'Draft - System Gamma',
+    ];
+    $frameSystemTrace['fallback_used'] = true;
+    $frameSystemTrace['fallback_values'] = array_values($frameSystemOptions);
+}
 
-        $frameSystemTrace['options'] = $frameSystemOptions;
+$frameSystemTrace['options'] = $frameSystemOptions;
 
-        if ($doorSystemOptions === []) {
-            $doorSystemOptions = [
-                'draft_ws_continuous' => 'Draft - WS Continuous Hinge',
-                'draft_ws_butt' => 'Draft - WS Butt Hinge',
-            ];
-        }
+if ($doorSystemOptions === []) {
+    $doorSystemOptions = [
+        'draft_ws_continuous' => 'Draft - WS Continuous Hinge',
+        'draft_ws_butt' => 'Draft - WS Butt Hinge',
+    ];
+}
 
-        $doorStileOptions = $doorSystemOptions;
+$doorStileOptions = $doorSystemOptions;
 
-        $defaultDoorStile = array_key_first($doorStileOptions) ?? '';
-        if (!array_key_exists($doorFormData['active']['stile'], $doorStileOptions)) {
-            $doorFormData['active']['stile'] = $defaultDoorStile;
-        }
-        if (!array_key_exists($doorFormData['inactive']['stile'], $doorStileOptions)) {
-            $doorFormData['inactive']['stile'] = $defaultDoorStile;
-        }
+$defaultDoorStile = array_key_first($doorStileOptions) ?? '';
+if (!array_key_exists($doorFormData['active']['stile'], $doorStileOptions)) {
+    $doorFormData['active']['stile'] = $defaultDoorStile;
+}
+if (!array_key_exists($doorFormData['inactive']['stile'], $doorStileOptions)) {
+    $doorFormData['inactive']['stile'] = $defaultDoorStile;
+}
 
     $requestedConfigId = isset($_GET['id']) && ctype_digit((string) $_GET['id'])
         ? (int) $_GET['id']
@@ -764,7 +765,6 @@ unset($groupItems, $item);
             $configurations = [];
         }
     }
-}
 
 if (isset($_GET['success'])) {
     if ($_GET['success'] === 'created') {
