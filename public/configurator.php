@@ -116,12 +116,11 @@ $frameSystemTrace = [
         'user' => $databaseConfig['user'],
     ],
     'db_error' => null,
-    'query' => "SELECT system FROM public.inventory_systems WHERE system_type = 'framing' ORDER BY id ASC",
+    'query' => "SELECT id, system FROM public.inventory_systems WHERE system_type = 'framing' ORDER BY id ASC",
     'loaded' => [],
     'error' => null,
     'no_results' => false,
-    'fallback_used' => false,
-    'fallback_values' => [],
+    'options' => [],
 ];
 $doorSystemOptions = [];
 $doorStileOptions = [];
@@ -206,6 +205,66 @@ function configuratorDoorParts(string $glazing): array
 
     return $parts;
 }
+
+/**
+ * @return array{options: array<string,string>, trace: array<string,mixed>, errors: list<string>}
+ */
+function configuratorLoadFrameSystems(\PDO $db, array $databaseConfig): array
+{
+    $trace = [
+        'db_config' => [
+            'host' => $databaseConfig['host'],
+            'port' => $databaseConfig['port'],
+            'name' => $databaseConfig['name'],
+            'user' => $databaseConfig['user'],
+        ],
+        'db_error' => null,
+        'query' => "SELECT id, system FROM public.inventory_systems WHERE system_type = 'framing' ORDER BY id ASC",
+        'loaded' => [],
+        'error' => null,
+        'no_results' => false,
+        'options' => [],
+    ];
+
+    $options = [];
+    $errors = [];
+
+    try {
+        $statement = $db->prepare($trace['query']);
+        $statement->execute();
+
+        while ($row = $statement->fetch(PDO::FETCH_ASSOC)) {
+            $label = (string) ($row['system'] ?? '');
+            $value = (string) ($row['id'] ?? '');
+
+            if ($value === '') {
+                continue;
+            }
+
+            $options[$value] = $label;
+            $trace['loaded'][] = [
+                'id' => $value,
+                'label' => $label,
+            ];
+        }
+
+        if ($options === []) {
+            $errors[] = 'No framing systems are available in the inventory_systems table (system_type = "framing").';
+        }
+    } catch (\Throwable $exception) {
+        $errors[] = 'Unable to load frame systems: ' . $exception->getMessage();
+        $trace['error'] = $exception->getMessage();
+    }
+
+    $trace['no_results'] = $options === [];
+    $trace['options'] = $options;
+
+    return [
+        'options' => $options,
+        'trace' => $trace,
+        'errors' => $errors,
+    ];
+}
 $defaultBuilderForms = [
     'configuration' => $configFormData,
     'entry' => $entryFormData,
@@ -262,9 +321,9 @@ if (!$localStorageOnly) {
 
     if ($dbError !== null) {
         $errors[] = 'Database connection failed; frame systems cannot be loaded: ' . $dbError;
-        $frameSystemTrace['error'] = $dbError;
-        $frameSystemTrace['no_results'] = true;
-    }
+    $frameSystemTrace['error'] = $dbError;
+    $frameSystemTrace['no_results'] = true;
+}
 }
 
 foreach ($nav as &$groupItems) {
@@ -293,38 +352,11 @@ if ($dbError === null || $localStorageOnly) {
             $doorTagTemplates = [];
         }
 
-        try {
-            $frameSystemSql = "SELECT id, system FROM public.inventory_systems WHERE system_type = 'framing' ORDER BY id ASC";
-            $frameSystemTrace['query'] = $frameSystemSql;
-
-            $statement = $db->prepare($frameSystemSql);
-            $statement->execute();
-
-            while ($row = $statement->fetch(PDO::FETCH_ASSOC)) {
-                $label = (string) ($row['system'] ?? '');
-                $value = (string) ($row['id'] ?? '');
-
-                if ($value === '') {
-                    continue;
-                }
-
-                $frameSystemOptions[$value] = $label;
-                $frameSystemTrace['loaded'][] = [
-                    'id' => $value,
-                    'label' => $label,
-                ];
-            }
-
-            if ($frameSystemOptions === []) {
-                $errors[] = 'No framing systems are available in the inventory_systems table (system_type = "framing").';
-            }
-        } catch (\Throwable $exception) {
-            $errors[] = 'Unable to load frame systems: ' . $exception->getMessage();
-            $frameSystemTrace['error'] = $exception->getMessage();
-            $frameSystemOptions = [];
-        }
-
-        $frameSystemTrace['no_results'] = $frameSystemOptions === [];
+        $frameSystemResult = configuratorLoadFrameSystems($db, $databaseConfig);
+        $frameSystemOptions = $frameSystemResult['options'];
+        $frameSystemTrace = $frameSystemResult['trace'];
+        $frameSystemTrace['db_error'] = $dbError;
+        $errors = array_merge($errors, $frameSystemResult['errors']);
 
         try {
             $doorSystems = inventoryListSystems($db, 'door');
