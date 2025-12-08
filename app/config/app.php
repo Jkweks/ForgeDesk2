@@ -14,7 +14,7 @@ return [
         'host' => getenv('DB_HOST') ?: 'postgres',
         'port' => (int) (getenv('DB_PORT') ?: 5433),
         'name' => getenv('DB_DATABASE') ?: 'forgedesk',
-        'user' => getenv('DB_USERNAME') ?: 'fore_dev',
+        'user' => getenv('DB_USERNAME') ?: 'forge_dev',
         'password' => getenv('DB_PASSWORD') ?: 'forgepass_dev',
     ],
 ];

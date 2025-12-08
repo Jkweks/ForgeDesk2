@@ -14,7 +14,7 @@ services:
       DB_HOST: postgres
       DB_PORT: 5433
       DB_DATABASE: forgedesk
-      DB_USERNAME: fore_dev
+      DB_USERNAME: forge_dev
       DB_PASSWORD: forgepass_dev
     volumes:
       - ./:/var/www/html
@@ -32,7 +32,7 @@ services:
       DB_HOST: postgres
       DB_PORT: 5433
       DB_DATABASE: forgedesk
-      DB_USERNAME: fore_dev
+      DB_USERNAME: forge_dev
       DB_PASSWORD: forgepass_dev
       DJANGO_SUPERUSER_USERNAME: admin
       DJANGO_SUPERUSER_PASSWORD: adminpass
@@ -54,7 +54,7 @@ services:
     command: ["postgres", "-c", "port=5433"]
     environment:
       POSTGRES_DB: forgedesk
-      POSTGRES_USER: fore_dev
+      POSTGRES_USER: forge_dev
       POSTGRES_PASSWORD: forgepass_dev
     volumes:
       - postgres_data:/var/lib/postgresql/data
