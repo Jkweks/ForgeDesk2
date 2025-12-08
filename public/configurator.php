@@ -259,6 +259,12 @@ if (!$localStorageOnly) {
     }
 
     $frameSystemTrace['db_error'] = $dbError;
+
+    if ($dbError !== null) {
+        $errors[] = 'Database connection failed; frame systems cannot be loaded: ' . $dbError;
+        $frameSystemTrace['error'] = $dbError;
+        $frameSystemTrace['no_results'] = true;
+    }
 }
 
 foreach ($nav as &$groupItems) {
@@ -308,6 +314,10 @@ if ($dbError === null || $localStorageOnly) {
                     'label' => $label,
                 ];
             }
+
+            if ($frameSystemOptions === []) {
+                $errors[] = 'No framing systems are available in the inventory_systems table (system_type = "framing").';
+            }
         } catch (\Throwable $exception) {
             $errors[] = 'Unable to load frame systems: ' . $exception->getMessage();
             $frameSystemTrace['error'] = $exception->getMessage();
@@ -326,16 +336,6 @@ if ($dbError === null || $localStorageOnly) {
             $doorSystemOptions = [];
         }
     }
-}
-
-if ($frameSystemOptions === []) {
-    $frameSystemOptions = [
-        'draft_system_alpha' => 'Draft - System Alpha',
-        'draft_system_beta' => 'Draft - System Beta',
-        'draft_system_gamma' => 'Draft - System Gamma',
-    ];
-    $frameSystemTrace['fallback_used'] = true;
-    $frameSystemTrace['fallback_values'] = array_values($frameSystemOptions);
 }
 
 $frameSystemTrace['options'] = $frameSystemOptions;
@@ -1538,7 +1538,7 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
       console.error('Error loading framing systems from inventory_systems:', window.frameSystemTrace.error);
     }
     if (Array.isArray(window.frameSystemTrace.loaded) && window.frameSystemTrace.loaded.length === 0) {
-      console.warn('No framing systems available from inventory_systems; using fallback options:', window.frameSystemTrace.fallback_values);
+      console.error('No framing systems available from inventory_systems; frame system dropdown will remain empty.');
     }
   </script>
   <script>
