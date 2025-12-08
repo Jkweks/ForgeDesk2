@@ -122,6 +122,7 @@ $frameSystemTrace = [
     'error' => null,
     'no_results' => false,
     'options' => [],
+    'fallback' => null,
 ];
 $doorSystemOptions = [];
 $doorStileOptions = [];
@@ -434,6 +435,12 @@ if ($dbError === null || $localStorageOnly) {
         $frameSystemTrace = $frameSystemResult['trace'];
         $frameSystemDiagnostics = $frameSystemResult['trace']['diagnostics'] ?? null;
 
+        $_SESSION['frame_system_cache'] = [
+            'options' => $frameSystemOptions,
+            'trace' => $frameSystemTrace,
+            'timestamp' => time(),
+        ];
+
         // If the trace shows loaded systems but the options array is empty, rebuild the options
         // so the dropdown renders the values returned by the inventory query.
         if ($frameSystemOptions === [] && !empty($frameSystemTrace['loaded'])) {
@@ -465,6 +472,23 @@ if ($dbError === null || $localStorageOnly) {
             if ($frameSystemOptions === [] && $frameSystemDiagnostics !== null) {
                 $errors[] = 'No framing systems were returned. Diagnostics are shown below.';
             }
+        }
+
+        if (
+            $frameSystemOptions === []
+            && isset($_SESSION['frame_system_cache']['options'])
+            && is_array($_SESSION['frame_system_cache']['options'])
+            && $_SESSION['frame_system_cache']['options'] !== []
+        ) {
+            $cachedTrace = isset($_SESSION['frame_system_cache']['trace']) && is_array($_SESSION['frame_system_cache']['trace'])
+                ? $_SESSION['frame_system_cache']['trace']
+                : [];
+            $frameSystemOptions = $_SESSION['frame_system_cache']['options'];
+            if (!empty($cachedTrace)) {
+                $frameSystemTrace = array_merge($frameSystemTrace, $cachedTrace);
+            }
+            $frameSystemTrace['fallback'] = 'session_cache';
+            $errors[] = 'Using cached framing systems from this session because the live query returned no options.';
         }
 
         try {
@@ -1218,7 +1242,12 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                         <option value="<?= e($value) ?>"<?= $frameFormData['system_id'] === $value ? ' selected' : '' ?>><?= e($label) ?></option>
                       <?php endforeach; ?>
                     </select>
-                    <p class="small muted">Pulled from the inventory systems directory.</p>
+                    <p class="small muted">
+                      Pulled from the inventory systems directory.
+                      <?php if (($frameSystemTrace['fallback'] ?? null) === 'session_cache'): ?>
+                        Using cached results from this session because the live query returned no rows.
+                      <?php endif; ?>
+                    </p>
                     <?php if ($frameSystemOptions === []): ?>
                       <div class="alert error" role="alert">
                         <strong>No framing systems loaded.</strong> Check the inventory_systems table for entries where system_type = 'framing'.
@@ -1714,6 +1743,9 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
     }
     if (Array.isArray(window.frameSystemTrace.loaded) && window.frameSystemTrace.loaded.length === 0) {
       console.error('No framing systems available from inventory_systems; frame system dropdown will remain empty.');
+    }
+    if (window.frameSystemTrace.fallback === 'session_cache') {
+      console.warn('Frame systems populated from session cache because the live query returned no rows.');
     }
   </script>
   <script>
