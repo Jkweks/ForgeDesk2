@@ -108,6 +108,7 @@ $hingingOptions = [
 ];
 $frameGlazingOptions = $glazingOptions;
 $frameSystemOptions = [];
+$frameSystemDiagnostics = null;
 $frameSystemTrace = [
     'db_config' => [
         'host' => $databaseConfig['host'],
@@ -265,6 +266,52 @@ function configuratorLoadFrameSystems(\PDO $db, array $databaseConfig): array
         'errors' => $errors,
     ];
 }
+
+/**
+ * Run a lightweight framing-system diagnostic against the live database connection.
+ *
+ * @return array{table_exists:bool|null,total_rows:int|null,framing_rows:int|null,sample_rows:list<array{id:int|string,system:string|null,system_type:string|null}>,error:?string}
+ */
+function configuratorDiagnoseFrameSystems(\PDO $db): array
+{
+    $diagnostics = [
+        'table_exists' => null,
+        'total_rows' => null,
+        'framing_rows' => null,
+        'sample_rows' => [],
+        'error' => null,
+    ];
+
+    try {
+        $tableStatement = $db->prepare(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'inventory_systems') AS exists"
+        );
+        $tableStatement->execute();
+        $diagnostics['table_exists'] = (bool) $tableStatement->fetchColumn();
+
+        if ($diagnostics['table_exists']) {
+            $diagnostics['total_rows'] = (int) $db->query('SELECT COUNT(*) FROM public.inventory_systems')->fetchColumn();
+            $diagnostics['framing_rows'] = (int) $db->query("SELECT COUNT(*) FROM public.inventory_systems WHERE system_type = 'framing'")->fetchColumn();
+
+            $sampleStatement = $db->prepare(
+                "SELECT id, system, system_type FROM public.inventory_systems WHERE system_type = 'framing' ORDER BY id ASC LIMIT 20"
+            );
+            $sampleStatement->execute();
+            $diagnostics['sample_rows'] = array_map(
+                static fn (array $row): array => [
+                    'id' => $row['id'],
+                    'system' => $row['system'] ?? null,
+                    'system_type' => $row['system_type'] ?? null,
+                ],
+                $sampleStatement->fetchAll()
+            );
+        }
+    } catch (\Throwable $exception) {
+        $diagnostics['error'] = $exception->getMessage();
+    }
+
+    return $diagnostics;
+}
 $defaultBuilderForms = [
     'configuration' => $configFormData,
     'entry' => $entryFormData,
@@ -358,6 +405,25 @@ if ($dbError === null || $localStorageOnly) {
         $frameSystemTrace['db_error'] = $dbError;
         $errors = array_merge($errors, $frameSystemResult['errors']);
 
+        if ($frameSystemOptions === [] || isset($_GET['debug_frame_systems'])) {
+            try {
+                $frameSystemDiagnostics = configuratorDiagnoseFrameSystems($db);
+            } catch (\Throwable $exception) {
+                $frameSystemDiagnostics = [
+                    'table_exists' => null,
+                    'total_rows' => null,
+                    'framing_rows' => null,
+                    'sample_rows' => [],
+                    'error' => $exception->getMessage(),
+                ];
+            }
+            $frameSystemTrace['diagnostics'] = $frameSystemDiagnostics;
+
+            if ($frameSystemOptions === [] && $frameSystemDiagnostics !== null) {
+                $errors[] = 'No framing systems were returned. Diagnostics are shown below.';
+            }
+        }
+
         try {
             $doorSystems = inventoryListSystems($db, 'door');
             foreach ($doorSystems as $system) {
@@ -371,6 +437,7 @@ if ($dbError === null || $localStorageOnly) {
 }
 
 $frameSystemTrace['options'] = $frameSystemOptions;
+$frameSystemTrace['diagnostics'] = $frameSystemDiagnostics;
 
 if ($doorSystemOptions === []) {
     $doorSystemOptions = [
@@ -1109,6 +1176,36 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                       <?php endforeach; ?>
                     </select>
                     <p class="small muted">Pulled from the inventory systems directory.</p>
+                    <?php if ($frameSystemOptions === []): ?>
+                      <div class="alert error" role="alert">
+                        <strong>No framing systems loaded.</strong> Check the inventory_systems table for entries where system_type = 'framing'.
+                        <?php if ($frameSystemTrace['error'] ?? null): ?>
+                          <div><?= e($frameSystemTrace['error']) ?></div>
+                        <?php endif; ?>
+                      </div>
+                      <?php if ($frameSystemDiagnostics !== null): ?>
+                        <div class="alert info" role="status">
+                          <p class="small">Diagnostics:</p>
+                          <ul class="small muted">
+                            <li>Table exists: <?= $frameSystemDiagnostics['table_exists'] === null ? 'Unknown' : ($frameSystemDiagnostics['table_exists'] ? 'Yes' : 'No') ?></li>
+                            <li>Total rows: <?= $frameSystemDiagnostics['total_rows'] === null ? 'Unknown' : (string) $frameSystemDiagnostics['total_rows'] ?></li>
+                            <li>Framing rows: <?= $frameSystemDiagnostics['framing_rows'] === null ? 'Unknown' : (string) $frameSystemDiagnostics['framing_rows'] ?></li>
+                            <?php if (!empty($frameSystemDiagnostics['sample_rows'])): ?>
+                              <li>Sample framing systems:
+                                <ul>
+                                  <?php foreach ($frameSystemDiagnostics['sample_rows'] as $row): ?>
+                                    <li><?= e((string) ($row['id'] ?? '')) ?> — <?= e((string) ($row['system'] ?? '')) ?> (<?= e((string) ($row['system_type'] ?? '')) ?>)</li>
+                                  <?php endforeach; ?>
+                                </ul>
+                              </li>
+                            <?php endif; ?>
+                            <?php if (!empty($frameSystemDiagnostics['error'])): ?>
+                              <li>Error: <?= e((string) $frameSystemDiagnostics['error']) ?></li>
+                            <?php endif; ?>
+                          </ul>
+                        </div>
+                      <?php endif; ?>
+                    <?php endif; ?>
                   </div>
                   <div class="field">
                     <label for="frame_glazing">Frame glazing</label>
@@ -1568,6 +1665,9 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
     console.info('Configurator frame systems (framing system_type)', window.frameSystemTrace);
     if (window.frameSystemTrace.error) {
       console.error('Error loading framing systems from inventory_systems:', window.frameSystemTrace.error);
+    }
+    if (window.frameSystemTrace.diagnostics) {
+      console.info('Framing diagnostics', window.frameSystemTrace.diagnostics);
     }
     if (Array.isArray(window.frameSystemTrace.loaded) && window.frameSystemTrace.loaded.length === 0) {
       console.error('No framing systems available from inventory_systems; frame system dropdown will remain empty.');
