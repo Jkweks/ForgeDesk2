@@ -502,6 +502,20 @@ if ($dbError === null || $localStorageOnly) {
             $errors[] = 'Using cached framing systems from this session because the live query returned no options.';
         }
 
+        // As a final guard, rebuild the dropdown map from any trace options so rendering cannot
+        // fail when IDs were returned but the primary options array ended up empty.
+        if ($frameSystemOptions === [] && !empty($frameSystemTrace['options'])) {
+            $frameSystemOptions = configuratorNormalizeOptionMap($frameSystemTrace['options']);
+            if (!isset($frameSystemTrace['fallback'])) {
+                $frameSystemTrace['fallback'] = 'trace_options';
+            }
+        }
+
+        // Normalize after all fallbacks so option keys/labels are strings for safe HTML escaping.
+        if ($frameSystemOptions !== []) {
+            $frameSystemOptions = configuratorNormalizeOptionMap($frameSystemOptions);
+        }
+
         try {
             $doorSystems = inventoryListSystems($db, 'door');
             foreach ($doorSystems as $system) {
