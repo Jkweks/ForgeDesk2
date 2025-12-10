@@ -18,6 +18,8 @@ ForgeDesk ERP is a fabrication-focused inventory, estimating, and production env
 
 Agents MUST follow existing structure and naming unless explicitly instructed to change it.
 
+Always consult `configurator.md` when modifying the door configurator. The document lists the required inputs, option labels, and UX notes (e.g., tabbed door leaf builder, default draft jobs) that must stay in sync with any configurator changes. Add open configurator questions to the bottom of `configurator.md` and remove questions once resolved so future agents see only active follow-ups.
+
 ---
 
 ## 2. Repository Structure (Typical)
@@ -47,6 +49,7 @@ Always search for similar patterns before introducing new logic.
 
 ### 3.1 General Rules
 - Use **migrations** for production schema changes.
+- Add new migrations as Django `.py` migrations (e.g., under `admin_service/*/migrations`) so they run through the admin panel; avoid new raw SQL migration files going forward.
 - Use `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` when adding columns.
 - Prefer foreign keys when appropriate.
 - Add indexes for columns used in filters/joins.
