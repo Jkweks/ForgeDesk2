@@ -12,9 +12,9 @@ return [
     ],
     'database' => [
         'host' => getenv('DB_HOST') ?: 'postgres',
-        'port' => (int) (getenv('DB_PORT') ?: 5432),
-        'name' => getenv('DB_DATABASE') ?: 'forge_desk',
-        'user' => getenv('DB_USERNAME') ?: 'forge',
-        'password' => getenv('DB_PASSWORD') ?: 'forgepass',
+        'port' => (int) (getenv('DB_PORT') ?: 5433),
+        'name' => getenv('DB_DATABASE') ?: 'forgedesk',
+        'user' => getenv('DB_USERNAME') ?: 'forge_dev',
+        'password' => getenv('DB_PASSWORD') ?: 'forgepass_dev',
     ],
 ];

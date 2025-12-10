@@ -133,6 +133,57 @@ class InventoryMetric(models.Model):
         return self.label
 
 
+class InventorySystem(models.Model):
+    """Inventory systems used for framing and door selections."""
+
+    id = models.BigAutoField(primary_key=True)
+    name = models.TextField()
+    manufacturer = models.TextField(default="")
+    system = models.TextField(default="")
+    default_glazing = models.DecimalField(max_digits=10, decimal_places=4, blank=True, null=True)
+    default_frame_parts = models.JSONField(default=list)
+    default_door_parts = models.JSONField(default=list)
+    system_type = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField()
+
+    class Meta:
+        managed = False
+        db_table = "inventory_systems"
+        ordering = ["name"]
+        verbose_name = "Inventory system"
+        verbose_name_plural = "Inventory systems"
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return self.name
+
+
+class InventoryItemSystem(models.Model):
+    """Join table linking inventory items to supported systems."""
+
+    inventory_item = models.ForeignKey(
+        InventoryItem,
+        on_delete=models.CASCADE,
+        db_column="inventory_item_id",
+        related_name="supported_systems",
+    )
+    system = models.ForeignKey(
+        InventorySystem,
+        on_delete=models.CASCADE,
+        db_column="system_id",
+        related_name="system_items",
+    )
+
+    class Meta:
+        managed = False
+        db_table = "inventory_item_systems"
+        unique_together = ("inventory_item", "system")
+        verbose_name = "Inventory item system"
+        verbose_name_plural = "Inventory item systems"
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return f"{self.inventory_item} → {self.system}"
+
+
 class JobReservation(models.Model):
     """Represents a reservation request for inventory."""
 
@@ -296,6 +347,29 @@ class InventoryTransactionLine(models.Model):
 
     def __str__(self) -> str:  # pragma: no cover - trivial
         return f"{self.transaction.reference} → {self.inventory_item.sku}"
+
+
+class InventoryDailyUsage(models.Model):
+    """Usage history for calculating demand trends."""
+
+    inventory_item = models.ForeignKey(
+        InventoryItem,
+        on_delete=models.CASCADE,
+        db_column="inventory_item_id",
+        related_name="daily_usage_records",
+    )
+    usage_date = models.DateField()
+    quantity_used = models.IntegerField(default=0)
+
+    class Meta:
+        managed = False
+        db_table = "inventory_daily_usage"
+        unique_together = ("inventory_item", "usage_date")
+        verbose_name = "Inventory daily usage"
+        verbose_name_plural = "Inventory daily usage entries"
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return f"{self.inventory_item} on {self.usage_date}"
 
 
 class Supplier(models.Model):
@@ -476,6 +550,14 @@ class MaintenanceMachine(models.Model):
     id = models.BigAutoField(primary_key=True)
     name = models.TextField()
     equipment_type = models.TextField()
+    machine_type = models.ForeignKey(
+        "MaintenanceMachineType",
+        on_delete=models.SET_NULL,
+        db_column="machine_type_id",
+        related_name="machines",
+        blank=True,
+        null=True,
+    )
     manufacturer = models.TextField(blank=True, null=True)
     model = models.TextField(blank=True, null=True)
     serial_number = models.TextField(blank=True, null=True)
@@ -494,6 +576,74 @@ class MaintenanceMachine(models.Model):
 
     def __str__(self) -> str:  # pragma: no cover - trivial
         return self.name
+
+
+class MaintenanceMachineType(models.Model):
+    """Reference data for categorizing maintenance machines."""
+
+    id = models.BigAutoField(primary_key=True)
+    name = models.TextField()
+    created_at = models.DateTimeField()
+    updated_at = models.DateTimeField()
+
+    class Meta:
+        managed = False
+        db_table = "maintenance_machine_types"
+        ordering = ["name"]
+        verbose_name = "Maintenance machine type"
+        verbose_name_plural = "Maintenance machine types"
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return self.name
+
+
+class MaintenanceAsset(models.Model):
+    """Documents and assets associated with maintenance operations."""
+
+    id = models.BigAutoField(primary_key=True)
+    name = models.TextField()
+    description = models.TextField(blank=True, null=True)
+    documents = models.JSONField(default=list)
+    notes = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField()
+    updated_at = models.DateTimeField()
+
+    class Meta:
+        managed = False
+        db_table = "maintenance_assets"
+        ordering = ["name"]
+        verbose_name = "Maintenance asset"
+        verbose_name_plural = "Maintenance assets"
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return self.name
+
+
+class MaintenanceAssetMachine(models.Model):
+    """Join table connecting maintenance assets to machines."""
+
+    asset = models.ForeignKey(
+        MaintenanceAsset,
+        on_delete=models.CASCADE,
+        db_column="asset_id",
+        related_name="asset_machines",
+    )
+    machine = models.ForeignKey(
+        MaintenanceMachine,
+        on_delete=models.CASCADE,
+        db_column="machine_id",
+        related_name="machine_assets",
+    )
+
+    class Meta:
+        managed = False
+        db_table = "maintenance_asset_machines"
+        unique_together = ("asset", "machine")
+        verbose_name = "Maintenance asset machine"
+        verbose_name_plural = "Maintenance asset machines"
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return f"{self.asset} → {self.machine}"
 
 
 class MaintenanceTask(models.Model):
@@ -555,6 +705,14 @@ class MaintenanceRecord(models.Model):
     downtime_minutes = models.IntegerField(blank=True, null=True)
     labor_hours = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
     parts_used = models.JSONField(default=list)
+    asset = models.ForeignKey(
+        MaintenanceAsset,
+        on_delete=models.SET_NULL,
+        db_column="asset_id",
+        related_name="records",
+        blank=True,
+        null=True,
+    )
     created_at = models.DateTimeField()
 
     class Meta:
@@ -572,7 +730,7 @@ class ConfiguratorPartUseOption(models.Model):
     """Configurator use tree that also encodes part type roots."""
 
     id = models.BigAutoField(primary_key=True)
-    name = models.TextField(unique=True)
+    name = models.TextField()
     parent = models.ForeignKey(
         "self",
         on_delete=models.SET_NULL,
@@ -683,7 +841,7 @@ class ConfiguratorJob(models.Model):
     """Job directory entries for configurator workflows."""
 
     id = models.BigAutoField(primary_key=True)
-    job_number = models.TextField(unique=True)
+    job_number = models.TextField()
     name = models.TextField()
     created_at = models.DateTimeField()
 
