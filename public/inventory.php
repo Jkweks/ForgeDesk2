@@ -334,7 +334,11 @@ if ($dbError === null) {
             $quantityRaw = trim((string) ($row['quantity'] ?? ''));
             $labelRaw = trim((string) ($row['label'] ?? ''));
 
-            if ($itemIdRaw === '' && $quantityRaw === '' && $labelRaw === '') {
+            if ($itemIdRaw === '' && $labelRaw === '' && $quantityRaw === '') {
+                continue;
+            }
+
+            if ($itemIdRaw === '' && $labelRaw === '') {
                 continue;
             }
 
