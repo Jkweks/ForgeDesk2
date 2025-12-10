@@ -7,8 +7,8 @@ $nav = require __DIR__ . '/../app/data/navigation.php';
 require_once __DIR__ . '/../app/helpers/icons.php';
 require_once __DIR__ . '/../app/helpers/database.php';
 require_once __DIR__ . '/../app/helpers/view.php';
-require_once __DIR__ . '/../app/data/configurator.php';
 require_once __DIR__ . '/../app/data/inventory.php';
+require_once __DIR__ . '/../app/data/configurator.php';
 
 session_start();
 
@@ -945,10 +945,18 @@ if (!array_key_exists($doorFormData['inactive']['stile'], $doorStileOptions)) {
 
     $framePartOptions = [];
     $doorPartOptions = ['active' => [], 'inactive' => []];
+    $frameSystemIdFilter = $frameFormData['system_id'] !== '' ? (int) $frameFormData['system_id'] : null;
+    $frameFinishFilter = inventoryNormalizeFinish($entryFormData['finish'] ?? null);
 
     if (!$localStorageOnly && $db !== null) {
         foreach ($framePartDefinitions as $definition) {
-            $framePartOptions[$definition['id']] = configuratorInventoryOptionsByUse($db, $definition['use_path'], $definition['part_type']);
+            $framePartOptions[$definition['id']] = configuratorInventoryOptionsByUse(
+                $db,
+                $definition['use_path'],
+                $definition['part_type'],
+                $frameSystemIdFilter,
+                $frameFinishFilter
+            );
         }
 
         foreach ($doorPartDefinitionsActive as $definition) {
