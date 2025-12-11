@@ -1607,6 +1607,28 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
       return;
     }
 
+    const systemsSelect = modal.querySelector('#systems');
+
+    if (systemsSelect instanceof HTMLSelectElement && systemsSelect.multiple) {
+      systemsSelect.addEventListener('mousedown', (event) => {
+        if (!(event.target instanceof HTMLOptionElement)) {
+          return;
+        }
+
+        event.preventDefault();
+        const option = event.target;
+        option.selected = !option.selected;
+        option.focus();
+      });
+    }
+  })();
+
+  (function () {
+    const modal = document.getElementById('inventory-modal');
+    if (!modal) {
+      return;
+    }
+
     const body = document.body;
     const closeUrl = modal.getAttribute('data-close-url') || 'inventory.php';
     const closeModal = () => {
