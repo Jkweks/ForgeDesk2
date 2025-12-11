@@ -947,16 +947,19 @@ if (!array_key_exists($doorFormData['inactive']['stile'], $doorStileOptions)) {
     $doorPartOptions = ['active' => [], 'inactive' => []];
     $frameSystemIdFilter = $frameFormData['system_id'] !== '' ? (int) $frameFormData['system_id'] : null;
     $frameFinishFilter = inventoryNormalizeFinish($entryFormData['finish'] ?? null);
+    $frameSystemSelected = $frameSystemIdFilter !== null;
 
     if (!$localStorageOnly && $db !== null) {
-        foreach ($framePartDefinitions as $definition) {
-            $framePartOptions[$definition['id']] = configuratorInventoryOptionsByUse(
-                $db,
-                $definition['use_path'],
-                $definition['part_type'],
-                $frameSystemIdFilter,
-                $frameFinishFilter
-            );
+        if ($frameSystemIdFilter !== null) {
+            foreach ($framePartDefinitions as $definition) {
+                $framePartOptions[$definition['id']] = configuratorInventoryOptionsByUse(
+                    $db,
+                    $definition['use_path'],
+                    $definition['part_type'],
+                    $frameSystemIdFilter,
+                    $frameFinishFilter
+                );
+            }
         }
 
         foreach ($doorPartDefinitionsActive as $definition) {
@@ -1352,13 +1355,16 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
 
                 <div class="field">
                   <label>Frame parts list</label>
+                  <?php if (!$frameSystemSelected): ?>
+                    <p class="small muted">Select a frame system to load available parts.</p>
+                  <?php endif; ?>
                   <div class="stacked gap-xs" aria-live="polite">
                     <?php foreach ($framePartDefinitions as $definition): ?>
                       <?php $selected = $frameFormData['parts'][$definition['id']] ?? ''; ?>
                       <?php $options = $framePartOptions[$definition['id']] ?? []; ?>
                       <label class="stacked">
                         <span><?= e($definition['label']) ?></span>
-                        <select name="frame_part_selection[<?= e($definition['id']) ?>]">
+                        <select name="frame_part_selection[<?= e($definition['id']) ?>]"<?= $frameSystemSelected ? '' : ' disabled' ?>>
                           <option value="">Select a part</option>
                           <?php foreach ($options as $option): ?>
                             <option value="<?= e((string) $option['id']) ?>"<?= (string) $selected === (string) $option['id'] ? ' selected' : '' ?>><?= e($option['label']) ?></option>
@@ -1366,7 +1372,7 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                         </select>
                         <p class="small muted">Filtered by <?= e(implode(' → ', $definition['use_path'])) ?> (frame).</p>
                       </label>
-                      <?php if ($options === []): ?>
+                      <?php if ($options === [] && $frameSystemSelected): ?>
                         <p class="small muted">No matching frame parts available for this use type.</p>
                       <?php endif; ?>
                     <?php endforeach; ?>
@@ -1791,6 +1797,7 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
       const handFields = document.querySelectorAll('[data-hand]');
       const handPairSelect = document.getElementById('entry_hand_pair');
       const lhWarning = document.querySelector('[data-lhra-warning]');
+      const frameSystemSelect = document.getElementById('frame_system_id');
       const frameTransomSelect = document.querySelector('[data-frame-transom]');
       const frameTransomHeightRow = document.querySelector('[data-frame-transom-height]');
       const frameTransomGlazingSelect = document.getElementById('frame_transom_glazing');
@@ -2073,6 +2080,23 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
         renderFrameParts();
       });
       handPairSelect?.addEventListener('change', syncPairWarning);
+      frameSystemSelect?.addEventListener('change', () => {
+        const form = frameSystemSelect.closest('form');
+        if (!(form instanceof HTMLFormElement)) {
+          return;
+        }
+
+        let navigateTo = form.querySelector('input[name="navigate_to"]');
+        if (!(navigateTo instanceof HTMLInputElement)) {
+          navigateTo = document.createElement('input');
+          navigateTo.type = 'hidden';
+          navigateTo.name = 'navigate_to';
+          form.appendChild(navigateTo);
+        }
+
+        navigateTo.value = 'frame';
+        form.submit();
+      });
       frameTransomSelect?.addEventListener('change', () => {
         syncFrameTransom();
         renderFrameParts();
