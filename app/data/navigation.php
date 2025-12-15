@@ -27,7 +27,7 @@ return [
         ['icon' => 'settings', 'label' => 'Door Assembly', 'badge' => 'soon'],
     ],
     'System' => [
-        ['icon' => 'database', 'label' => 'Database Health', 'badge' => 'beta'],
+        ['icon' => 'database', 'label' => 'Database Health', 'href' => '/database-health.php', 'badge' => 'beta'],
         // ['icon' => 'upload', 'label' => 'Data Seeding', 'href' => '/admin/import.php'],
     ],
 ];
