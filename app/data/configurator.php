@@ -454,7 +454,7 @@ if (!function_exists('configuratorEnsureSchema')) {
 
         $normalizedFinish = inventoryNormalizeFinish($finish);
 
-        $sql = 'SELECT ii.id, ii.sku, ii.item
+        $sql = 'SELECT ii.id, ii.sku, ii.item, cpp.height_lz, cpp.depth_ly
                 FROM configurator_part_use_links cpul
                 JOIN configurator_part_profiles cpp ON cpp.inventory_item_id = cpul.inventory_item_id AND cpp.is_enabled = TRUE AND cpp.part_type = :part_type
                 JOIN inventory_items ii ON ii.id = cpp.inventory_item_id';
@@ -491,6 +491,8 @@ if (!function_exists('configuratorEnsureSchema')) {
                 return [
                     'id' => (int) $row['id'],
                     'label' => $label,
+                    'height_lz' => $row['height_lz'] !== null ? (float) $row['height_lz'] : null,
+                    'depth_ly' => $row['depth_ly'] !== null ? (float) $row['depth_ly'] : null,
                 ];
             },
             $statement->fetchAll()
