@@ -334,7 +334,11 @@ if ($dbError === null) {
             $quantityRaw = trim((string) ($row['quantity'] ?? ''));
             $labelRaw = trim((string) ($row['label'] ?? ''));
 
-            if ($itemIdRaw === '' && $quantityRaw === '' && $labelRaw === '') {
+            if ($itemIdRaw === '' && $labelRaw === '' && $quantityRaw === '') {
+                continue;
+            }
+
+            if ($itemIdRaw === '' && $labelRaw === '') {
                 continue;
             }
 
@@ -1594,6 +1598,28 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
     if (configuratorCheckbox instanceof HTMLInputElement) {
       configuratorCheckbox.addEventListener('change', syncConfiguratorControls);
       syncConfiguratorControls();
+    }
+  })();
+
+  (function () {
+    const modal = document.getElementById('inventory-modal');
+    if (!modal) {
+      return;
+    }
+
+    const systemsSelect = modal.querySelector('#systems');
+
+    if (systemsSelect instanceof HTMLSelectElement && systemsSelect.multiple) {
+      systemsSelect.addEventListener('mousedown', (event) => {
+        if (!(event.target instanceof HTMLOptionElement)) {
+          return;
+        }
+
+        event.preventDefault();
+        const option = event.target;
+        option.selected = !option.selected;
+        option.focus();
+      });
     }
   })();
 

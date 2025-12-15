@@ -3,11 +3,11 @@
 declare(strict_types=1);
 
 /**
- * Escape a string for safe output in HTML contexts.
+ * Escape a value for safe output in HTML contexts.
  */
-function e(string $value): string
+function e(string|int|float|bool|\Stringable|null $value): string
 {
-    return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+    return htmlspecialchars((string) ($value ?? ''), ENT_QUOTES, 'UTF-8');
 }
 
 /**

@@ -437,7 +437,13 @@ if (!function_exists('configuratorEnsureSchema')) {
      * @param list<string> $usePath
      * @return list<array{id:int,label:string}>
      */
-    function configuratorInventoryOptionsByUse(\PDO $db, array $usePath, string $partType): array
+    function configuratorInventoryOptionsByUse(
+        \PDO $db,
+        array $usePath,
+        string $partType,
+        ?int $systemId = null,
+        ?string $finish = null
+    ): array
     {
         configuratorEnsureSchema($db);
 
@@ -446,19 +452,35 @@ if (!function_exists('configuratorEnsureSchema')) {
             return [];
         }
 
-        $statement = $db->prepare(
-            'SELECT ii.id, ii.sku, ii.item
-             FROM configurator_part_use_links cpul
-             JOIN configurator_part_profiles cpp ON cpp.inventory_item_id = cpul.inventory_item_id AND cpp.is_enabled = TRUE AND cpp.part_type = :part_type
-             JOIN inventory_items ii ON ii.id = cpp.inventory_item_id
-             WHERE cpul.use_option_id = :use_id
-             ORDER BY ii.item ASC'
-        );
+        $normalizedFinish = inventoryNormalizeFinish($finish);
 
-        $statement->execute([
+        $sql = 'SELECT ii.id, ii.sku, ii.item
+                FROM configurator_part_use_links cpul
+                JOIN configurator_part_profiles cpp ON cpp.inventory_item_id = cpul.inventory_item_id AND cpp.is_enabled = TRUE AND cpp.part_type = :part_type
+                JOIN inventory_items ii ON ii.id = cpp.inventory_item_id';
+
+        $params = [
             ':use_id' => $useId,
             ':part_type' => $partType,
-        ]);
+        ];
+
+        if ($systemId !== null) {
+            $sql .= ' JOIN inventory_item_systems iis ON iis.inventory_item_id = ii.id AND iis.system_id = :system_id';
+            $params[':system_id'] = $systemId;
+        }
+
+        $sql .= ' WHERE cpul.use_option_id = :use_id';
+
+        if ($normalizedFinish !== null) {
+            $sql .= ' AND UPPER(ii.finish) = :finish';
+            $params[':finish'] = $normalizedFinish;
+        }
+
+        $sql .= ' ORDER BY ii.item ASC';
+
+        $statement = $db->prepare($sql);
+
+        $statement->execute($params);
 
         return array_map(
             static function (array $row): array {

@@ -7,8 +7,8 @@ $nav = require __DIR__ . '/../app/data/navigation.php';
 require_once __DIR__ . '/../app/helpers/icons.php';
 require_once __DIR__ . '/../app/helpers/database.php';
 require_once __DIR__ . '/../app/helpers/view.php';
-require_once __DIR__ . '/../app/data/configurator.php';
 require_once __DIR__ . '/../app/data/inventory.php';
+require_once __DIR__ . '/../app/data/configurator.php';
 
 session_start();
 
@@ -108,6 +108,7 @@ $hingingOptions = [
 ];
 $frameGlazingOptions = $glazingOptions;
 $frameSystemOptions = [];
+$frameSystemDefaults = [];
 $frameSystemDiagnostics = null;
 $frameSystemTrace = [
     'db_config' => [
@@ -192,6 +193,78 @@ function configuratorFrameParts(string $openingType, string $transom, string $tr
     }
 
     return $parts;
+}
+
+/**
+ * @param list<array{id:string,label:string,use_path:list<string>,part_type:string}> $definitions
+ * @param array<string,list<array{id:int,label:string}>> $options
+ * @param array<string,string> $selections
+ * @param list<string> $defaultNames
+ * @return array<string,string>
+ */
+function configuratorApplyFrameDefaults(
+    array $definitions,
+    array $options,
+    array $selections,
+    array $defaultNames
+): array {
+    if ($defaultNames === []) {
+        return $selections;
+    }
+
+    $normalizedDefaults = array_values(array_filter(
+        array_map(
+            static fn (string $name): string => strtolower(trim($name)),
+            $defaultNames
+        ),
+        static fn (string $name): bool => $name !== ''
+    ));
+
+    foreach ($definitions as $definition) {
+        $current = $selections[$definition['id']] ?? '';
+        if ($current !== '') {
+            continue;
+        }
+
+        $available = $options[$definition['id']] ?? [];
+        if ($available === []) {
+            continue;
+        }
+
+        $labelKey = strtolower(trim($definition['label']));
+        $matchedToken = null;
+
+        foreach ($normalizedDefaults as $token) {
+            if (str_contains($labelKey, $token) || str_contains($token, $labelKey)) {
+                $matchedToken = $token;
+                break;
+            }
+        }
+
+        if ($matchedToken === null) {
+            continue;
+        }
+
+        $matchedOption = null;
+
+        foreach ($available as $option) {
+            $optionLabel = strtolower(trim((string) $option['label']));
+            if (str_contains($optionLabel, $matchedToken)) {
+                $matchedOption = (string) $option['id'];
+                break;
+            }
+        }
+
+        if ($matchedOption === null && isset($available[0]['id'])) {
+            $matchedOption = (string) $available[0]['id'];
+        }
+
+        if ($matchedOption !== null) {
+            $selections[$definition['id']] = $matchedOption;
+        }
+    }
+
+    return $selections;
 }
 
 /**
@@ -380,6 +453,8 @@ $builderState = $_SESSION[$builderSessionKey] ?? [
     'config_payload' => null,
 ];
 $stepOrder = array_flip($stepIds);
+$previousFrameSystemId = $builderState['forms']['frame']['system_id'] ?? '';
+$frameSystemChanged = false;
 
 $resetBuilderState = static function (?int $configId = null) use (&$builderState, $defaultBuilderForms, $builderSessionKey): void {
     $builderState = [
@@ -451,6 +526,19 @@ if ($dbError === null || $localStorageOnly) {
             'trace' => $frameSystemTrace,
             'timestamp' => time(),
         ];
+
+        try {
+            $frameSystemDefaults = [];
+            foreach (inventoryListSystems($db, 'framing') as $systemRow) {
+                $frameSystemDefaults[(string) $systemRow['id']] = [
+                    'default_frame_parts' => array_values(array_filter(
+                        array_map('strval', $systemRow['default_frame_parts'] ?? [])
+                    )),
+                ];
+            }
+        } catch (\Throwable $exception) {
+            $frameSystemTrace['defaults_error'] = $exception->getMessage();
+        }
 
         // If the trace shows loaded systems but the options array is empty, rebuild the options
         // so the dropdown renders the values returned by the inventory query.
@@ -684,6 +772,8 @@ if (!array_key_exists($doorFormData['inactive']['stile'], $doorStileOptions)) {
         $frameSystemRaw = $_POST['frame_system_id'] ?? null;
         if ($frameSystemRaw !== null && array_key_exists($frameSystemRaw, $frameSystemOptions)) {
             $frameFormData['system_id'] = (string) $frameSystemRaw;
+            $frameSystemChanged = $frameFormData['system_id'] !== ''
+                && (string) $previousFrameSystemId !== $frameFormData['system_id'];
         }
 
         $frameGlazingRaw = $_POST['frame_glazing'] ?? null;
@@ -712,7 +802,7 @@ if (!array_key_exists($doorFormData['inactive']['stile'], $doorStileOptions)) {
         );
         $framePartSelectionRaw = $_POST['frame_part_selection'] ?? [];
         $frameSelections = [];
-        if (is_array($framePartSelectionRaw)) {
+        if (!$frameSystemChanged && is_array($framePartSelectionRaw)) {
             foreach ($framePartSelectionRaw as $partKey => $value) {
                 $frameSelections[$partKey] = trim((string) $value);
             }
@@ -945,10 +1035,21 @@ if (!array_key_exists($doorFormData['inactive']['stile'], $doorStileOptions)) {
 
     $framePartOptions = [];
     $doorPartOptions = ['active' => [], 'inactive' => []];
+    $frameSystemIdFilter = $frameFormData['system_id'] !== '' ? (int) $frameFormData['system_id'] : null;
+    $frameFinishFilter = inventoryNormalizeFinish($entryFormData['finish'] ?? null);
+    $frameSystemSelected = $frameSystemIdFilter !== null;
 
     if (!$localStorageOnly && $db !== null) {
-        foreach ($framePartDefinitions as $definition) {
-            $framePartOptions[$definition['id']] = configuratorInventoryOptionsByUse($db, $definition['use_path'], $definition['part_type']);
+        if ($frameSystemIdFilter !== null) {
+            foreach ($framePartDefinitions as $definition) {
+                $framePartOptions[$definition['id']] = configuratorInventoryOptionsByUse(
+                    $db,
+                    $definition['use_path'],
+                    $definition['part_type'],
+                    $frameSystemIdFilter,
+                    $frameFinishFilter
+                );
+            }
         }
 
         foreach ($doorPartDefinitionsActive as $definition) {
@@ -957,6 +1058,27 @@ if (!array_key_exists($doorFormData['inactive']['stile'], $doorStileOptions)) {
 
         foreach ($doorPartDefinitionsInactive as $definition) {
             $doorPartOptions['inactive'][$definition['id']] = configuratorInventoryOptionsByUse($db, $definition['use_path'], $definition['part_type']);
+        }
+    }
+
+    if ($frameSystemSelected) {
+        if ($frameSystemChanged) {
+            $frameFormData['parts'] = configuratorNormalizePartSelections($framePartDefinitions, []);
+            $builderState['forms']['frame']['parts'] = $frameFormData['parts'];
+        }
+
+        $defaultNames = $frameSystemDefaults[$frameFormData['system_id']]['default_frame_parts'] ?? [];
+        if ($defaultNames !== []) {
+            $frameFormData['parts'] = configuratorApplyFrameDefaults(
+                $framePartDefinitions,
+                $framePartOptions,
+                $frameFormData['parts'],
+                $defaultNames
+            );
+            $builderState['forms']['frame']['parts'] = $frameFormData['parts'];
+            $_SESSION[$builderSessionKey] = $builderState;
+        } elseif ($frameSystemChanged) {
+            $_SESSION[$builderSessionKey] = $builderState;
         }
     }
 
@@ -1344,13 +1466,16 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
 
                 <div class="field">
                   <label>Frame parts list</label>
+                  <?php if (!$frameSystemSelected): ?>
+                    <p class="small muted">Select a frame system to load available parts.</p>
+                  <?php endif; ?>
                   <div class="stacked gap-xs" aria-live="polite">
                     <?php foreach ($framePartDefinitions as $definition): ?>
                       <?php $selected = $frameFormData['parts'][$definition['id']] ?? ''; ?>
                       <?php $options = $framePartOptions[$definition['id']] ?? []; ?>
                       <label class="stacked">
                         <span><?= e($definition['label']) ?></span>
-                        <select name="frame_part_selection[<?= e($definition['id']) ?>]">
+                        <select name="frame_part_selection[<?= e($definition['id']) ?>]"<?= $frameSystemSelected ? '' : ' disabled' ?>>
                           <option value="">Select a part</option>
                           <?php foreach ($options as $option): ?>
                             <option value="<?= e((string) $option['id']) ?>"<?= (string) $selected === (string) $option['id'] ? ' selected' : '' ?>><?= e($option['label']) ?></option>
@@ -1358,7 +1483,7 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                         </select>
                         <p class="small muted">Filtered by <?= e(implode(' → ', $definition['use_path'])) ?> (frame).</p>
                       </label>
-                      <?php if ($options === []): ?>
+                      <?php if ($options === [] && $frameSystemSelected): ?>
                         <p class="small muted">No matching frame parts available for this use type.</p>
                       <?php endif; ?>
                     <?php endforeach; ?>
@@ -1783,6 +1908,7 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
       const handFields = document.querySelectorAll('[data-hand]');
       const handPairSelect = document.getElementById('entry_hand_pair');
       const lhWarning = document.querySelector('[data-lhra-warning]');
+      const frameSystemSelect = document.getElementById('frame_system_id');
       const frameTransomSelect = document.querySelector('[data-frame-transom]');
       const frameTransomHeightRow = document.querySelector('[data-frame-transom-height]');
       const frameTransomGlazingSelect = document.getElementById('frame_transom_glazing');
@@ -1791,6 +1917,24 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
       const doorTabs = document.querySelectorAll('[data-door-tab]');
       const doorPanels = document.querySelectorAll('[data-door-panel]');
       const doorPartsLists = document.querySelectorAll('[data-door-parts]');
+
+      function submitFrameStep() {
+        const form = frameSystemSelect?.closest('form') || frameTransomSelect?.closest('form');
+        if (!(form instanceof HTMLFormElement)) {
+          return;
+        }
+
+        let navigateTo = form.querySelector('input[name="navigate_to"]');
+        if (!(navigateTo instanceof HTMLInputElement)) {
+          navigateTo = document.createElement('input');
+          navigateTo.type = 'hidden';
+          navigateTo.name = 'navigate_to';
+          form.appendChild(navigateTo);
+        }
+
+        navigateTo.value = 'frame';
+        form.submit();
+      }
 
       function syncDoorTags() {
         if (!quantityInput || !doorTagsContainer) {
@@ -2065,11 +2209,18 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
         renderFrameParts();
       });
       handPairSelect?.addEventListener('change', syncPairWarning);
+      frameSystemSelect?.addEventListener('change', () => {
+        submitFrameStep();
+      });
       frameTransomSelect?.addEventListener('change', () => {
         syncFrameTransom();
         renderFrameParts();
+        submitFrameStep();
       });
-      frameTransomGlazingSelect?.addEventListener('change', renderFrameParts);
+      frameTransomGlazingSelect?.addEventListener('change', () => {
+        renderFrameParts();
+        submitFrameStep();
+      });
       frameGlazingSelect?.addEventListener('change', renderFrameParts);
       document.getElementById('door_active_glazing')?.addEventListener('change', () => renderDoorPartsList());
       document.getElementById('door_inactive_glazing')?.addEventListener('change', () => renderDoorPartsList());
