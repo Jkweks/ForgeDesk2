@@ -320,7 +320,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $dbError === null && isset($db) && 
                     $details[] = inventoryFormatQuantity($result['released']) . ' unit(s) released';
                 }
 
-                $message = sprintf('Updated reservation %s.', $result['job_number']);
+                $message = sprintf('Updated reservation %s (Release %d).', $result['job_number'], $result['release_number']);
                 if ($details !== []) {
                     $message .= ' ' . implode('; ', $details) . '.';
                 } else {
@@ -359,12 +359,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $dbError === null && isset($db) && 
 
             $summary = reservationComplete($db, $reservationId, $prefillActuals);
 
-            $flashMessages['success'][] = sprintf(
-                'Completed job %s. Consumed %d unit(s) and released %d back to inventory.',
+            $message = sprintf(
+                'Completed job %s release %d. Consumed %d unit(s) and released %d back to inventory.',
                 $summary['job_number'],
+                $summary['release_number'],
                 $summary['consumed'],
                 $summary['released']
             );
+
+            if (!empty($summary['inventory_transaction_id'])) {
+                $message .= sprintf(' Inventory transaction #%d recorded.', (int) $summary['inventory_transaction_id']);
+            }
+
+            $flashMessages['success'][] = $message;
 
             $completeId = null;
             $prefillActuals = [];
@@ -550,7 +557,7 @@ $statusLabels = reservationStatusLabels();
                                 ?>
                                 <tr>
                                     <td>
-                                        <div class="job-title"><?= e($reservation['job_number']) ?></div>
+                                        <div class="job-title"><?= e($reservation['job_number']) ?> · Release <?= e((string) $reservation['release_number']) ?></div>
                                         <div class="small muted"><?= e($reservation['job_name']) ?></div>
                                     </td>
                                     <td><?= e($neededBy) ?></td>
@@ -633,7 +640,7 @@ $statusLabels = reservationStatusLabels();
         <header class="reservation-editor__header">
             <div>
                 <h2 id="reservation-editor-title">Edit Reservation</h2>
-                <p class="small">Update commitments for <?= e($reservation['job_number']) ?>.</p>
+                <p class="small">Update commitments for <?= e($reservation['job_number']) ?> · Release <?= e((string) $reservation['release_number']) ?>.</p>
             </div>
             <a href="/admin/job-reservations.php" class="button ghost" aria-label="Close reservation editor">Close</a>
         </header>
@@ -644,6 +651,10 @@ $statusLabels = reservationStatusLabels();
                 <div class="field">
                     <label for="edit-job-number">Job Number</label>
                     <input type="text" id="edit-job-number" value="<?= e($reservation['job_number']) ?>" readonly>
+                </div>
+                <div class="field">
+                    <label for="edit-release-number">Release<span aria-hidden="true">*</span></label>
+                    <input type="number" id="edit-release-number" value="<?= e((string) $reservation['release_number']) ?>" readonly>
                 </div>
                 <div class="field">
                     <label for="edit-job-name">Job Name<span aria-hidden="true">*</span></label>
@@ -858,7 +869,7 @@ $statusLabels = reservationStatusLabels();
         <header class="completion-modal__header">
             <div>
                 <h2 id="completion-title">Complete Reservation</h2>
-                <p class="small">Confirm the actual quantities consumed for <?= e($reservation['job_number']) ?>.</p>
+                <p class="small">Confirm the actual quantities consumed for <?= e($reservation['job_number']) ?> · Release <?= e((string) $reservation['release_number']) ?>.</p>
             </div>
             <a href="/admin/job-reservations.php" class="button ghost" aria-label="Close completion form">Close</a>
         </header>

@@ -33,6 +33,7 @@ $flashMessages = [
 $commitSummary = null;
 $formValues = [
     'job_number' => '',
+    'release_number' => '',
     'job_name' => '',
     'requested_by' => '',
     'needed_by' => '',
@@ -68,6 +69,7 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'commit') {
         $formValues = [
             'job_number' => trim((string) ($_POST['job_number'] ?? '')),
+            'release_number' => trim((string) ($_POST['release_number'] ?? '')),
             'job_name' => trim((string) ($_POST['job_name'] ?? '')),
             'requested_by' => trim((string) ($_POST['requested_by'] ?? '')),
             'needed_by' => trim((string) ($_POST['needed_by'] ?? '')),
@@ -167,6 +169,12 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors[] = 'Enter a job number before committing inventory.';
         }
 
+        if ($formValues['release_number'] === '') {
+            $errors[] = 'Enter a release number before committing inventory.';
+        } elseif (!ctype_digit($formValues['release_number']) || (int) $formValues['release_number'] <= 0) {
+            $errors[] = 'Provide a valid release number (whole number greater than zero).';
+        }
+
         if ($formValues['job_name'] === '') {
             $errors[] = 'Enter a job name before committing inventory.';
         }
@@ -243,6 +251,7 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
             try {
                 $result = reservationCommitItems($db, [
                     'job_number' => $formValues['job_number'],
+                    'release_number' => (int) $formValues['release_number'],
                     'job_name' => $formValues['job_name'],
                     'requested_by' => $formValues['requested_by'],
                     'needed_by' => $neededByNormalized,
@@ -269,10 +278,11 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 $analysis['counts'] = $recount($analysisItems);
 
                 $flashMessages['success'][] = sprintf(
-                    'Committed %d unit%s to job %s.',
+                    'Committed %d unit%s to job %s release %d.',
                     $totalCommitted,
                     $totalCommitted === 1 ? '' : 's',
-                    $result['job_number']
+                    $result['job_number'],
+                    $result['release_number']
                 );
             } catch (\Throwable $exception) {
                 $errors[] = 'Unable to commit the selected items: ' . $exception->getMessage();
@@ -513,6 +523,10 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                   <input type="text" id="job_number" name="job_number" value="<?= e($formValues['job_number']) ?>" required <?= !$supportsReservations ? 'disabled' : '' ?> />
                 </div>
                 <div class="field">
+                  <label for="release_number">Release<span aria-hidden="true">*</span></label>
+                  <input type="number" id="release_number" name="release_number" value="<?= e($formValues['release_number']) ?>" min="1" required <?= !$supportsReservations ? 'disabled' : '' ?> />
+                </div>
+                <div class="field">
                   <label for="job_name">Job Name<span aria-hidden="true">*</span></label>
                   <input type="text" id="job_name" name="job_name" value="<?= e($formValues['job_name']) ?>" required <?= !$supportsReservations ? 'disabled' : '' ?> />
                 </div>
@@ -605,7 +619,7 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
           <?php if ($commitSummary !== null): ?>
             <div class="reservation-summary" role="status" aria-live="polite">
               <h2>Reservation committed</h2>
-              <p><strong><?= e($commitSummary['job_number']) ?></strong> · <?= e($commitSummary['job_name']) ?></p>
+              <p><strong><?= e($commitSummary['job_number']) ?> · Release <?= e((string) $commitSummary['release_number']) ?></strong> · <?= e($commitSummary['job_name']) ?></p>
               <ul>
                 <?php foreach ($commitSummary['items'] as $item): ?>
                   <?php
