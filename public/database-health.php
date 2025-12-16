@@ -14,12 +14,37 @@ require_once __DIR__ . '/../app/helpers/view.php';
  */
 function databaseHealthAvailableMigrations(): array
 {
-    $migrationDir = __DIR__ . '/../database/migrations';
-    $files = glob($migrationDir . '/*.sql') ?: [];
+    $root = __DIR__ . '/../admin_service';
 
-    sort($files);
+    if (!is_dir($root)) {
+        return [];
+    }
 
-    return array_map(static fn (string $path): string => basename($path), $files);
+    $files = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($root, RecursiveDirectoryIterator::SKIP_DOTS)
+    );
+
+    $migrations = [];
+
+    /** @var SplFileInfo $file */
+    foreach ($files as $file) {
+        if ($file->getExtension() !== 'py' || $file->getFilename() === '__init__.py') {
+            continue;
+        }
+
+        $path = $file->getPath();
+        if (strpos($path, DIRECTORY_SEPARATOR . 'migrations') === false) {
+            continue;
+        }
+
+        $appName = basename(dirname(dirname($file->getRealPath())));
+        $migrationName = basename($file->getFilename(), '.py');
+        $migrations[] = $appName . ':' . $migrationName;
+    }
+
+    sort($migrations);
+
+    return $migrations;
 }
 
 $dbError = null;
@@ -45,7 +70,7 @@ try {
         $statement = $db->prepare(
             "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = :table"
         );
-        $statement->execute([':table' => 'migrations']);
+        $statement->execute([':table' => 'django_migrations']);
         $hasMigrationsTable = ((int) $statement->fetchColumn()) > 0;
     } catch (\Throwable) {
         // Leave $hasMigrationsTable as false if table detection fails.
@@ -63,12 +88,16 @@ try {
 
     if ($hasMigrationsTable) {
         try {
-            $appliedMigrations = $db->query('SELECT name FROM migrations ORDER BY name')->fetchAll(\PDO::FETCH_COLUMN) ?: [];
+            $appliedMigrations = $db->query('SELECT app, name FROM django_migrations ORDER BY app, name')->fetchAll() ?: [];
+            $appliedMigrations = array_map(
+                static fn (array $row): string => $row['app'] . ':' . $row['name'],
+                $appliedMigrations
+            );
         } catch (\Throwable $exception) {
             $appliedMigrationError = 'Unable to load applied migrations: ' . $exception->getMessage();
         }
     } else {
-        $appliedMigrationError = 'Migrations table not found; run init.sql or apply migrations to create it.';
+        $appliedMigrationError = 'Django migrations table not found; run admin_service manage.py migrate.';
     }
 
     try {
@@ -189,7 +218,7 @@ unset($groupItems, $item);
         <header>
           <div>
             <h2 id="migrations-title">Migration Status</h2>
-            <p class="small">Tracking expected SQL files versus applied migrations.</p>
+            <p class="small">Tracking Django migrations detected in admin_service versus applied records.</p>
           </div>
           <?php if ($appliedMigrationError !== null): ?>
             <span class="badge danger" aria-live="polite">Check failed</span>
@@ -217,7 +246,7 @@ unset($groupItems, $item);
                 </li>
               <?php endforeach; ?>
               <?php if ($availableMigrations === []): ?>
-                <li class="list-item">No migration files found in /database/migrations.</li>
+                <li class="list-item">No migration files found in admin_service/*/migrations.</li>
               <?php endif; ?>
             </ul>
           </div>
