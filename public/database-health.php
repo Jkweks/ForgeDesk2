@@ -40,6 +40,17 @@ try {
     $db = db($app['database']);
     $connectionStatus = 'Connected';
 
+    $hasMigrationsTable = false;
+    try {
+        $statement = $db->prepare(
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = :table"
+        );
+        $statement->execute([':table' => 'migrations']);
+        $hasMigrationsTable = ((int) $statement->fetchColumn()) > 0;
+    } catch (\Throwable) {
+        // Leave $hasMigrationsTable as false if table detection fails.
+    }
+
     try {
         $serverVersion = (string) ($db->query('SHOW server_version')->fetchColumn() ?: $serverVersion);
     } catch (\Throwable) {
@@ -50,10 +61,14 @@ try {
         }
     }
 
-    try {
-        $appliedMigrations = $db->query('SELECT name FROM migrations ORDER BY name')->fetchAll(\PDO::FETCH_COLUMN) ?: [];
-    } catch (\Throwable $exception) {
-        $appliedMigrationError = 'Unable to load applied migrations: ' . $exception->getMessage();
+    if ($hasMigrationsTable) {
+        try {
+            $appliedMigrations = $db->query('SELECT name FROM migrations ORDER BY name')->fetchAll(\PDO::FETCH_COLUMN) ?: [];
+        } catch (\Throwable $exception) {
+            $appliedMigrationError = 'Unable to load applied migrations: ' . $exception->getMessage();
+        }
+    } else {
+        $appliedMigrationError = 'Migrations table not found; run init.sql or apply migrations to create it.';
     }
 
     try {
