@@ -39,14 +39,16 @@ $$ LANGUAGE plpgsql;
 -- Job reservations header (idempotent)
 CREATE TABLE IF NOT EXISTS job_reservations (
     id SERIAL PRIMARY KEY,
-    job_number TEXT NOT NULL UNIQUE,
+    job_number TEXT NOT NULL,
+    release_number INTEGER NOT NULL DEFAULT 1,
     job_name TEXT NOT NULL,
     requested_by TEXT NOT NULL,
     needed_by DATE NULL,
     status job_reservation_status NOT NULL DEFAULT 'draft',
     notes TEXT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (job_number, release_number)
 );
 
 -- Updated-at trigger (drop + recreate to be sure)

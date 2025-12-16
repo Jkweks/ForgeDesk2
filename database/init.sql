@@ -69,14 +69,16 @@ $$ LANGUAGE plpgsql;
 -- Job reservations header
 CREATE TABLE IF NOT EXISTS job_reservations (
     id SERIAL PRIMARY KEY,
-    job_number TEXT NOT NULL UNIQUE,
+    job_number TEXT NOT NULL,
+    release_number INTEGER NOT NULL DEFAULT 1,
     job_name TEXT NOT NULL,
     requested_by TEXT NOT NULL,
     needed_by DATE NULL,
     status job_reservation_status NOT NULL DEFAULT 'draft',
     notes TEXT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (job_number, release_number)
 );
 
 -- Updated-at trigger on job_reservations
@@ -241,10 +243,10 @@ ON CONFLICT (label) DO UPDATE SET
     sort_order = EXCLUDED.sort_order;
 
 -- Seed example job reservation (uses 'active' status)
-INSERT INTO job_reservations (job_number, job_name, requested_by, needed_by, status, notes)
+INSERT INTO job_reservations (job_number, release_number, job_name, requested_by, needed_by, status, notes)
 VALUES
-    ('JOB-2024-001', 'Downtown Lobby Retrofit', 'Morgan Smith', CURRENT_DATE + INTERVAL '14 days', 'active', 'Initial staging reservation for retrofit work')
-ON CONFLICT (job_number) DO UPDATE SET
+    ('JOB-2024-001', 1, 'Downtown Lobby Retrofit', 'Morgan Smith', CURRENT_DATE + INTERVAL '14 days', 'active', 'Initial staging reservation for retrofit work')
+ON CONFLICT (job_number, release_number) DO UPDATE SET
     job_name = EXCLUDED.job_name,
     requested_by = EXCLUDED.requested_by,
     needed_by = EXCLUDED.needed_by,
@@ -256,7 +258,7 @@ INSERT INTO job_reservation_items (reservation_id, inventory_item_id, requested_
 SELECT r.id, i.id, 20, 16, 0
 FROM job_reservations r
 JOIN inventory_items i ON i.sku = 'AL-ST-02-0R'
-WHERE r.job_number = 'JOB-2024-001'
+WHERE r.job_number = 'JOB-2024-001' AND r.release_number = 1
 ON CONFLICT (reservation_id, inventory_item_id) DO UPDATE SET
     requested_qty = EXCLUDED.requested_qty,
     committed_qty = EXCLUDED.committed_qty,
@@ -266,7 +268,7 @@ INSERT INTO job_reservation_items (reservation_id, inventory_item_id, requested_
 SELECT r.id, i.id, 8, 6, 0
 FROM job_reservations r
 JOIN inventory_items i ON i.sku = 'HD-HG-SET-DB'
-WHERE r.job_number = 'JOB-2024-001'
+WHERE r.job_number = 'JOB-2024-001' AND r.release_number = 1
 ON CONFLICT (reservation_id, inventory_item_id) DO UPDATE SET
     requested_qty = EXCLUDED.requested_qty,
     committed_qty = EXCLUDED.committed_qty,

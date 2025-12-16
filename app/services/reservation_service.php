@@ -58,6 +58,7 @@ if (!function_exists('reservationUpdateItems')) {
      * @return array{
      *   reservation_id:int,
      *   job_number:string,
+     *   release_number:int,
      *   updated:int,
      *   added:int,
      *   committed:int,
@@ -130,7 +131,7 @@ if (!function_exists('reservationUpdateItems')) {
 
         try {
             $reservationStatement = $db->prepare(
-                'SELECT id, job_number, status FROM job_reservations WHERE id = :id FOR UPDATE'
+                'SELECT id, job_number, release_number, status FROM job_reservations WHERE id = :id FOR UPDATE'
             );
             $reservationStatement->execute([':id' => $reservationId]);
             $reservationRow = $reservationStatement->fetch(\PDO::FETCH_ASSOC);
@@ -256,6 +257,7 @@ if (!function_exists('reservationUpdateItems')) {
             return [
                 'reservation_id' => (int) $reservationRow['id'],
                 'job_number' => (string) $reservationRow['job_number'],
+                'release_number' => (int) $reservationRow['release_number'],
                 'updated' => $updatedCount,
                 'added' => $addedCount,
                 'committed' => $committedDelta,
@@ -287,6 +289,7 @@ if (!function_exists('reservationList')) {
      * @return list<array{
      *   id:int,
      *   job_number:string,
+     *   release_number:int,
      *   job_name:string,
      *   requested_by:string,
      *   needed_by:?string,
@@ -308,7 +311,7 @@ if (!function_exists('reservationList')) {
             throw new \RuntimeException('Job reservations are not supported by this database.');
         }
 
-        $sql = "SELECT\n                jr.id, jr.job_number, jr.job_name, jr.requested_by, jr.needed_by, jr.status, jr.notes,\n                jr.created_at, jr.updated_at,\n                COALESCE(SUM(jri.requested_qty), 0) AS requested_qty,\n                COALESCE(SUM(jri.committed_qty), 0) AS committed_qty,\n                COALESCE(SUM(jri.consumed_qty), 0) AS consumed_qty,\n                COUNT(jri.id) AS line_count\n            FROM job_reservations jr\n            LEFT JOIN job_reservation_items jri ON jri.reservation_id = jr.id\n            GROUP BY jr.id\n            ORDER BY CASE WHEN jr.status IN ('fulfilled', 'cancelled') THEN 1 ELSE 0 END, jr.created_at DESC";
+        $sql = "SELECT\n                jr.id, jr.job_number, jr.release_number, jr.job_name, jr.requested_by, jr.needed_by, jr.status, jr.notes,\n                jr.created_at, jr.updated_at,\n                COALESCE(SUM(jri.requested_qty), 0) AS requested_qty,\n                COALESCE(SUM(jri.committed_qty), 0) AS committed_qty,\n                COALESCE(SUM(jri.consumed_qty), 0) AS consumed_qty,\n                COUNT(jri.id) AS line_count\n            FROM job_reservations jr\n            LEFT JOIN job_reservation_items jri ON jri.reservation_id = jr.id\n            GROUP BY jr.id\n            ORDER BY CASE WHEN jr.status IN ('fulfilled', 'cancelled') THEN 1 ELSE 0 END, jr.created_at DESC";
 
         $statement = $db->query($sql);
 
@@ -324,6 +327,7 @@ if (!function_exists('reservationList')) {
                 return [
                     'id' => (int) $row['id'],
                     'job_number' => (string) $row['job_number'],
+                    'release_number' => (int) $row['release_number'],
                     'job_name' => (string) $row['job_name'],
                     'requested_by' => (string) $row['requested_by'],
                     'needed_by' => isset($row['needed_by']) ? (string) $row['needed_by'] : null,
@@ -346,7 +350,7 @@ if (!function_exists('reservationFetch')) {
     /**
      * @return array{
      *   reservation:array{
-     *     id:int,job_number:string,job_name:string,requested_by:string,needed_by:?string,status:string,notes:?string
+     *     id:int,job_number:string,release_number:int,job_name:string,requested_by:string,needed_by:?string,status:string,notes:?string
      *   },
      *   items:list<array{
      *     id:int,
@@ -372,7 +376,7 @@ if (!function_exists('reservationFetch')) {
         }
 
         $header = $db->prepare(
-            'SELECT id, job_number, job_name, requested_by, needed_by, status, notes '
+            'SELECT id, job_number, release_number, job_name, requested_by, needed_by, status, notes '
             . 'FROM job_reservations WHERE id = :id'
         );
         $header->execute([':id' => $reservationId]);
@@ -398,13 +402,14 @@ if (!function_exists('reservationFetch')) {
         /** @var list<array<string,mixed>> $rows */
         $rows = $itemsStatement->fetchAll(\PDO::FETCH_ASSOC);
 
-        return [
-            'reservation' => [
-                'id' => (int) $reservation['id'],
-                'job_number' => (string) $reservation['job_number'],
-                'job_name' => (string) $reservation['job_name'],
-                'requested_by' => (string) $reservation['requested_by'],
-                'needed_by' => isset($reservation['needed_by']) ? (string) $reservation['needed_by'] : null,
+            return [
+                'reservation' => [
+                    'id' => (int) $reservation['id'],
+                    'job_number' => (string) $reservation['job_number'],
+                    'release_number' => (int) $reservation['release_number'],
+                    'job_name' => (string) $reservation['job_name'],
+                    'requested_by' => (string) $reservation['requested_by'],
+                    'needed_by' => isset($reservation['needed_by']) ? (string) $reservation['needed_by'] : null,
                 'status' => (string) $reservation['status'],
                 'notes' => isset($reservation['notes']) ? (string) $reservation['notes'] : null,
             ],
@@ -437,6 +442,7 @@ if (!function_exists('reservationUpdateStatus')) {
      * @return array{
      *   id:int,
      *   job_number:string,
+     *   release_number:int,
      *   previous_status:string,
      *   new_status:string,
      *   warnings:list<string>,
@@ -470,7 +476,7 @@ if (!function_exists('reservationUpdateStatus')) {
 
         try {
             $statement = $db->prepare(
-                'SELECT id, job_number, status FROM job_reservations WHERE id = :id FOR UPDATE'
+                'SELECT id, job_number, release_number, status FROM job_reservations WHERE id = :id FOR UPDATE'
             );
             $statement->execute([':id' => $reservationId]);
             $row = $statement->fetch(\PDO::FETCH_ASSOC);
@@ -551,6 +557,7 @@ if (!function_exists('reservationUpdateStatus')) {
             return [
                 'id' => (int) $row['id'],
                 'job_number' => (string) $row['job_number'],
+                'release_number' => (int) $row['release_number'],
                 'previous_status' => $currentStatus,
                 'new_status' => $targetStatus,
                 'warnings' => $warnings,
@@ -575,8 +582,10 @@ if (!function_exists('reservationComplete')) {
      * @return array{
      *   reservation_id:int,
      *   job_number:string,
+     *   release_number:int,
      *   consumed:int,
      *   released:int,
+     *   inventory_transaction_id:?int,
      *   items:list<array{
      *     inventory_item_id:int,
      *     consumed:int,
@@ -611,7 +620,7 @@ if (!function_exists('reservationComplete')) {
 
         try {
             $reservationStatement = $db->prepare(
-                'SELECT id, job_number, status FROM job_reservations WHERE id = :id FOR UPDATE'
+                'SELECT id, job_number, release_number, status FROM job_reservations WHERE id = :id FOR UPDATE'
             );
             $reservationStatement->execute([':id' => $reservationId]);
             $reservation = $reservationStatement->fetch(\PDO::FETCH_ASSOC);
@@ -639,10 +648,7 @@ if (!function_exists('reservationComplete')) {
             }
 
             $selectInventory = $db->prepare(
-                'SELECT item, sku, part_number, finish, stock FROM inventory_items WHERE id = :id FOR UPDATE'
-            );
-            $updateInventory = $db->prepare(
-                'UPDATE inventory_items SET stock = stock - :consume WHERE id = :id'
+                'SELECT item, sku, part_number, finish FROM inventory_items WHERE id = :id FOR UPDATE'
             );
             $updateReservationItem = $db->prepare(
                 'UPDATE job_reservation_items SET committed_qty = 0, consumed_qty = :consumed WHERE id = :id'
@@ -651,6 +657,7 @@ if (!function_exists('reservationComplete')) {
             $summaryItems = [];
             $totalConsumed = 0;
             $totalReleased = 0;
+            $transactionLines = [];
 
             foreach ($reservationItems as $itemRow) {
                 $reservationItemId = (int) $itemRow['id'];
@@ -680,15 +687,11 @@ if (!function_exists('reservationComplete')) {
                 $releaseQty = $committedQty;
 
                 if ($consumeDelta > 0) {
-                    $updateInventory->execute([
-                        ':consume' => $consumeDelta,
-                        ':id' => $inventoryItemId,
-                    ]);
-                } else {
-                    $updateInventory->execute([
-                        ':consume' => 0,
-                        ':id' => $inventoryItemId,
-                    ]);
+                    $transactionLines[] = [
+                        'item_id' => $inventoryItemId,
+                        'quantity_change' => -$consumeDelta,
+                        'note' => sprintf('Job %s release %d completion', $reservation['job_number'], (int) $reservation['release_number']),
+                    ];
                 }
 
                 $updateReservationItem->execute([
@@ -713,6 +716,16 @@ if (!function_exists('reservationComplete')) {
                 $totalReleased += $released;
             }
 
+            $transactionId = null;
+
+            if ($transactionLines !== []) {
+                $transactionId = recordInventoryTransaction($db, [
+                    'reference' => sprintf('Job %s release %d completion', $reservation['job_number'], (int) $reservation['release_number']),
+                    'notes' => null,
+                    'lines' => $transactionLines,
+                ]);
+            }
+
             $db->prepare('UPDATE job_reservations SET status = :status WHERE id = :id')->execute([
                 ':status' => 'fulfilled',
                 ':id' => $reservationId,
@@ -723,8 +736,10 @@ if (!function_exists('reservationComplete')) {
             return [
                 'reservation_id' => (int) $reservation['id'],
                 'job_number' => (string) $reservation['job_number'],
+                'release_number' => (int) $reservation['release_number'],
                 'consumed' => $totalConsumed,
                 'released' => $totalReleased,
+                'inventory_transaction_id' => $transactionId,
                 'items' => $summaryItems,
             ];
         } catch (\Throwable $exception) {
@@ -739,12 +754,13 @@ if (!function_exists('reservationComplete')) {
 
 if (!function_exists('reservationCommitItems')) {
     /**
-     * @param array{job_number:string,job_name:string,requested_by:string,needed_by?:?string,notes?:?string} $jobMetadata
+     * @param array{job_number:string,release_number:int|string,job_name:string,requested_by:string,needed_by?:?string,notes?:?string} $jobMetadata
      * @param list<array{inventory_item_id:int,requested_qty:int,commit_qty:int,part_number:string,finish:?string,sku:?string}> $lineItems
      *
      * @return array{
      *   reservation_id:int,
      *   job_number:string,
+     *   release_number:int,
      *   job_name:string,
      *   items:list<array{
      *     inventory_item_id:int,
@@ -772,15 +788,22 @@ if (!function_exists('reservationCommitItems')) {
         }
 
         $jobNumber = trim((string) ($jobMetadata['job_number'] ?? ''));
+        $releaseNumberRaw = trim((string) ($jobMetadata['release_number'] ?? ''));
         $jobName = trim((string) ($jobMetadata['job_name'] ?? ''));
         $requestedBy = trim((string) ($jobMetadata['requested_by'] ?? ''));
         $notes = isset($jobMetadata['notes']) ? trim((string) $jobMetadata['notes']) : '';
         $neededByRaw = isset($jobMetadata['needed_by']) ? trim((string) $jobMetadata['needed_by']) : '';
         $neededBy = null;
 
-        if ($jobNumber === '' || $jobName === '' || $requestedBy === '') {
-            throw new \InvalidArgumentException('Job number, job name, and requester are required.');
+        if ($jobNumber === '' || $jobName === '' || $requestedBy === '' || $releaseNumberRaw === '') {
+            throw new \InvalidArgumentException('Job number, release, job name, and requester are required.');
         }
+
+        if (!ctype_digit($releaseNumberRaw) || (int) $releaseNumberRaw <= 0) {
+            throw new \InvalidArgumentException('Provide a valid release number (whole number greater than zero).');
+        }
+
+        $releaseNumber = (int) $releaseNumberRaw;
 
         if ($neededByRaw !== '') {
             $neededDate = \DateTimeImmutable::createFromFormat('Y-m-d', $neededByRaw);
@@ -793,20 +816,27 @@ if (!function_exists('reservationCommitItems')) {
         $db->beginTransaction();
 
         try {
+            $existingRelease = $db->prepare(
+                'SELECT id FROM job_reservations WHERE job_number = :job_number AND release_number = :release_number FOR UPDATE'
+            );
+            $existingRelease->execute([
+                ':job_number' => $jobNumber,
+                ':release_number' => $releaseNumber,
+            ]);
+
+            if ($existingRelease->fetchColumn() !== false) {
+                throw new \InvalidArgumentException('That job release already exists. Use the reservation editor to adjust quantities.');
+            }
+
             $reservationStatement = $db->prepare(
-                'INSERT INTO job_reservations (job_number, job_name, requested_by, needed_by, status, notes) '
-                . 'VALUES (:job_number, :job_name, :requested_by, :needed_by, :status, :notes) '
-                . 'ON CONFLICT (job_number) DO UPDATE SET '
-                . 'job_name = EXCLUDED.job_name, '
-                . 'requested_by = EXCLUDED.requested_by, '
-                . 'needed_by = EXCLUDED.needed_by, '
-                . 'notes = EXCLUDED.notes, '
-                . 'status = EXCLUDED.status '
+                'INSERT INTO job_reservations (job_number, release_number, job_name, requested_by, needed_by, status, notes) '
+                . 'VALUES (:job_number, :release_number, :job_name, :requested_by, :needed_by, :status, :notes) '
                 . 'RETURNING id'
             );
 
             $reservationStatement->execute([
                 ':job_number' => $jobNumber,
+                ':release_number' => $releaseNumber,
                 ':job_name' => $jobName,
                 ':requested_by' => $requestedBy,
                 ':needed_by' => $neededBy,
@@ -884,6 +914,7 @@ if (!function_exists('reservationCommitItems')) {
             return [
                 'reservation_id' => $reservationId,
                 'job_number' => $jobNumber,
+                'release_number' => $releaseNumber,
                 'job_name' => $jobName,
                 'items' => $committedItems,
             ];
