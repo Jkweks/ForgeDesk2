@@ -188,7 +188,8 @@ class JobReservation(models.Model):
     """Represents a reservation request for inventory."""
 
     id = models.AutoField(primary_key=True)
-    job_number = models.CharField(max_length=255, unique=True)
+    job_number = models.CharField(max_length=255)
+    release_number = models.IntegerField(default=1)
     job_name = models.CharField(max_length=255)
     requested_by = models.CharField(max_length=255)
     needed_by = models.DateField(blank=True, null=True)
@@ -201,11 +202,12 @@ class JobReservation(models.Model):
         managed = False
         db_table = "job_reservations"
         ordering = ["-created_at"]
+        unique_together = ("job_number", "release_number")
         verbose_name = "Job reservation"
         verbose_name_plural = "Job reservations"
 
     def __str__(self) -> str:  # pragma: no cover - trivial
-        return f"{self.job_number}: {self.job_name}"
+        return f"{self.job_number} R{self.release_number}: {self.job_name}"
 
 
 class JobReservationItem(models.Model):
