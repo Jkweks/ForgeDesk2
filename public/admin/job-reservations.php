@@ -472,30 +472,11 @@ $statusLabels = reservationStatusLabels();
 <body>
 <div class="layout">
     <?php $sidebarAriaLabel = 'Primary'; require __DIR__ . '/../../app/views/partials/sidebar.php'; ?>
-    <header class="topbar">
-        <button
-            class="topbar-toggle"
-            type="button"
-            data-sidebar-toggle
-            aria-controls="app-sidebar"
-            aria-expanded="false"
-            aria-label="Toggle navigation"
-        >
-            <span aria-hidden="true"><?= icon('menu') ?></span>
-        </button>
-        <div class="search" role="search">
-            <?= icon('search') ?>
-            <input type="search" placeholder="Search reservations" aria-label="Search reservations">
-        </div>
-        <button class="user" type="button">
-            <span class="user-avatar" aria-hidden="true">JD</span>
-            <span class="user-details">
-                <span>Jordan Doe</span>
-                <span class="user-email">ops@forgedesk.test</span>
-            </span>
-            <span aria-hidden="true"><?= icon('chev') ?></span>
-        </button>
-    </header>
+    <?php
+    $topbarTitle = 'Job Reservations';
+    require __DIR__ . '/../../app/views/partials/topbar.php';
+    unset($topbarTitle, $topbarSubhead, $topbarExtras);
+    ?>
     <main class="content">
         <div class="panel">
             <header>

@@ -177,15 +177,11 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
   <div class="layout">
     <?php require __DIR__ . '/../../app/views/partials/sidebar.php'; ?>
 
-    <header class="topbar">
-      <button class="topbar-toggle" type="button" data-sidebar-toggle aria-controls="app-sidebar" aria-label="Toggle navigation">
-        <?= icon('menu') ?>
-      </button>
-      <div class="search">
-        <?= icon('search') ?>
-        <input type="search" placeholder="Search metrics" aria-label="Search metrics" />
-      </div>
-    </header>
+    <?php
+    $topbarTitle = 'Dashboard Metrics';
+    require __DIR__ . '/../../app/views/partials/topbar.php';
+    unset($topbarTitle, $topbarSubhead, $topbarExtras);
+    ?>
 
     <main class="content">
       <section class="panel" aria-labelledby="metrics-admin-title">

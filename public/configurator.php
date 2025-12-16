@@ -1457,27 +1457,11 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
   <div class="layout">
     <?php require __DIR__ . '/../app/views/partials/sidebar.php'; ?>
 
-    <header class="topbar">
-      <button
-        class="topbar-toggle"
-        type="button"
-        data-sidebar-toggle
-        aria-controls="app-sidebar"
-        aria-expanded="false"
-        aria-label="Toggle navigation"
-      >
-        <span aria-hidden="true"><?= icon('menu') ?></span>
-      </button>
-      <form class="search" role="search" aria-label="Configurator search">
-        <span aria-hidden="true"><?= icon('search') ?></span>
-        <input type="search" name="q" placeholder="Search configurations" />
-      </form>
-      <button class="user" type="button">
-        <span class="user-avatar" aria-hidden="true"><?= e($app['user']['avatar']) ?></span>
-        <span class="user-email"><?= e($app['user']['email']) ?></span>
-        <span aria-hidden="true"><?= icon('chev') ?></span>
-      </button>
-    </header>
+    <?php
+    $topbarTitle = 'Door Configurator';
+    require __DIR__ . '/../app/views/partials/topbar.php';
+    unset($topbarTitle, $topbarSubhead, $topbarExtras);
+    ?>
 
     <main class="content">
       <section class="panel" aria-labelledby="configurator-title">

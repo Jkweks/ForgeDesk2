@@ -154,27 +154,13 @@ unset($groupItems, $item);
   <div class="layout">
     <?php require __DIR__ . '/../app/views/partials/sidebar.php'; ?>
 
-    <header class="topbar">
-      <button
-        class="topbar-toggle"
-        type="button"
-        data-sidebar-toggle
-        aria-controls="app-sidebar"
-        aria-expanded="false"
-        aria-label="Toggle navigation"
-      >
-        <span aria-hidden="true"><?= icon('menu') ?></span>
-      </button>
-      <div class="page-title">
-        <h1>Database Health</h1>
-        <p class="small">Connection status, migrations, and storage diagnostics for <?= e($databaseName) ?>.</p>
-      </div>
-      <div class="topbar-status">
-        <span class="badge <?= $dbError === null ? 'success' : 'danger' ?>">
-          <?= $dbError === null ? 'Live' : 'Error' ?>
-        </span>
-      </div>
-    </header>
+    <?php
+    $topbarTitle = 'Database Health';
+    $topbarSubhead = 'Connection status, migrations, and storage diagnostics for ' . $databaseName . '.';
+    $topbarExtras = '<span class="badge ' . ($dbError === null ? 'success' : 'danger') . '">' . ($dbError === null ? 'Live' : 'Error') . '</span>';
+    require __DIR__ . '/../app/views/partials/topbar.php';
+    unset($topbarTitle, $topbarSubhead, $topbarExtras);
+    ?>
 
     <main class="content">
       <section class="metrics" aria-label="Database status metrics">
