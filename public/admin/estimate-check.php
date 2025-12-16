@@ -374,6 +374,8 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 }
+
+$bodyAttributes = ' class="has-sidebar-toggle"';
 ?>
 <!doctype html>
 <html lang="en">
@@ -381,11 +383,18 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title><?= e($app['name']) ?> · EZ Estimate Check</title>
-  <link rel="stylesheet" href="../css/dashboard.css" />
+  <link rel="stylesheet" href="/css/dashboard.css" />
 </head>
-<body>
+<body<?= $bodyAttributes ?>>
   <div class="layout">
     <?php require __DIR__ . '/../../app/views/partials/sidebar.php'; ?>
+
+    <?php
+    $topbarTitle = 'EZ Estimate Check';
+    $topbarSubhead = 'Upload a job takeoff to see what inventory can ship today.';
+    require __DIR__ . '/../../app/views/partials/topbar.php';
+    unset($topbarTitle, $topbarSubhead, $topbarExtras);
+    ?>
 
     <main class="content">
       <section class="panel" aria-labelledby="estimate-title">
