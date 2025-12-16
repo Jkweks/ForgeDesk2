@@ -218,27 +218,11 @@ if (isset($_GET['success']) && $_GET['success'] === 'recorded') {
   <div class="layout">
     <?php $sidebarAriaLabel = 'Primary navigation'; require __DIR__ . '/../app/views/partials/sidebar.php'; ?>
 
-    <header class="topbar">
-      <button
-        class="topbar-toggle"
-        type="button"
-        data-sidebar-toggle
-        aria-controls="app-sidebar"
-        aria-expanded="false"
-        aria-label="Toggle navigation"
-      >
-        <span aria-hidden="true"><?= icon('menu') ?></span>
-      </button>
-      <form class="search" role="search" aria-label="Inventory search">
-        <span aria-hidden="true"><?= icon('search') ?></span>
-        <input type="search" name="q" placeholder="Search SKUs, bins, or components" />
-      </form>
-      <button class="user" type="button">
-        <span class="user-avatar" aria-hidden="true"><?= e($app['user']['avatar']) ?></span>
-        <span class="user-email"><?= e($app['user']['email']) ?></span>
-        <span aria-hidden="true"><?= icon('chev') ?></span>
-      </button>
-    </header>
+    <?php
+    $topbarTitle = 'Inventory Transactions';
+    require __DIR__ . '/../app/views/partials/topbar.php';
+    unset($topbarTitle, $topbarSubhead, $topbarExtras);
+    ?>
 
     <main class="content">
       <section class="panel" aria-labelledby="transaction-form-title">

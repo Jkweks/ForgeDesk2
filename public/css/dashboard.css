@@ -138,10 +138,20 @@ body.sidebar-open{overflow:hidden}
   border-bottom:1px solid rgba(255,255,255,.06);
   background:linear-gradient(180deg,var(--panel),#141820);
 }
+.topbar-title{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
 .topbar h1{
   font-size:1rem;
   font-weight:600;
   margin:0;
+}
+.topbar-extras{
+  display:flex;
+  align-items:center;
+  gap:12px;
 }
 .topbar-spacer{flex:1}
 

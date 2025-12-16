@@ -860,20 +860,11 @@ $bodyClassString = implode(' ', $bodyClasses);
   <div class="layout">
     <?php require __DIR__ . '/../app/views/partials/sidebar.php'; ?>
 
-    <header class="topbar">
-      <button
-        class="topbar-toggle"
-        type="button"
-        data-sidebar-toggle
-        aria-controls="app-sidebar"
-        aria-expanded="false"
-        aria-label="Toggle navigation"
-      >
-        <span aria-hidden="true"><?= icon('menu') ?></span>
-      </button>
-      <h1>Maintenance Hub</h1>
-      <div class="topbar-spacer"></div>
-    </header>
+    <?php
+    $topbarTitle = 'Maintenance Hub';
+    require __DIR__ . '/../app/views/partials/topbar.php';
+    unset($topbarTitle, $topbarSubhead, $topbarExtras);
+    ?>
 
     <main class="content">
       <section class="metrics maintenance-metrics" aria-label="Maintenance summary">

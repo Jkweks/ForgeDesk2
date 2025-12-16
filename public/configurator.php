@@ -72,6 +72,12 @@ $doorPartDefinitionsActive = configuratorDoorParts($doorFormData['active']['glaz
 $doorPartDefinitionsInactive = configuratorDoorParts($doorFormData['inactive']['glazing']);
 $doorFormData['active']['parts'] = configuratorNormalizePartSelections($doorPartDefinitionsActive, $doorFormData['active']['parts']);
 $doorFormData['inactive']['parts'] = configuratorNormalizePartSelections($doorPartDefinitionsInactive, $doorFormData['inactive']['parts']);
+$doorMathDefaults = [
+    'top_gap' => 0.125,
+    'bottom_gap' => 0.6875,
+    'hinge_gap' => 0.0625,
+    'lock_gap' => 0.125,
+];
 $openingTypeOptions = [
     'single' => 'Single',
     'pair' => 'Pair',
@@ -150,6 +156,171 @@ function configuratorNormalizePartSelections(array $definitions, array $existing
     }
 
     return $normalized;
+}
+
+function configuratorParseDimension(string $value): ?float
+{
+    $normalized = strtolower(trim($value));
+
+    if ($normalized === '') {
+        return null;
+    }
+
+    $normalized = str_replace(['"', 'inches', 'inch', 'in'], '', $normalized);
+    $feet = 0.0;
+
+    if (preg_match("/(-?\d+(?:\.\d+)?)\s*'/", $normalized, $feetMatch)) {
+        $feet = (float) $feetMatch[1];
+        $normalized = trim(str_replace($feetMatch[0], '', $normalized));
+    }
+
+    $fraction = 0.0;
+    if (preg_match('/(\d+)\s*\/\s*(\d+)/', $normalized, $fractionMatch)) {
+        $denominator = (float) $fractionMatch[2];
+        if ($denominator > 0) {
+            $fraction = (float) $fractionMatch[1] / $denominator;
+        }
+        $normalized = trim(str_replace($fractionMatch[0], '', $normalized));
+    }
+
+    $inches = null;
+    if (preg_match('/-?\d+(?:\.\d+)?/', $normalized, $inchMatch)) {
+        $inches = (float) $inchMatch[0];
+    }
+
+    $total = ($feet * 12) + ($inches ?? 0) + $fraction;
+
+    if ($total === 0.0 && $feet === 0.0 && $fraction === 0.0 && $inches === null) {
+        return null;
+    }
+
+    return $total;
+}
+
+function configuratorFormatLength(?float $value): string
+{
+    if ($value === null) {
+        return 'Pending input';
+    }
+
+    $formatted = number_format($value, 3, '.', '');
+    $formatted = rtrim(rtrim($formatted, '0'), '.');
+
+    return $formatted . ' in';
+}
+
+function configuratorNormalizeMathSettings(array $settings, array $defaults): array
+{
+    $normalized = [];
+
+    foreach ($defaults as $key => $default) {
+        $candidate = isset($settings[$key]) ? configuratorParseDimension((string) $settings[$key]) : null;
+        $normalized[$key] = $candidate ?? $default;
+    }
+
+    return $normalized;
+}
+
+function configuratorLookupSelectionMeta(array $options, string $selection): array
+{
+    foreach ($options as $option) {
+        if ((string) $option['id'] === (string) $selection) {
+            return [
+                'selection' => $selection,
+                'label' => (string) ($option['label'] ?? $selection),
+                'height_lz' => isset($option['height_lz']) && $option['height_lz'] !== null
+                    ? (float) $option['height_lz']
+                    : null,
+                'depth_ly' => isset($option['depth_ly']) && $option['depth_ly'] !== null
+                    ? (float) $option['depth_ly']
+                    : null,
+            ];
+        }
+    }
+
+    return [
+        'selection' => $selection,
+        'label' => $selection !== '' ? $selection : 'Not selected',
+        'height_lz' => null,
+        'depth_ly' => null,
+    ];
+}
+
+function configuratorCollectPartMeta(array $definitions, array $optionsById, array $selections): array
+{
+    $meta = [];
+
+    foreach ($definitions as $definition) {
+        $selection = (string) ($selections[$definition['id']] ?? '');
+        $meta[$definition['id']] = configuratorLookupSelectionMeta($optionsById[$definition['id']] ?? [], $selection);
+    }
+
+    return $meta;
+}
+
+function configuratorResolveRailLz(array $parts, array $candidates): float
+{
+    foreach ($candidates as $candidate) {
+        if (!isset($parts[$candidate])) {
+            continue;
+        }
+
+        $selection = $parts[$candidate]['selection'] ?? '';
+        if ($selection === '') {
+            continue;
+        }
+
+        $lz = $parts[$candidate]['height_lz'] ?? null;
+
+        if ($lz !== null) {
+            return (float) $lz;
+        }
+    }
+
+    return 0.0;
+}
+
+function configuratorComputeDoorLeafMath(
+    ?float $doorOpeningWidth,
+    ?float $doorOpeningHeight,
+    array $gaps,
+    array $parts
+): array {
+    if ($doorOpeningWidth === null || $doorOpeningHeight === null) {
+        return [
+            'note' => 'Add door opening dimensions to unlock door part lengths.',
+            'lengths' => [],
+        ];
+    }
+
+    $hingeRailLz = configuratorResolveRailLz($parts, ['hinge_rail_ws_a', 'hinge_rail_ws_b', 'hinge_rail_standard']);
+    $lockRailLz = configuratorResolveRailLz($parts, ['lock_rail']);
+    $topRailLz = configuratorResolveRailLz($parts, ['top_rail']);
+    $bottomRailLz = configuratorResolveRailLz($parts, ['bottom_rail']);
+
+    $lengths = [
+        'hinge_rail_length' => $doorOpeningHeight - $gaps['top_gap'] - $gaps['bottom_gap'],
+        'lock_rail_length' => $doorOpeningHeight - $gaps['top_gap'] - $gaps['bottom_gap'],
+        'top_rail_length' => $doorOpeningWidth - $gaps['hinge_gap'] - $gaps['lock_gap'],
+        'bottom_rail_length' => $doorOpeningWidth - $gaps['hinge_gap'] - $gaps['lock_gap'],
+        'horizontal_glass_stops' => $doorOpeningWidth
+            - $gaps['hinge_gap']
+            - $gaps['lock_gap']
+            - $hingeRailLz
+            - $lockRailLz
+            - 0.03125,
+        'vertical_glass_stops' => $doorOpeningHeight
+            - $gaps['top_gap']
+            - $gaps['bottom_gap']
+            - $topRailLz
+            - $bottomRailLz
+            - 0.03125,
+    ];
+
+    return [
+        'note' => null,
+        'lengths' => $lengths,
+    ];
 }
 
 /**
@@ -433,6 +604,7 @@ $defaultBuilderForms = [
     'frame' => $frameFormData,
     'door' => $doorFormData,
 ];
+$defaultMathSettings = $doorMathDefaults;
 $editingConfigId = null;
 $builderSteps = [
     ['id' => 'configuration', 'label' => 'Configuration data', 'description' => 'Job, scope, quantity, and door IDs'],
@@ -451,10 +623,16 @@ $builderState = $_SESSION[$builderSessionKey] ?? [
     'completed' => [],
     'forms' => $defaultBuilderForms,
     'config_payload' => null,
+    'math' => $defaultMathSettings,
 ];
 $stepOrder = array_flip($stepIds);
 $previousFrameSystemId = $builderState['forms']['frame']['system_id'] ?? '';
 $frameSystemChanged = false;
+
+if (!isset($builderState['math'])) {
+    $builderState['math'] = $defaultMathSettings;
+    $_SESSION[$builderSessionKey] = $builderState;
+}
 
 $resetBuilderState = static function (?int $configId = null) use (&$builderState, $defaultBuilderForms, $builderSessionKey): void {
     $builderState = [
@@ -463,6 +641,7 @@ $resetBuilderState = static function (?int $configId = null) use (&$builderState
         'completed' => [],
         'forms' => $defaultBuilderForms,
         'config_payload' => null,
+        'math' => $defaultMathSettings,
     ];
     $_SESSION[$builderSessionKey] = $builderState;
 };
@@ -840,7 +1019,21 @@ if (!array_key_exists($doorFormData['inactive']['stile'], $doorStileOptions)) {
             $doorFormData[$leafKey]['parts'] = configuratorNormalizePartSelections($partDefinitions, $partSelections);
         }
 
-        if ($action === 'create_job') {
+        if ($action === 'save_math_overrides') {
+            $mathSettings = [
+                'top_gap' => $_POST['math_top_gap'] ?? '',
+                'bottom_gap' => $_POST['math_bottom_gap'] ?? '',
+                'hinge_gap' => $_POST['math_hinge_gap'] ?? '',
+                'lock_gap' => $_POST['math_lock_gap'] ?? '',
+            ];
+
+            $builderState['math'] = configuratorNormalizeMathSettings($mathSettings, $defaultMathSettings);
+
+            $originStep = $_POST['math_origin'] ?? $builderState['current_step'];
+            if (in_array($originStep, $stepIds, true)) {
+                $builderState['current_step'] = (string) $originStep;
+            }
+        } elseif ($action === 'create_job') {
             $jobNumber = trim((string) ($_POST['job_number'] ?? ''));
             $jobName = trim((string) ($_POST['job_name'] ?? ''));
 
@@ -979,6 +1172,7 @@ if (!array_key_exists($doorFormData['inactive']['stile'], $doorStileOptions)) {
                     'entry' => $entryFormData,
                     'frame' => $frameFormData,
                     'door' => $doorFormData,
+                    'math' => $builderState['math'] ?? $defaultMathSettings,
                     'updated_at' => date(DATE_ATOM),
                 ];
 
@@ -1091,6 +1285,139 @@ if (!array_key_exists($doorFormData['inactive']['stile'], $doorStileOptions)) {
         }
     }
 
+    $doorMathSettings = configuratorNormalizeMathSettings($builderState['math'] ?? [], $defaultMathSettings);
+    $doorOpeningWidthValue = configuratorParseDimension($entryFormData['door_opening_width']);
+    $doorOpeningHeightValue = configuratorParseDimension($entryFormData['door_opening_height']);
+    $frameTransomHeightValue = configuratorParseDimension($frameFormData['transom_height']);
+
+    $framePartMeta = configuratorCollectPartMeta($framePartDefinitions, $framePartOptions, $frameFormData['parts']);
+    $doorPartMeta = [
+        'active' => configuratorCollectPartMeta(
+            $doorPartDefinitionsActive,
+            $doorPartOptions['active'] ?? [],
+            $doorFormData['active']['parts']
+        ),
+        'inactive' => configuratorCollectPartMeta(
+            $doorPartDefinitionsInactive,
+            $doorPartOptions['inactive'] ?? [],
+            $doorFormData['inactive']['parts']
+        ),
+    ];
+
+    $frameMathNotes = [];
+    if ($doorOpeningWidthValue === null || $doorOpeningHeightValue === null) {
+        $frameMathNotes[] = 'Add door opening dimensions to compute frame cut lengths.';
+    }
+    if ($frameFormData['transom'] === 'yes' && $frameTransomHeightValue === null) {
+        $frameMathNotes[] = 'Add the total frame height with transom to drive transom calculations.';
+    }
+
+    $lockDoorStopKey = $isPairOpening ? 'rh_door_stop' : 'lock_door_stop';
+    $hingeDoorStopKey = $isPairOpening ? 'lh_door_stop' : 'hinge_door_stop';
+    $doorHeaderLz = (float) ($framePartMeta['door_head']['height_lz'] ?? 0.0);
+    $lockDoorStopLz = (float) ($framePartMeta[$lockDoorStopKey]['height_lz'] ?? 0.0);
+    $hingeDoorStopLz = (float) ($framePartMeta[$hingeDoorStopKey]['height_lz'] ?? 0.0);
+    $doorHeadTransomFixedLz = (float) ($framePartMeta['door_head_transom_fixed']['height_lz'] ?? 0.0);
+    $transomFrameHeaderLz = $doorHeaderLz;
+
+    $frameMathMode = $frameFormData['transom'] === 'yes' ? 'transom' : 'standard';
+    $frameMath = [];
+
+    if ($frameMathMode === 'standard') {
+        $frameMath = [
+            'lock_jamb_length' => $doorOpeningHeightValue !== null ? $doorOpeningHeightValue + $doorHeaderLz : null,
+            'hinge_jamb_length' => $doorOpeningHeightValue !== null ? $doorOpeningHeightValue + $doorHeaderLz : null,
+            'door_header_length' => $doorOpeningWidthValue,
+            'lock_jamb_door_stop' => $doorOpeningHeightValue,
+            'hinge_jamb_door_stop' => $doorOpeningHeightValue,
+            'door_head_door_stop' => $doorOpeningWidthValue !== null
+                ? $doorOpeningWidthValue - $lockDoorStopLz - $hingeDoorStopLz
+                : null,
+        ];
+    } else {
+        $frameMath = [
+            'lock_jamb_length' => $frameTransomHeightValue,
+            'hinge_jamb_length' => $frameTransomHeightValue,
+            'transom_frame_header_length' => $doorOpeningWidthValue,
+            'door_head_transom_stop_fixed' => $doorOpeningWidthValue,
+            'door_head_transom_stop_active' => $doorOpeningWidthValue !== null
+                ? $doorOpeningWidthValue - 0.03125
+                : null,
+            'vertical_transom_stop_fixed' => ($frameTransomHeightValue !== null && $doorOpeningHeightValue !== null)
+                ? $frameTransomHeightValue
+                    - $doorOpeningHeightValue
+                    - $doorHeaderLz
+                    - $transomFrameHeaderLz
+                    - $doorHeadTransomFixedLz
+                : null,
+            'vertical_transom_stop_active' => ($frameTransomHeightValue !== null && $doorOpeningHeightValue !== null)
+                ? $frameTransomHeightValue
+                    - $doorOpeningHeightValue
+                    - $doorHeaderLz
+                    - $transomFrameHeaderLz
+                    - $doorHeadTransomFixedLz
+                    - 0.03125
+                : null,
+        ];
+    }
+
+    $doorMath = [
+        'active' => configuratorComputeDoorLeafMath(
+            $doorOpeningWidthValue,
+            $doorOpeningHeightValue,
+            $doorMathSettings,
+            $doorPartMeta['active']
+        ),
+    ];
+
+    if ($isPairOpening) {
+        $doorMath['inactive'] = configuratorComputeDoorLeafMath(
+            $doorOpeningWidthValue,
+            $doorOpeningHeightValue,
+            $doorMathSettings,
+            $doorPartMeta['inactive']
+        );
+    }
+
+    $drivenItemMap = [
+        '1/4"' => [
+            'interior_stop' => 'E7410',
+            'exterior_stop' => 'E7410',
+            'interior_vinyl' => 'P0017',
+            'exterior_vinyl' => 'P0017',
+        ],
+        '1/2"' => [
+            'interior_stop' => 'E7926',
+            'exterior_stop' => 'E7926',
+            'interior_vinyl' => 'P0017',
+            'exterior_vinyl' => 'P912',
+        ],
+        '1"' => [
+            'interior_stop' => 'E6422',
+            'exterior_stop' => 'E6422',
+            'interior_vinyl' => 'P0017',
+            'exterior_vinyl' => 'P0017',
+        ],
+    ];
+
+    $drivenItems = [
+        'active' => [
+            'label' => $doorLeafLabels['active'],
+            'glazing' => $doorFormData['active']['glazing'],
+            'items' => $drivenItemMap[$doorFormData['active']['glazing']] ?? null,
+        ],
+    ];
+
+    if ($isPairOpening) {
+        $drivenItems['inactive'] = [
+            'label' => $doorLeafLabels['inactive'],
+            'glazing' => $doorFormData['inactive']['glazing'],
+            'items' => $drivenItemMap[$doorFormData['inactive']['glazing']] ?? null,
+        ];
+    }
+
+    $formatMathInput = static fn (float $value): string => rtrim(rtrim(number_format($value, 4, '.', ''), '0'), '.');
+
 if (isset($_GET['success'])) {
     if ($_GET['success'] === 'created') {
         $successMessage = 'Configuration saved to the catalog.';
@@ -1130,27 +1457,11 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
   <div class="layout">
     <?php require __DIR__ . '/../app/views/partials/sidebar.php'; ?>
 
-    <header class="topbar">
-      <button
-        class="topbar-toggle"
-        type="button"
-        data-sidebar-toggle
-        aria-controls="app-sidebar"
-        aria-expanded="false"
-        aria-label="Toggle navigation"
-      >
-        <span aria-hidden="true"><?= icon('menu') ?></span>
-      </button>
-      <form class="search" role="search" aria-label="Configurator search">
-        <span aria-hidden="true"><?= icon('search') ?></span>
-        <input type="search" name="q" placeholder="Search configurations" />
-      </form>
-      <button class="user" type="button">
-        <span class="user-avatar" aria-hidden="true"><?= e($app['user']['avatar']) ?></span>
-        <span class="user-email"><?= e($app['user']['email']) ?></span>
-        <span aria-hidden="true"><?= icon('chev') ?></span>
-      </button>
-    </header>
+    <?php
+    $topbarTitle = 'Door Configurator';
+    require __DIR__ . '/../app/views/partials/topbar.php';
+    unset($topbarTitle, $topbarSubhead, $topbarExtras);
+    ?>
 
     <main class="content">
       <section class="panel" aria-labelledby="configurator-title">
@@ -1754,6 +2065,128 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                 </div>
               </form>
             <?php endif; ?>
+          </section>
+        <?php endif; ?>
+
+        <?php if ($editorMode): ?>
+          <section class="panel">
+            <header class="panel-header">
+              <div>
+                <h2>Driven items &amp; math scratch pads</h2>
+                <p class="small">Glazing-driven accessories and cut math derived from the current configuration.</p>
+              </div>
+            </header>
+
+            <div class="card-grid two-column">
+              <div class="card">
+                <h3>Driven item scratch pad</h3>
+                <p class="small muted">Glass stops and vinyl are driven by each leaf's glazing.</p>
+                <div class="stacked gap-xs">
+                  <?php foreach ($drivenItems as $leafKey => $driven): ?>
+                    <div class="stacked gap-xxs">
+                      <p class="small"><strong><?= e($driven['label']) ?></strong> glazing: <?= e($driven['glazing'] ?? 'Select glazing') ?></p>
+                      <?php if (($driven['items'] ?? null) === null): ?>
+                        <p class="small muted">Select a glazing option to view driven parts.</p>
+                      <?php else: ?>
+                        <ul class="stacked gap-xxs small">
+                          <li><strong>Interior stop:</strong> <?= e($driven['items']['interior_stop']) ?></li>
+                          <li><strong>Exterior stop:</strong> <?= e($driven['items']['exterior_stop']) ?></li>
+                          <li><strong>Interior vinyl:</strong> <?= e($driven['items']['interior_vinyl']) ?></li>
+                          <li><strong>Exterior vinyl:</strong> <?= e($driven['items']['exterior_vinyl']) ?></li>
+                        </ul>
+                      <?php endif; ?>
+                    </div>
+                  <?php endforeach; ?>
+                </div>
+              </div>
+
+              <div class="card">
+                <h3>Math scratch pad</h3>
+                <p class="small muted">Uses door opening dimensions and part LZ values (nulls treated as 0) to pre-stage cut math.</p>
+
+                <details>
+                  <summary class="small">Door part global variables (inches)</summary>
+                  <form method="post" class="form" novalidate>
+                    <input type="hidden" name="action" value="save_math_overrides" />
+                    <input type="hidden" name="math_origin" value="<?= e($currentStep) ?>" />
+                    <div class="field-grid two-column">
+                      <div class="field">
+                        <label for="math_top_gap">Top gap</label>
+                        <input type="text" id="math_top_gap" name="math_top_gap" value="<?= e($formatMathInput($doorMathSettings['top_gap'])) ?>" />
+                      </div>
+                      <div class="field">
+                        <label for="math_bottom_gap">Bottom gap</label>
+                        <input type="text" id="math_bottom_gap" name="math_bottom_gap" value="<?= e($formatMathInput($doorMathSettings['bottom_gap'])) ?>" />
+                      </div>
+                      <div class="field">
+                        <label for="math_hinge_gap">Hinge gap</label>
+                        <input type="text" id="math_hinge_gap" name="math_hinge_gap" value="<?= e($formatMathInput($doorMathSettings['hinge_gap'])) ?>" />
+                      </div>
+                      <div class="field">
+                        <label for="math_lock_gap">Lock gap</label>
+                        <input type="text" id="math_lock_gap" name="math_lock_gap" value="<?= e($formatMathInput($doorMathSettings['lock_gap'])) ?>" />
+                      </div>
+                    </div>
+                    <div class="form-actions">
+                      <button type="submit" class="button secondary">Update math</button>
+                      <p class="small muted">Adjust rarely changed gap defaults without leaving the configurator.</p>
+                    </div>
+                  </form>
+                </details>
+
+                <?php if ($frameMathNotes !== []): ?>
+                  <ul class="small muted">
+                    <?php foreach ($frameMathNotes as $note): ?>
+                      <li><?= e($note) ?></li>
+                    <?php endforeach; ?>
+                  </ul>
+                <?php endif; ?>
+
+                <div class="stacked gap-xxs">
+                  <p class="small muted">Frame lengths (<?= $frameMathMode === 'transom' ? 'with transom' : 'no transom' ?>)</p>
+                  <?php if ($frameMathMode === 'standard'): ?>
+                    <ul class="stacked gap-xxs small">
+                      <li><strong>Lock jamb length:</strong> <?= e(configuratorFormatLength($frameMath['lock_jamb_length'] ?? null)) ?></li>
+                      <li><strong>Hinge jamb length:</strong> <?= e(configuratorFormatLength($frameMath['hinge_jamb_length'] ?? null)) ?></li>
+                      <li><strong>Door header length:</strong> <?= e(configuratorFormatLength($frameMath['door_header_length'] ?? null)) ?></li>
+                      <li><strong>Lock jamb door stop:</strong> <?= e(configuratorFormatLength($frameMath['lock_jamb_door_stop'] ?? null)) ?></li>
+                      <li><strong>Hinge jamb door stop:</strong> <?= e(configuratorFormatLength($frameMath['hinge_jamb_door_stop'] ?? null)) ?></li>
+                      <li><strong>Door head door stop:</strong> <?= e(configuratorFormatLength($frameMath['door_head_door_stop'] ?? null)) ?></li>
+                    </ul>
+                  <?php else: ?>
+                    <ul class="stacked gap-xxs small">
+                      <li><strong>Lock jamb length:</strong> <?= e(configuratorFormatLength($frameMath['lock_jamb_length'] ?? null)) ?></li>
+                      <li><strong>Hinge jamb length:</strong> <?= e(configuratorFormatLength($frameMath['hinge_jamb_length'] ?? null)) ?></li>
+                      <li><strong>Transom frame header length:</strong> <?= e(configuratorFormatLength($frameMath['transom_frame_header_length'] ?? null)) ?></li>
+                      <li><strong>Door head transom stop (fixed):</strong> <?= e(configuratorFormatLength($frameMath['door_head_transom_stop_fixed'] ?? null)) ?></li>
+                      <li><strong>Door head transom stop (active):</strong> <?= e(configuratorFormatLength($frameMath['door_head_transom_stop_active'] ?? null)) ?></li>
+                      <li><strong>Vertical transom stop (fixed):</strong> <?= e(configuratorFormatLength($frameMath['vertical_transom_stop_fixed'] ?? null)) ?></li>
+                      <li><strong>Vertical transom stop (active):</strong> <?= e(configuratorFormatLength($frameMath['vertical_transom_stop_active'] ?? null)) ?></li>
+                    </ul>
+                  <?php endif; ?>
+                </div>
+
+                <div class="stacked gap-xxs">
+                  <p class="small muted">Door part lengths</p>
+                  <?php foreach ($doorMath as $leafKey => $mathSet): ?>
+                    <div class="stacked gap-xxs">
+                      <p class="small"><strong><?= e($drivenItems[$leafKey]['label'] ?? ucfirst($leafKey)) ?></strong></p>
+                      <?php if ($mathSet['note'] !== null): ?>
+                        <p class="small muted"><?= e($mathSet['note']) ?></p>
+                      <?php endif; ?>
+                      <ul class="stacked gap-xxs small">
+                        <li><strong>Hinge rail length:</strong> <?= e(configuratorFormatLength($mathSet['lengths']['hinge_rail_length'] ?? null)) ?></li>
+                        <li><strong>Lock rail length:</strong> <?= e(configuratorFormatLength($mathSet['lengths']['lock_rail_length'] ?? null)) ?></li>
+                        <li><strong>Top rail length:</strong> <?= e(configuratorFormatLength($mathSet['lengths']['top_rail_length'] ?? null)) ?></li>
+                        <li><strong>Bottom rail length:</strong> <?= e(configuratorFormatLength($mathSet['lengths']['bottom_rail_length'] ?? null)) ?></li>
+                        <li><strong>Horizontal glass stops:</strong> <?= e(configuratorFormatLength($mathSet['lengths']['horizontal_glass_stops'] ?? null)) ?></li>
+                        <li><strong>Vertical glass stops:</strong> <?= e(configuratorFormatLength($mathSet['lengths']['vertical_glass_stops'] ?? null)) ?></li>
+                      </ul>
+                    </div>
+                  <?php endforeach; ?>
+                </div>
+              </div>
+            </div>
           </section>
         <?php endif; ?>
 
