@@ -1241,6 +1241,8 @@ if (!function_exists('loadInventory')) {
      *   notes:?string,
      *   lines:list<array{item_id:int,quantity_change:int,note:?string}>
      * } $payload
+     *
+     * Location-level balances are not adjusted here; use reconciliation utilities when location quantities are authoritative.
      */
     function recordInventoryTransaction(\PDO $db, array $payload): int
     {
@@ -2150,6 +2152,129 @@ if (!function_exists('loadInventory')) {
     }
 
     /**
+     * Determine how location assignments should influence the inventory stock total.
+     *
+     * sync_stock: automatically align inventory_items.stock with the sum of inventory_item_locations.
+     * block_on_mismatch: prevent saves when the submitted locations do not match the item stock.
+     */
+    function inventoryLocationStockPolicy(): string
+    {
+        $value = strtolower((string) (getenv('INVENTORY_LOCATION_STOCK_POLICY') ?: 'sync_stock'));
+
+        if (in_array($value, ['sync_stock', 'block_on_mismatch'], true)) {
+            return $value;
+        }
+
+        return 'sync_stock';
+    }
+
+    function inventoryCalculateLocationTotal(\PDO $db, int $itemId): int
+    {
+        $statement = $db->prepare(
+            'SELECT COALESCE(SUM(quantity), 0) AS total_quantity
+             FROM inventory_item_locations
+             WHERE inventory_item_id = :item_id'
+        );
+        $statement->execute([':item_id' => $itemId]);
+
+        return (int) $statement->fetchColumn();
+    }
+
+    /**
+     * Identify items where the on-hand stock does not match the sum of location assignments.
+     *
+     * @return list<array{id:int,item:string,sku:string,stock:int,location_stock:int,difference:int}>
+     */
+    function inventoryLocationDiscrepancies(\PDO $db): array
+    {
+        storageLocationsEnsureSchema($db);
+
+        $statement = $db->query(
+            'SELECT i.id, i.item, i.sku, i.stock, COALESCE(SUM(iil.quantity), 0) AS location_stock
+             FROM inventory_items i
+             LEFT JOIN inventory_item_locations iil ON iil.inventory_item_id = i.id
+             GROUP BY i.id
+             HAVING i.stock <> COALESCE(SUM(iil.quantity), 0)
+             ORDER BY i.item ASC'
+        );
+
+        $rows = $statement !== false ? $statement->fetchAll() : [];
+
+        return array_map(
+            static function (array $row): array {
+                $locationStock = (int) $row['location_stock'];
+                $stock = (int) $row['stock'];
+
+                return [
+                    'id' => (int) $row['id'],
+                    'item' => (string) $row['item'],
+                    'sku' => (string) $row['sku'],
+                    'stock' => $stock,
+                    'location_stock' => $locationStock,
+                    'difference' => $locationStock - $stock,
+                ];
+            },
+            $rows
+        );
+    }
+
+    /**
+     * Align inventory_items.stock to match the summed location quantities for all items.
+     *
+     * @return array{updated:int,checked:int}
+     */
+    function inventoryRealignStockFromLocations(\PDO $db): array
+    {
+        storageLocationsEnsureSchema($db);
+
+        $rows = $db->query(
+            'SELECT i.id, COALESCE(SUM(iil.quantity), 0) AS location_stock
+             FROM inventory_items i
+             LEFT JOIN inventory_item_locations iil ON iil.inventory_item_id = i.id
+             GROUP BY i.id'
+        )->fetchAll();
+
+        $checked = count($rows);
+        $updated = 0;
+
+        $startedTransaction = false;
+
+        try {
+            if (!$db->inTransaction()) {
+                $db->beginTransaction();
+                $startedTransaction = true;
+            }
+
+            $update = $db->prepare('UPDATE inventory_items SET stock = :stock WHERE id = :id AND stock <> :stock');
+
+            foreach ($rows as $row) {
+                $locationStock = (int) $row['location_stock'];
+                $update->execute([
+                    ':id' => (int) $row['id'],
+                    ':stock' => $locationStock,
+                ]);
+
+                $updated += $update->rowCount();
+            }
+
+            if ($startedTransaction) {
+                $db->commit();
+            }
+        } catch (\Throwable $exception) {
+            if ($startedTransaction && $db->inTransaction()) {
+                $db->rollBack();
+            }
+
+            throw $exception;
+        }
+
+        return [
+            'updated' => $updated,
+            'checked' => $checked,
+        ];
+    }
+
+    /**
      * @return list<array{storage_location_id:int,name:string,quantity:int}>
      */
     function inventoryLoadItemLocations(\PDO $db, int $itemId): array
@@ -2215,7 +2340,13 @@ if (!function_exists('loadInventory')) {
 
         $summary = inventoryFormatLocationSummary(array_values($normalized));
 
-        $db->beginTransaction();
+        $startedTransaction = false;
+
+        if (!$db->inTransaction()) {
+            $db->beginTransaction();
+            $startedTransaction = true;
+        }
+
         try {
             $deleteStatement = $db->prepare('DELETE FROM inventory_item_locations WHERE inventory_item_id = :item_id');
             $deleteStatement->execute([':item_id' => $itemId]);
@@ -2241,9 +2372,35 @@ if (!function_exists('loadInventory')) {
                 ':id' => $itemId,
             ]);
 
-            $db->commit();
+            $locationTotal = inventoryCalculateLocationTotal($db, $itemId);
+            $policy = inventoryLocationStockPolicy();
+
+            if ($policy === 'sync_stock') {
+                $stockUpdate = $db->prepare('UPDATE inventory_items SET stock = :stock WHERE id = :id');
+                $stockUpdate->execute([
+                    ':id' => $itemId,
+                    ':stock' => $locationTotal,
+                ]);
+            } elseif ($policy === 'block_on_mismatch') {
+                $stockStatement = $db->prepare('SELECT stock FROM inventory_items WHERE id = :id');
+                $stockStatement->execute([':id' => $itemId]);
+                $currentStock = (int) $stockStatement->fetchColumn();
+
+                if ($currentStock !== $locationTotal) {
+                    throw new \RuntimeException(
+                        'Location assignments total ' . $locationTotal . ' but item stock is ' . $currentStock . '. '
+                        . 'Adjust the quantities so they match before saving.'
+                    );
+                }
+            }
+
+            if ($startedTransaction) {
+                $db->commit();
+            }
         } catch (\Throwable $exception) {
-            $db->rollBack();
+            if ($startedTransaction && $db->inTransaction()) {
+                $db->rollBack();
+            }
             throw $exception;
         }
     }
