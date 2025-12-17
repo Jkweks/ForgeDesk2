@@ -13,24 +13,22 @@ if (!function_exists('loadInventory')) {
         return strcasecmp(trim($status), 'Discontinued') === 0;
     }
 
-    function inventoryStatusFromAvailable(int $availableQty, int $reorderPoint): string
+    function inventoryStatusFromAvailable(float $availableQty, int $reorderPoint): string
     {
         $normalizedReorder = max($reorderPoint, 0);
 
-        if ($availableQty < $normalizedReorder) {
+        if ($availableQty < 0) {
             return 'Critical';
         }
 
-        $lowThreshold = (int) floor($normalizedReorder * 1.3);
-
-        if ($availableQty <= $lowThreshold) {
+        if ($availableQty < $normalizedReorder) {
             return 'Low';
         }
 
         return 'In Stock';
     }
 
-    function inventoryResolveStatus(int $availableQty, int $reorderPoint, string $storedStatus): string
+    function inventoryResolveStatus(float $availableQty, int $reorderPoint, string $storedStatus): string
     {
         if (inventoryIsDiscontinuedStatus($storedStatus)) {
             return 'Discontinued';
@@ -637,7 +635,7 @@ if (!function_exists('loadInventory')) {
                 'lead_time_days' => $leadTimeDays,
                 'effective_lead_time_days' => $effectiveLead,
                 'reorder_point' => $reorderPoint,
-                'status' => inventoryResolveStatus($availableNow, $reorderPoint, $storedStatus),
+                'status' => inventoryResolveStatus($projectedAvailable, $reorderPoint, $storedStatus),
                 'discontinued' => inventoryIsDiscontinuedStatus($storedStatus),
                 'active_reservations' => (int) $row['active_reservations'],
             ];
@@ -1128,14 +1126,14 @@ if (!function_exists('loadInventory')) {
     /**
      * Retrieve inventory rows for lookup widgets.
      *
-     * @return list<array{id:int,item:string,sku:string,part_number:string,stock:int,available_qty:int}>
+     * @return list<array{id:int,item:string,sku:string,part_number:string,stock:int,available_qty:float}>
      */
     function listInventoryLookupOptions(\PDO $db): array
     {
         ensureInventorySchema($db);
 
         $statement = $db->query(
-            'SELECT id, item, sku, part_number, stock FROM inventory_items ORDER BY item ASC'
+            'SELECT id, item, sku, part_number, stock, on_order_qty FROM inventory_items ORDER BY item ASC'
         );
 
         $rows = $statement !== false ? $statement->fetchAll() : [];
@@ -1152,6 +1150,7 @@ if (!function_exists('loadInventory')) {
                 $id = (int) $row['id'];
                 $stock = (int) $row['stock'];
                 $committed = $committedTotals[$id] ?? 0;
+                $onOrder = inventoryNormalizeNumericValue($row['on_order_qty'] ?? 0.0);
 
                 return [
                     'id' => $id,
@@ -1159,7 +1158,7 @@ if (!function_exists('loadInventory')) {
                     'sku' => (string) $row['sku'],
                     'part_number' => (string) $row['part_number'],
                     'stock' => $stock,
-                    'available_qty' => $stock - $committed,
+                    'available_qty' => $stock - $committed + $onOrder,
                 ];
             },
             $rows
@@ -1177,7 +1176,8 @@ if (!function_exists('loadInventory')) {
      *   location:string,
      *   stock:int,
      *   committed_qty:int,
-     *   available_qty:int,
+     *   available_qty:float,
+     *   on_order_qty:float,
      *   status:string,
      *   supplier:string,
      *   supplier_contact:?string,
@@ -1586,7 +1586,8 @@ if (!function_exists('loadInventory')) {
      *   location:string,
      *   stock:int,
      *   committed_qty:int,
-     *   available_qty:int,
+     *   available_qty:float,
+     *   on_order_qty:float,
      *   status:string,
      *   supplier:string,
      *   supplier_contact:?string,
@@ -1606,7 +1607,7 @@ if (!function_exists('loadInventory')) {
 
             $committedSelect = $supportsReservations ? 'COALESCE(commitments.committed_qty, 0)' : '0';
             $activeSelect = $supportsReservations ? 'COALESCE(res.active_reservations, 0)' : '0';
-            $availableExpr = 'i.stock - ' . $committedSelect;
+            $availableExpr = 'i.stock + COALESCE(i.on_order_qty, 0) - ' . $committedSelect;
 
             $joinCommitments = $supportsReservations
                 ? 'LEFT JOIN inventory_item_commitments commitments ON commitments.inventory_item_id = i.id '
@@ -1644,7 +1645,7 @@ if (!function_exists('loadInventory')) {
 
             return array_map(
                 static function (array $row) use ($averageUsage, $locationMap): array {
-                    $available = (int) $row['available_qty'];
+                    $available = inventoryNormalizeNumericValue($row['available_qty'] ?? 0.0);
                     $reorderPoint = (int) $row['reorder_point'];
                     $storedStatus = (string) $row['status'];
                     $id = (int) $row['id'];
@@ -1712,7 +1713,7 @@ if (!function_exists('loadInventory')) {
                 'SELECT '
                 . 'COALESCE(SUM(i.stock), 0) AS total_stock, '
                 . 'COALESCE(SUM(' . $committedSelect . '), 0) AS total_committed, '
-                . 'COALESCE(SUM(i.stock - ' . $committedSelect . '), 0) AS total_available '
+                . 'COALESCE(SUM(i.stock + COALESCE(i.on_order_qty, 0) - ' . $committedSelect . '), 0) AS total_available '
                 . 'FROM inventory_items i '
                 . ($supportsReservations ? 'LEFT JOIN inventory_item_commitments commitments ON commitments.inventory_item_id = i.id' : '')
             );
@@ -1742,7 +1743,7 @@ if (!function_exists('loadInventory')) {
         return [
             'total_stock' => isset($totals['total_stock']) ? (int) $totals['total_stock'] : 0,
             'total_committed' => isset($totals['total_committed']) ? (int) $totals['total_committed'] : 0,
-            'total_available' => isset($totals['total_available']) ? (int) $totals['total_available'] : 0,
+            'total_available' => isset($totals['total_available']) ? (float) $totals['total_available'] : 0.0,
             'active_reservations' => $activeReservations,
         ];
     }
@@ -1750,7 +1751,7 @@ if (!function_exists('loadInventory')) {
     /**
      * Retrieve a single inventory item or null if it does not exist.
      *
-     * Available quantity reflects stock minus global commitments and may be negative.
+     * Available quantity reflects stock minus global commitments plus on-order quantities and may be negative.
      *
      * @return array{
      *   item:string,
@@ -1760,7 +1761,7 @@ if (!function_exists('loadInventory')) {
      *   location:string,
      *   stock:int,
      *   committed_qty:int,
-     *   available_qty:int,
+     *   available_qty:float,
      *   status:string,
      *   supplier:string,
      *   supplier_contact:?string,
@@ -1792,9 +1793,9 @@ if (!function_exists('loadInventory')) {
             : '';
 
         $statement = $db->prepare(
-            'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, '
+            'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, i.on_order_qty, '
             . $committedSelect . ' AS committed_qty, '
-            . '(i.stock - ' . $committedSelect . ') AS available_qty, i.status, i.supplier, i.supplier_contact, '
+            . '(i.stock + COALESCE(i.on_order_qty, 0) - ' . $committedSelect . ') AS available_qty, i.status, i.supplier, i.supplier_contact, '
             . 'i.supplier_id, i.supplier_sku, '
             . 'i.reorder_point, i.lead_time_days, i.average_daily_use, '
             . 'i.pack_size, i.purchase_uom, i.stock_uom, '
@@ -1817,7 +1818,7 @@ if (!function_exists('loadInventory')) {
             return null;
         }
 
-        $available = (int) $row['available_qty'];
+        $available = inventoryNormalizeNumericValue($row['available_qty'] ?? 0.0);
         $reorderPoint = (int) $row['reorder_point'];
         $storedStatus = (string) $row['status'];
         $id = (int) $row['id'];
@@ -1825,6 +1826,7 @@ if (!function_exists('loadInventory')) {
         $averageUsage = inventoryCalculateAverageDailyUseMap($db, [$id]);
 
         $packSize = inventoryNormalizeNumericValue($row['pack_size'] ?? 0.0);
+        $onOrder = inventoryNormalizeNumericValue($row['on_order_qty'] ?? 0.0);
         $supplierName = $row['supplier_name'] !== null ? (string) $row['supplier_name'] : null;
         $supplierDisplay = $supplierName !== null ? $supplierName : (string) $row['supplier'];
 
@@ -1838,6 +1840,7 @@ if (!function_exists('loadInventory')) {
             'stock' => (int) $row['stock'],
             'committed_qty' => (int) $row['committed_qty'],
             'available_qty' => $available,
+            'on_order_qty' => $onOrder,
             'status' => inventoryResolveStatus($available, $reorderPoint, $storedStatus),
             'supplier_id' => $row['supplier_id'] !== null ? (int) $row['supplier_id'] : null,
             'supplier' => $supplierDisplay,
@@ -1863,7 +1866,7 @@ if (!function_exists('loadInventory')) {
     /**
      * Retrieve an inventory item by SKU.
      *
-     * Available quantity reflects stock minus global commitments and may be negative.
+     * Available quantity reflects stock minus global commitments plus on-order quantities and may be negative.
      *
      * @return array{
      *   item:string,
@@ -1873,7 +1876,7 @@ if (!function_exists('loadInventory')) {
      *   location:string,
      *   stock:int,
      *   committed_qty:int,
-     *   available_qty:int,
+     *   available_qty:float,
      *   status:string,
      *   supplier:string,
      *   supplier_contact:?string,
@@ -1905,9 +1908,9 @@ if (!function_exists('loadInventory')) {
             : '';
 
         $statement = $db->prepare(
-            'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, '
+            'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, i.on_order_qty, '
             . $committedSelect . ' AS committed_qty, '
-            . '(i.stock - ' . $committedSelect . ') AS available_qty, i.status, i.supplier, i.supplier_contact, '
+            . '(i.stock + COALESCE(i.on_order_qty, 0) - ' . $committedSelect . ') AS available_qty, i.status, i.supplier, i.supplier_contact, '
             . 'i.supplier_id, i.supplier_sku, '
             . 'i.reorder_point, i.lead_time_days, i.average_daily_use, '
             . 'i.pack_size, i.purchase_uom, i.stock_uom, '
@@ -1930,7 +1933,7 @@ if (!function_exists('loadInventory')) {
             return null;
         }
 
-        $available = (int) $row['available_qty'];
+        $available = inventoryNormalizeNumericValue($row['available_qty'] ?? 0.0);
         $reorderPoint = (int) $row['reorder_point'];
         $storedStatus = (string) $row['status'];
         $id = (int) $row['id'];
@@ -1938,6 +1941,7 @@ if (!function_exists('loadInventory')) {
         $averageUsage = inventoryCalculateAverageDailyUseMap($db, [$id]);
 
         $packSize = inventoryNormalizeNumericValue($row['pack_size'] ?? 0.0);
+        $onOrder = inventoryNormalizeNumericValue($row['on_order_qty'] ?? 0.0);
         $supplierName = $row['supplier_name'] !== null ? (string) $row['supplier_name'] : null;
         $supplierDisplay = $supplierName !== null ? $supplierName : (string) $row['supplier'];
 
@@ -1951,6 +1955,7 @@ if (!function_exists('loadInventory')) {
             'stock' => (int) $row['stock'],
             'committed_qty' => (int) $row['committed_qty'],
             'available_qty' => $available,
+            'on_order_qty' => $onOrder,
             'status' => inventoryResolveStatus($available, $reorderPoint, $storedStatus),
             'supplier_id' => $row['supplier_id'] !== null ? (int) $row['supplier_id'] : null,
             'supplier' => $supplierDisplay,
