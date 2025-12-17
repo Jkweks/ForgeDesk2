@@ -24,6 +24,8 @@ $inventorySummary = [
     'total_available' => 0,
     'active_reservations' => 0,
 ];
+$locationDiscrepancies = [];
+$locationPolicy = inventoryLocationStockPolicy();
 $editingId = null;
 $finishOptions = inventoryFinishOptions();
 $categoryOptions = inventoryCategoryOptions();
@@ -658,7 +660,14 @@ if ($dbError === null) {
                 ? 'Discontinued'
                 : inventoryStatusFromAvailable($availableQty, $payload['reorder_point']);
 
+            $startedTransaction = false;
+
             try {
+                if (!$db->inTransaction()) {
+                    $db->beginTransaction();
+                    $startedTransaction = true;
+                }
+
                 if ($action === 'update' && $editingId !== null) {
                     updateInventoryItem($db, $editingId, $payload);
                     inventorySyncLocationAssignments($db, $editingId, $locationAssignmentsList);
@@ -673,6 +682,9 @@ if ($dbError === null) {
                         $configuratorHeight,
                         $configuratorDepth
                     );
+                    if ($startedTransaction && $db->inTransaction()) {
+                        $db->commit();
+                    }
                     header('Location: inventory.php?success=updated');
                 } else {
                     $newItemId = createInventoryItem($db, $payload);
@@ -688,12 +700,19 @@ if ($dbError === null) {
                         $configuratorHeight,
                         $configuratorDepth
                     );
+                    if ($startedTransaction && $db->inTransaction()) {
+                        $db->commit();
+                    }
                     header('Location: inventory.php?success=created');
                 }
 
                 exit;
-            } catch (\PDOException $exception) {
-                if ($exception->getCode() === '23505') {
+            } catch (\Throwable $exception) {
+                if ($startedTransaction && $db->inTransaction()) {
+                    $db->rollBack();
+                }
+
+                if ($exception instanceof \PDOException && $exception->getCode() === '23505') {
                     $errors['sku'] = 'SKU must be unique.';
                 } else {
                     $errors['general'] = 'Unable to save inventory item: ' . $exception->getMessage();
@@ -802,6 +821,8 @@ if ($dbError === null) {
 
     $inventory = loadInventory($db);
     $inventorySummary = inventoryReservationSummary($db);
+    $locationDiscrepancies = inventoryLocationDiscrepancies($db);
+    $locationPolicy = inventoryLocationStockPolicy();
 }
 
 if ($formData['locations'] === []) {
@@ -935,6 +956,22 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
                 </span>
               </div>
             </div>
+            <?php if ($locationDiscrepancies !== []): ?>
+              <div class="callout warning">
+                <p class="strong">Location reconciliation needed</p>
+                <p class="small">Stock totals differ from location quantities for <?= e((string) count($locationDiscrepancies)) ?> item(s). <a href="/admin/inventory-reconciliation.php">Review the reconciliation report</a>.</p>
+                <p class="small muted">Policy: <?= e($locationPolicy === 'block_on_mismatch' ? 'Block on mismatch' : 'Sync stock to locations') ?>.</p>
+                <?php $reconciliationPreview = array_slice($locationDiscrepancies, 0, 5); ?>
+                <ul class="small">
+                  <?php foreach ($reconciliationPreview as $row): ?>
+                    <li>
+                      <?= e($row['item']) ?> (<?= e($row['sku']) ?>):
+                      item stock <?= e(inventoryFormatQuantity($row['stock'])) ?> vs locations <?= e(inventoryFormatQuantity($row['location_stock'])) ?>
+                    </li>
+                  <?php endforeach; ?>
+                </ul>
+              </div>
+            <?php endif; ?>
             <?php renderInventoryTable($inventory, [
                 'includeFilters' => true,
                 'emptyMessage' => 'No inventory items found. Use the button above to add your first part.',

@@ -8,6 +8,7 @@ return [
         ['icon' => 'edit', 'label' => 'Manage Inventory', 'href' => '/inventory.php'],
         ['icon' => 'repeat', 'label' => 'Inventory Transactions', 'href' => '/inventory-transactions.php'],
         ['icon' => 'checklist', 'label' => 'Cycle Counts', 'href' => '/cycle-count.php'],
+        ['icon' => 'alert-triangle', 'label' => 'Location Reconciliation', 'href' => '/admin/inventory-reconciliation.php'],
     ],
     'Purchasing' => [
         ['icon' => 'truck', 'label' => 'Material Replenishment', 'href' => '/material-replenishment.php'],
