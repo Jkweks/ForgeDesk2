@@ -227,7 +227,8 @@ if (!function_exists('seedInventoryFromXlsx')) {
                 $shouldDiscontinue = $requestedDiscontinued
                     || (!$explicitStatusProvided && $existing !== null && ($existing['discontinued'] ?? false));
                 $committedQty = $existing !== null ? (int) $existing['committed_qty'] : 0;
-                $availableQty = $payload['stock'] - $committedQty;
+                $existingOnOrder = $existing !== null ? inventoryNormalizeNumericValue($existing['on_order_qty'] ?? 0.0) : 0.0;
+                $availableQty = $payload['stock'] - $committedQty + $existingOnOrder;
                 $payload['status'] = $shouldDiscontinue
                     ? 'Discontinued'
                     : inventoryStatusFromAvailable($availableQty, $payload['reorder_point']);
