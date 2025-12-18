@@ -162,5 +162,6 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
       </section>
     </main>
   </div>
+  <script src="/js/dashboard.js"></script>
 </body>
 </html>

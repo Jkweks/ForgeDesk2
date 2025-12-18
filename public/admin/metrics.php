@@ -312,5 +312,6 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
       </section>
     </main>
   </div>
+  <script src="/js/dashboard.js"></script>
 </body>
 </html>

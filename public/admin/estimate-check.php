@@ -824,9 +824,9 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
       syncSelectAll();
     }());
   </script>
-  <?php if ($analysisLog !== []): ?>
-    <script>
-      (function (logEntries, label) {
+    <?php if ($analysisLog !== []): ?>
+      <script>
+        (function (logEntries, label) {
         if (!window.console || !Array.isArray(logEntries)) {
           return;
         }
@@ -854,8 +854,9 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
         if (openedGroup && console.groupEnd) {
           console.groupEnd();
         }
-      })(<?= json_encode($analysisLog, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>, <?= json_encode($uploadedName ?? 'Workbook') ?>);
-    </script>
-  <?php endif; ?>
-</body>
-</html>
+        })(<?= json_encode($analysisLog, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>, <?= json_encode($uploadedName ?? 'Workbook') ?>);
+      </script>
+    <?php endif; ?>
+    <script src="/js/dashboard.js"></script>
+  </body>
+  </html>
