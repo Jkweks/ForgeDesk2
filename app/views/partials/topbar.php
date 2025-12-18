@@ -39,9 +39,11 @@ if (!function_exists('renderTopbarExtras')) {
 
   <div class="topbar-spacer"></div>
 
-  <button class="user" type="button">
+  <div class="user" aria-label="Current user">
     <span class="user-avatar" aria-hidden="true"><?= e($app['user']['avatar']) ?></span>
-    <span class="user-email"><?= e($app['user']['email']) ?></span>
-    <span aria-hidden="true"><?= icon('chev') ?></span>
-  </button>
+    <div class="user-details">
+      <span class="user-name"><?= e($app['user']['name']) ?></span>
+      <span class="user-email"><?= e($app['user']['email']) ?></span>
+    </div>
+  </div>
 </header>

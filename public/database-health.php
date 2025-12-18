@@ -307,5 +307,6 @@ unset($groupItems, $item);
       </section>
     </main>
   </div>
+  <script src="js/dashboard.js"></script>
 </body>
 </html>

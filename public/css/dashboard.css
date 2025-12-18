@@ -202,9 +202,9 @@ body.sidebar-open{overflow:hidden}
   display:flex;
   align-items:center;
   gap:10px;
-  padding:6px 10px;
-  border-radius:999px;
-  background:var(--panel-3);
+  padding:4px 2px;
+  border-radius:12px;
+  background:transparent;
 }
 
 .user-details{
@@ -215,7 +215,7 @@ body.sidebar-open{overflow:hidden}
   line-height:1.2;
 }
 
-.user-details span:first-child{font-weight:600}
+.user-name{font-weight:700}
 
 .user-avatar{
   width:32px;

@@ -663,10 +663,7 @@ if ($dbError === null) {
             $startedTransaction = false;
 
             try {
-                if (!$db->inTransaction()) {
-                    $db->beginTransaction();
-                    $startedTransaction = true;
-                }
+                $startedTransaction = dbBeginTransactionSafe($db);
 
                 if ($action === 'update' && $editingId !== null) {
                     updateInventoryItem($db, $editingId, $payload);
@@ -926,12 +923,6 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
           </div>
         <?php endif; ?>
 
-        <?php if (!empty($errors['general'])): ?>
-          <div class="alert error" role="alert">
-            <?= e($errors['general']) ?>
-          </div>
-        <?php endif; ?>
-
         <div class="table-wrapper">
           <?php if ($dbError === null): ?>
             <div class="inventory-metrics" role="list">
@@ -1006,6 +997,12 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
         <input type="hidden" name="action" value="<?= $editingId === null ? 'create' : 'update' ?>" />
         <?php if ($editingId !== null): ?>
           <input type="hidden" name="id" value="<?= e((string) $editingId) ?>" />
+        <?php endif; ?>
+
+        <?php if (!empty($errors['general'])): ?>
+          <div class="alert error" role="alert">
+            <?= e($errors['general']) ?>
+          </div>
         <?php endif; ?>
 
         <?php

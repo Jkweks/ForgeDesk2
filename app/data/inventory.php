@@ -2345,12 +2345,7 @@ if (!function_exists('loadInventory')) {
 
         $summary = inventoryFormatLocationSummary(array_values($normalized));
 
-        $startedTransaction = false;
-
-        if (!$db->inTransaction()) {
-            $db->beginTransaction();
-            $startedTransaction = true;
-        }
+        $startedTransaction = dbBeginTransactionSafe($db);
 
         try {
             $deleteStatement = $db->prepare('DELETE FROM inventory_item_locations WHERE inventory_item_id = :item_id');
