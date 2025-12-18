@@ -55,6 +55,9 @@ function dbBeginTransactionSafe(\PDO $db): bool
             try {
                 if ($db->inTransaction()) {
                     $db->rollBack();
+                } else {
+                    // Clear out any lingering transaction state even if PDO no longer reports it.
+                    $db->exec('ROLLBACK');
                 }
             } catch (\Throwable $rollbackException) {
                 // If rollback fails, bubble up the original exception to avoid masking errors.
