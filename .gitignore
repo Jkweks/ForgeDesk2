@@ -1,4 +1,4 @@
 __pycache__/
 *.py[cod]
 vendor/
-admin_service/staticfiles/
+admin_service\staticfiles\
