@@ -34,3 +34,38 @@ function db(array $config): \PDO
 
     return $connection;
 }
+
+/**
+ * Start a transaction, rolling back any abandoned transaction state first.
+ *
+ * @return bool True when this call started the transaction, false if one was already active.
+ */
+function dbBeginTransactionSafe(\PDO $db): bool
+{
+    if ($db->inTransaction()) {
+        return false;
+    }
+
+    try {
+        $db->beginTransaction();
+
+        return true;
+    } catch (\PDOException $exception) {
+        if (stripos($exception->getMessage(), 'active transaction') !== false) {
+            try {
+                if ($db->inTransaction()) {
+                    $db->rollBack();
+                }
+            } catch (\Throwable $rollbackException) {
+                // If rollback fails, bubble up the original exception to avoid masking errors.
+                throw $exception;
+            }
+
+            $db->beginTransaction();
+
+            return true;
+        }
+
+        throw $exception;
+    }
+}

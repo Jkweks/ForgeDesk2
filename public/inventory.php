@@ -663,10 +663,7 @@ if ($dbError === null) {
             $startedTransaction = false;
 
             try {
-                if (!$db->inTransaction()) {
-                    $db->beginTransaction();
-                    $startedTransaction = true;
-                }
+                $startedTransaction = dbBeginTransactionSafe($db);
 
                 if ($action === 'update' && $editingId !== null) {
                     updateInventoryItem($db, $editingId, $payload);
