@@ -523,6 +523,7 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
     </main>
   </div>
 
+  <script src="js/dashboard.js"></script>
   <script src="js/sortable-table.js" defer></script>
   <script src="js/receive-material.js" defer></script>
 </body>
