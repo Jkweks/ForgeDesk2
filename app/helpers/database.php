@@ -43,18 +43,7 @@ function db(array $config): \PDO
 function dbBeginTransactionSafe(\PDO $db): bool
 {
     if ($db->inTransaction()) {
-        try {
-            // Validate the current transaction so we do not reuse an aborted state.
-            $db->query('SELECT 1');
-
-            return false;
-        } catch (\PDOException $exception) {
-            if (stripos($exception->getMessage(), 'current transaction is aborted') !== false) {
-                $db->rollBack();
-            } else {
-                throw $exception;
-            }
-        }
+        return false;
     }
 
     try {
