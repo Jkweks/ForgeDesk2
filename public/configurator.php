@@ -3083,5 +3083,7 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
     })();
   </script>
 
+  <script src="js/dashboard.js"></script>
+
 </body>
 </html>
