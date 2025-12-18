@@ -641,7 +641,8 @@ if (!function_exists('configuratorEnsureSchema')) {
             ? $partType
             : null;
 
-        $db->beginTransaction();
+        $startedTransaction = dbBeginTransactionSafe($db);
+
         try {
             $profileStatement = $db->prepare(
                 'INSERT INTO configurator_part_profiles (inventory_item_id, is_enabled, part_type, height_lz, depth_ly)
@@ -709,9 +710,13 @@ if (!function_exists('configuratorEnsureSchema')) {
                 }
             }
 
-            $db->commit();
+            if ($startedTransaction && $db->inTransaction()) {
+                $db->commit();
+            }
         } catch (\Throwable $exception) {
-            $db->rollBack();
+            if ($startedTransaction && $db->inTransaction()) {
+                $db->rollBack();
+            }
             throw $exception;
         }
     }
