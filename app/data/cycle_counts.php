@@ -342,6 +342,8 @@ if (!function_exists('ensureCycleCountSchema')) {
                 ':item_id' => (int) $details['inventory_item_id'],
             ]);
 
+            inventoryAdjustLocationsToTotal($db, (int) $details['inventory_item_id'], $countedQty);
+
             $sessionUpdate = $db->prepare(
                 'UPDATE cycle_count_sessions
                  SET completed_lines = (

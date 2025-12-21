@@ -515,6 +515,7 @@ if (!function_exists('loadInventory')) {
         $supportsReservations = inventorySupportsReservations($db);
         $committedSelect = $supportsReservations ? 'COALESCE(commitments.committed_qty, 0)' : '0';
         $activeSelect = $supportsReservations ? 'COALESCE(res.active_reservations, 0)' : '0';
+        $locationSelect = 'COALESCE(loc.location_stock, 0)';
 
         $joinCommitments = $supportsReservations
             ? 'LEFT JOIN inventory_item_commitments commitments ON commitments.inventory_item_id = i.id '
@@ -525,7 +526,8 @@ if (!function_exists('loadInventory')) {
             : '';
 
         $statement = $db->query(
-            'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, i.status, '
+            'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, '
+            . $locationSelect . ' AS location_stock, i.status, '
             . $committedSelect . ' AS committed_qty, i.reorder_point, i.lead_time_days, i.average_daily_use, '
             . 'i.on_order_qty, i.safety_stock, i.min_order_qty, i.order_multiple, i.pack_size, i.purchase_uom, i.stock_uom, '
             . 'i.supplier_id, i.supplier_sku, i.supplier, i.supplier_contact, '
@@ -533,6 +535,8 @@ if (!function_exists('loadInventory')) {
             . 's.name AS supplier_name, s.contact_name AS supplier_contact_name, s.contact_email AS supplier_contact_email, '
             . 's.contact_phone AS supplier_contact_phone, s.default_lead_time_days AS supplier_default_lead_time '
             . 'FROM inventory_items i '
+            . 'LEFT JOIN (SELECT inventory_item_id, SUM(quantity) AS location_stock FROM inventory_item_locations GROUP BY inventory_item_id) loc '
+            . 'ON loc.inventory_item_id = i.id '
             . $joinCommitments
             . $joinReservations
             . 'LEFT JOIN suppliers s ON s.id = i.supplier_id '
@@ -563,7 +567,7 @@ if (!function_exists('loadInventory')) {
 
         foreach ($rows as $row) {
             $id = (int) $row['id'];
-            $stock = (int) $row['stock'];
+            $stock = (int) $row['location_stock'];
             $committedQty = (int) $row['committed_qty'];
             $availableNow = $stock - $committedQty;
             $storedOnOrder = inventoryNormalizeNumericValue($row['on_order_qty'] ?? 0.0);
@@ -1133,7 +1137,11 @@ if (!function_exists('loadInventory')) {
         ensureInventorySchema($db);
 
         $statement = $db->query(
-            'SELECT id, item, sku, part_number, stock, on_order_qty FROM inventory_items ORDER BY item ASC'
+            'SELECT i.id, i.item, i.sku, i.part_number, COALESCE(loc.location_stock, 0) AS location_stock, i.on_order_qty '
+            . 'FROM inventory_items i '
+            . 'LEFT JOIN (SELECT inventory_item_id, SUM(quantity) AS location_stock FROM inventory_item_locations GROUP BY inventory_item_id) loc '
+            . 'ON loc.inventory_item_id = i.id '
+            . 'ORDER BY i.item ASC'
         );
 
         $rows = $statement !== false ? $statement->fetchAll() : [];
@@ -1148,7 +1156,7 @@ if (!function_exists('loadInventory')) {
         return array_map(
             static function (array $row) use ($committedTotals): array {
                 $id = (int) $row['id'];
-                $stock = (int) $row['stock'];
+                $stock = (int) $row['location_stock'];
                 $committed = $committedTotals[$id] ?? 0;
                 $onOrder = inventoryNormalizeNumericValue($row['on_order_qty'] ?? 0.0);
 
@@ -1607,7 +1615,8 @@ if (!function_exists('loadInventory')) {
 
             $committedSelect = $supportsReservations ? 'COALESCE(commitments.committed_qty, 0)' : '0';
             $activeSelect = $supportsReservations ? 'COALESCE(res.active_reservations, 0)' : '0';
-            $availableExpr = 'i.stock + COALESCE(i.on_order_qty, 0) - ' . $committedSelect;
+            $locationSelect = 'COALESCE(loc.location_stock, 0)';
+            $availableExpr = $locationSelect . ' + COALESCE(i.on_order_qty, 0) - ' . $committedSelect;
 
             $joinCommitments = $supportsReservations
                 ? 'LEFT JOIN inventory_item_commitments commitments ON commitments.inventory_item_id = i.id '
@@ -1618,7 +1627,8 @@ if (!function_exists('loadInventory')) {
                 : '';
 
             $statement = $db->query(
-                'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, '
+                'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, '
+                . $locationSelect . ' AS location_stock, '
                 . $committedSelect . ' AS committed_qty, '
                 . $availableExpr . ' AS available_qty, i.status, i.supplier, i.supplier_contact, '
                 . 'i.supplier_id, i.supplier_sku, '
@@ -1627,6 +1637,8 @@ if (!function_exists('loadInventory')) {
                 . 's.name AS supplier_name, s.contact_email AS supplier_contact_email, s.contact_phone AS supplier_contact_phone, '
                 . 's.default_lead_time_days AS supplier_lead_time '
                 . 'FROM inventory_items i '
+                . 'LEFT JOIN (SELECT inventory_item_id, SUM(quantity) AS location_stock FROM inventory_item_locations GROUP BY inventory_item_id) loc '
+                . 'ON loc.inventory_item_id = i.id '
                 . $joinCommitments
                 . $joinReservations
                 . 'LEFT JOIN suppliers s ON s.id = i.supplier_id '
@@ -1665,7 +1677,7 @@ if (!function_exists('loadInventory')) {
                         'finish' => $row['finish'] !== null ? inventoryNormalizeFinish((string) $row['finish']) : null,
                         'location' => (string) $row['location'],
                         'location_ids' => $locationIds,
-                        'stock' => (int) $row['stock'],
+                        'stock' => (int) $row['location_stock'],
                         'committed_qty' => (int) $row['committed_qty'],
                         'available_qty' => $available,
                         'status' => inventoryResolveStatus($available, $reorderPoint, $storedStatus),
@@ -1711,10 +1723,12 @@ if (!function_exists('loadInventory')) {
 
             $totalsStatement = $db->query(
                 'SELECT '
-                . 'COALESCE(SUM(i.stock), 0) AS total_stock, '
+                . 'COALESCE(SUM(COALESCE(loc.location_stock, 0)), 0) AS total_stock, '
                 . 'COALESCE(SUM(' . $committedSelect . '), 0) AS total_committed, '
-                . 'COALESCE(SUM(i.stock + COALESCE(i.on_order_qty, 0) - ' . $committedSelect . '), 0) AS total_available '
+                . 'COALESCE(SUM(COALESCE(loc.location_stock, 0) + COALESCE(i.on_order_qty, 0) - ' . $committedSelect . '), 0) AS total_available '
                 . 'FROM inventory_items i '
+                . 'LEFT JOIN (SELECT inventory_item_id, SUM(quantity) AS location_stock FROM inventory_item_locations GROUP BY inventory_item_id) loc '
+                . 'ON loc.inventory_item_id = i.id '
                 . ($supportsReservations ? 'LEFT JOIN inventory_item_commitments commitments ON commitments.inventory_item_id = i.id' : '')
             );
 
@@ -1793,9 +1807,10 @@ if (!function_exists('loadInventory')) {
             : '';
 
         $statement = $db->prepare(
-            'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, i.on_order_qty, '
+            'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, '
+            . 'COALESCE(loc.location_stock, 0) AS location_stock, i.on_order_qty, '
             . $committedSelect . ' AS committed_qty, '
-            . '(i.stock + COALESCE(i.on_order_qty, 0) - ' . $committedSelect . ') AS available_qty, i.status, i.supplier, i.supplier_contact, '
+            . '(COALESCE(loc.location_stock, 0) + COALESCE(i.on_order_qty, 0) - ' . $committedSelect . ') AS available_qty, i.status, i.supplier, i.supplier_contact, '
             . 'i.supplier_id, i.supplier_sku, '
             . 'i.reorder_point, i.lead_time_days, i.average_daily_use, '
             . 'i.pack_size, i.purchase_uom, i.stock_uom, '
@@ -1803,6 +1818,8 @@ if (!function_exists('loadInventory')) {
             . 's.name AS supplier_name, s.contact_email AS supplier_contact_email, s.contact_phone AS supplier_contact_phone, '
             . 's.default_lead_time_days AS supplier_lead_time '
             . 'FROM inventory_items i '
+            . 'LEFT JOIN (SELECT inventory_item_id, SUM(quantity) AS location_stock FROM inventory_item_locations GROUP BY inventory_item_id) loc '
+            . 'ON loc.inventory_item_id = i.id '
             . $joinCommitments
             . $joinClause
             . 'LEFT JOIN suppliers s ON s.id = i.supplier_id '
@@ -1837,7 +1854,7 @@ if (!function_exists('loadInventory')) {
             'part_number' => (string) $row['part_number'],
             'finish' => $row['finish'] !== null ? inventoryNormalizeFinish((string) $row['finish']) : null,
             'location' => (string) $row['location'],
-            'stock' => (int) $row['stock'],
+            'stock' => (int) $row['location_stock'],
             'committed_qty' => (int) $row['committed_qty'],
             'available_qty' => $available,
             'on_order_qty' => $onOrder,
@@ -1908,9 +1925,10 @@ if (!function_exists('loadInventory')) {
             : '';
 
         $statement = $db->prepare(
-            'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.stock, i.on_order_qty, '
+            'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, '
+            . 'COALESCE(loc.location_stock, 0) AS location_stock, i.on_order_qty, '
             . $committedSelect . ' AS committed_qty, '
-            . '(i.stock + COALESCE(i.on_order_qty, 0) - ' . $committedSelect . ') AS available_qty, i.status, i.supplier, i.supplier_contact, '
+            . '(COALESCE(loc.location_stock, 0) + COALESCE(i.on_order_qty, 0) - ' . $committedSelect . ') AS available_qty, i.status, i.supplier, i.supplier_contact, '
             . 'i.supplier_id, i.supplier_sku, '
             . 'i.reorder_point, i.lead_time_days, i.average_daily_use, '
             . 'i.pack_size, i.purchase_uom, i.stock_uom, '
@@ -1918,6 +1936,8 @@ if (!function_exists('loadInventory')) {
             . 's.name AS supplier_name, s.contact_email AS supplier_contact_email, s.contact_phone AS supplier_contact_phone, '
             . 's.default_lead_time_days AS supplier_lead_time '
             . 'FROM inventory_items i '
+            . 'LEFT JOIN (SELECT inventory_item_id, SUM(quantity) AS location_stock FROM inventory_item_locations GROUP BY inventory_item_id) loc '
+            . 'ON loc.inventory_item_id = i.id '
             . $joinCommitments
             . $joinClause
             . 'LEFT JOIN suppliers s ON s.id = i.supplier_id '
@@ -1952,7 +1972,7 @@ if (!function_exists('loadInventory')) {
             'part_number' => (string) $row['part_number'],
             'finish' => $row['finish'] !== null ? inventoryNormalizeFinish((string) $row['finish']) : null,
             'location' => (string) $row['location'],
-            'stock' => (int) $row['stock'],
+            'stock' => (int) $row['location_stock'],
             'committed_qty' => (int) $row['committed_qty'],
             'available_qty' => $available,
             'on_order_qty' => $onOrder,
@@ -2183,6 +2203,182 @@ if (!function_exists('loadInventory')) {
         $statement->execute([':item_id' => $itemId]);
 
         return (int) $statement->fetchColumn();
+    }
+
+    function inventorySelectDefaultStorageLocation(\PDO $db): ?int
+    {
+        storageLocationsEnsureSchema($db);
+
+        $statement = $db->query(
+            'SELECT id FROM storage_locations WHERE is_active = TRUE ORDER BY sort_order ASC, id ASC LIMIT 1'
+        );
+
+        if ($statement === false) {
+            return null;
+        }
+
+        $value = $statement->fetchColumn();
+
+        return $value !== false ? (int) $value : null;
+    }
+
+    /**
+     * @return list<array{storage_location_id:int,quantity:int}>
+     */
+    function inventoryLoadLocationRows(\PDO $db, int $itemId): array
+    {
+        $statement = $db->prepare(
+            'SELECT storage_location_id, quantity
+             FROM inventory_item_locations
+             WHERE inventory_item_id = :item_id
+             ORDER BY storage_location_id ASC'
+        );
+        $statement->execute([':item_id' => $itemId]);
+
+        return array_map(
+            static fn (array $row): array => [
+                'storage_location_id' => (int) $row['storage_location_id'],
+                'quantity' => (int) $row['quantity'],
+            ],
+            $statement->fetchAll()
+        );
+    }
+
+    function inventoryRefreshLocationSummary(\PDO $db, int $itemId): void
+    {
+        $locations = inventoryLoadItemLocations($db, $itemId);
+        $summary = inventoryFormatLocationSummary($locations);
+
+        $updateStatement = $db->prepare('UPDATE inventory_items SET location = :location WHERE id = :id');
+        $updateStatement->execute([
+            ':location' => $summary,
+            ':id' => $itemId,
+        ]);
+    }
+
+    function inventoryAdjustLocationsToTotal(\PDO $db, int $itemId, int $targetTotal): void
+    {
+        storageLocationsEnsureSchema($db);
+
+        $locations = inventoryLoadLocationRows($db, $itemId);
+
+        if ($locations === []) {
+            if ($targetTotal <= 0) {
+                return;
+            }
+
+            $defaultLocationId = inventorySelectDefaultStorageLocation($db);
+            if ($defaultLocationId === null) {
+                return;
+            }
+
+            $insert = $db->prepare(
+                'INSERT INTO inventory_item_locations (inventory_item_id, storage_location_id, quantity)
+                 VALUES (:item_id, :location_id, :quantity)'
+            );
+            $insert->execute([
+                ':item_id' => $itemId,
+                ':location_id' => $defaultLocationId,
+                ':quantity' => $targetTotal,
+            ]);
+
+            inventoryRefreshLocationSummary($db, $itemId);
+
+            return;
+        }
+
+        $currentTotal = array_sum(array_column($locations, 'quantity'));
+        $delta = $targetTotal - $currentTotal;
+
+        if ($delta === 0) {
+            return;
+        }
+
+        if ($delta > 0) {
+            $primary = $locations[0];
+            $update = $db->prepare(
+                'UPDATE inventory_item_locations SET quantity = :quantity WHERE inventory_item_id = :item_id AND storage_location_id = :location_id'
+            );
+            $update->execute([
+                ':quantity' => $primary['quantity'] + $delta,
+                ':item_id' => $itemId,
+                ':location_id' => $primary['storage_location_id'],
+            ]);
+
+            inventoryRefreshLocationSummary($db, $itemId);
+
+            return;
+        }
+
+        $remaining = abs($delta);
+
+        $update = $db->prepare(
+            'UPDATE inventory_item_locations SET quantity = :quantity WHERE inventory_item_id = :item_id AND storage_location_id = :location_id'
+        );
+
+        foreach ($locations as $location) {
+            if ($remaining <= 0) {
+                break;
+            }
+
+            $reduceBy = min($location['quantity'], $remaining);
+            $newQuantity = $location['quantity'] - $reduceBy;
+            $remaining -= $reduceBy;
+
+            $update->execute([
+                ':quantity' => $newQuantity,
+                ':item_id' => $itemId,
+                ':location_id' => $location['storage_location_id'],
+            ]);
+        }
+
+        inventoryRefreshLocationSummary($db, $itemId);
+    }
+
+    function inventoryApplyLocationDelta(\PDO $db, int $itemId, int $delta): void
+    {
+        if ($delta === 0) {
+            return;
+        }
+
+        storageLocationsEnsureSchema($db);
+
+        $locations = inventoryLoadLocationRows($db, $itemId);
+
+        if ($locations === []) {
+            $defaultLocationId = inventorySelectDefaultStorageLocation($db);
+            if ($defaultLocationId === null) {
+                return;
+            }
+
+            $insert = $db->prepare(
+                'INSERT INTO inventory_item_locations (inventory_item_id, storage_location_id, quantity)
+                 VALUES (:item_id, :location_id, :quantity)'
+            );
+            $insert->execute([
+                ':item_id' => $itemId,
+                ':location_id' => $defaultLocationId,
+                ':quantity' => max(0, $delta),
+            ]);
+
+            inventoryRefreshLocationSummary($db, $itemId);
+
+            return;
+        }
+
+        $primary = $locations[0];
+        $newQuantity = max(0, $primary['quantity'] + $delta);
+
+        $update = $db->prepare(
+            'UPDATE inventory_item_locations SET quantity = :quantity WHERE inventory_item_id = :item_id AND storage_location_id = :location_id'
+        );
+        $update->execute([
+            ':quantity' => $newQuantity,
+            ':item_id' => $itemId,
+            ':location_id' => $primary['storage_location_id'],
+        ]);
+
+        inventoryRefreshLocationSummary($db, $itemId);
     }
 
     /**
