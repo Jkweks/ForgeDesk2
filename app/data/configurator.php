@@ -652,7 +652,7 @@ if (!function_exists('configuratorEnsureSchema')) {
             );
             $profileStatement->execute([
                 ':id' => $inventoryItemId,
-                ':enabled' => $enabled,
+                ':enabled' => $enabled ? 'true' : 'false',
                 ':type' => $enabled ? $normalizedType : null,
                 ':height_lz' => $enabled ? $heightLz : null,
                 ':depth_ly' => $enabled ? $depthLy : null,
