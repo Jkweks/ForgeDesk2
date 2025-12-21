@@ -327,6 +327,7 @@ if ($dbError === null) {
 
         $validConfiguratorRequires = [];
         $requirementRows = [];
+        $allowedFinishPolicies = configuratorRequirementFinishPolicies();
 
         foreach ($submittedConfiguratorRequires as $row) {
             if (!is_array($row)) {
@@ -335,6 +336,8 @@ if ($dbError === null) {
 
             $itemIdRaw = trim((string) ($row['item_id'] ?? ''));
             $quantityRaw = trim((string) ($row['quantity'] ?? ''));
+            $finishPolicyRaw = trim((string) ($row['finish_policy'] ?? 'fixed'));
+            $fixedFinishRaw = trim((string) ($row['fixed_finish'] ?? ''));
             $labelRaw = trim((string) ($row['label'] ?? ''));
 
             if ($itemIdRaw === '' && $labelRaw === '' && $quantityRaw === '') {
@@ -349,6 +352,8 @@ if ($dbError === null) {
                 'item_id' => $itemIdRaw,
                 'label' => $labelRaw,
                 'quantity' => $quantityRaw,
+                'finish_policy' => $finishPolicyRaw,
+                'fixed_finish' => $fixedFinishRaw,
             ];
 
             if ($itemIdRaw === '' || !ctype_digit($itemIdRaw) || !isset($configuratorRequirementMap[(int) $itemIdRaw])) {
@@ -369,11 +374,31 @@ if ($dbError === null) {
 
             $requiredId = (int) $itemIdRaw;
 
+            $finishPolicy = strtolower($finishPolicyRaw);
+            if (!in_array($finishPolicy, $allowedFinishPolicies, true)) {
+                $errors['configurator_requires'] = 'Select a valid finish policy for required parts.';
+                continue;
+            }
+
+            if ($fixedFinishRaw !== '' && !isset($finishOptions[$fixedFinishRaw])) {
+                $errors['configurator_requires'] = 'Select a valid fixed finish for required parts.';
+                continue;
+            }
+
+            if ($finishPolicy === 'fixed' && $fixedFinishRaw === '') {
+                $requiredPartNumber = $configuratorRequirementMap[$requiredId]['part_number'] ?? '';
+                if (strcasecmp((string) $requiredPartNumber, 'S070') === 0 && isset($finishOptions['C2'])) {
+                    $fixedFinishRaw = 'C2';
+                }
+            }
+
             if (!isset($validConfiguratorRequires[$requiredId])) {
                 $validConfiguratorRequires[$requiredId] = [
                     'item_id' => $requiredId,
                     'quantity' => $quantity,
                     'label' => $configuratorRequirementMap[$requiredId]['label'] ?? '',
+                    'finish_policy' => $finishPolicy,
+                    'fixed_finish' => $fixedFinishRaw !== '' ? $fixedFinishRaw : null,
                 ];
             } else {
                 $validConfiguratorRequires[$requiredId]['quantity'] += $quantity;
@@ -513,7 +538,13 @@ if ($dbError === null) {
             }
 
             if ($formData['configurator_requires'] === []) {
-                $formData['configurator_requires'][] = ['item_id' => '', 'label' => '', 'quantity' => '1'];
+                $formData['configurator_requires'][] = [
+                    'item_id' => '',
+                    'label' => '',
+                    'quantity' => '1',
+                    'finish_policy' => 'fixed',
+                    'fixed_finish' => '',
+                ];
             }
         }
 
@@ -851,6 +882,8 @@ if ($dbError === null) {
                         'item_id' => (string) $requiredId,
                         'label' => $configuratorRequirementMap[$requiredId]['label'] ?? '',
                         'quantity' => (string) $requirement['quantity'],
+                        'finish_policy' => $requirement['finish_policy'] ?? 'fixed',
+                        'fixed_finish' => $requirement['fixed_finish'] ?? '',
                     ];
                 }
 
@@ -880,7 +913,13 @@ if ($formData['locations'] === []) {
 }
 
 if ($formData['configurator_requires'] === []) {
-    $formData['configurator_requires'][] = ['item_id' => '', 'label' => '', 'quantity' => '1'];
+    $formData['configurator_requires'][] = [
+        'item_id' => '',
+        'label' => '',
+        'quantity' => '1',
+        'finish_policy' => 'fixed',
+        'fixed_finish' => '',
+    ];
 }
 
 if ($configuratorUsePaths === []) {
@@ -1485,6 +1524,33 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
                         data-requirement-input="quantity"
                       />
                     </div>
+                    <div class="field">
+                      <label class="sr-only" for="configurator-requirement-finish-policy-<?= e((string) $index) ?>">Finish policy</label>
+                      <select
+                        id="configurator-requirement-finish-policy-<?= e((string) $index) ?>"
+                        name="configurator_requires[<?= e((string) $index) ?>][finish_policy]"
+                        data-configurator-toggle
+                        data-requirement-input="finish_policy"
+                      >
+                        <option value="fixed"<?= ($requirement['finish_policy'] ?? 'fixed') === 'fixed' ? ' selected' : '' ?>>Fixed finish</option>
+                        <option value="match_parent"<?= ($requirement['finish_policy'] ?? '') === 'match_parent' ? ' selected' : '' ?>>Match parent finish</option>
+                        <option value="match_frame"<?= ($requirement['finish_policy'] ?? '') === 'match_frame' ? ' selected' : '' ?>>Match frame finish</option>
+                      </select>
+                    </div>
+                    <div class="field narrow">
+                      <label class="sr-only" for="configurator-requirement-fixed-finish-<?= e((string) $index) ?>">Fixed finish</label>
+                      <select
+                        id="configurator-requirement-fixed-finish-<?= e((string) $index) ?>"
+                        name="configurator_requires[<?= e((string) $index) ?>][fixed_finish]"
+                        data-configurator-toggle
+                        data-requirement-input="fixed_finish"
+                      >
+                        <option value="">Use required part finish</option>
+                        <?php foreach ($finishOptions as $finishKey => $finishLabel): ?>
+                          <option value="<?= e($finishKey) ?>"<?= ($requirement['fixed_finish'] ?? '') === $finishKey ? ' selected' : '' ?>><?= e($finishLabel) ?></option>
+                        <?php endforeach; ?>
+                      </select>
+                    </div>
                     <button
                       type="button"
                       class="button ghost icon-only"
@@ -1501,7 +1567,7 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
                   <option value="<?= e($option['label']) ?>" data-item-id="<?= e((string) $option['id']) ?>"></option>
                 <?php endforeach; ?>
               </datalist>
-              <p class="field-help">Search configurator-enabled parts, set quantities, and add as many required components as needed. Required parts cascade into the final bill of material.</p>
+              <p class="field-help">Search configurator-enabled parts, set quantities, and add as many required components as needed. Fixed finish applies to the required part, while match policies inherit the parent or frame finish with the fixed finish used as fallback.</p>
               <?php if (!empty($errors['configurator_requires'])): ?>
                 <p class="field-error"><?= e($errors['configurator_requires']) ?></p>
               <?php endif; ?>
@@ -1650,6 +1716,31 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
               data-requirement-input="quantity"
               data-name-key="quantity"
             />
+          </div>
+          <div class="field">
+            <label class="sr-only">Finish policy</label>
+            <select
+              data-configurator-toggle
+              data-requirement-input="finish_policy"
+              data-name-key="finish_policy"
+            >
+              <option value="fixed" selected>Fixed finish</option>
+              <option value="match_parent">Match parent finish</option>
+              <option value="match_frame">Match frame finish</option>
+            </select>
+          </div>
+          <div class="field narrow">
+            <label class="sr-only">Fixed finish</label>
+            <select
+              data-configurator-toggle
+              data-requirement-input="fixed_finish"
+              data-name-key="fixed_finish"
+            >
+              <option value="">Use required part finish</option>
+              <?php foreach ($finishOptions as $finishKey => $finishLabel): ?>
+                <option value="<?= e($finishKey) ?>"><?= e($finishLabel) ?></option>
+              <?php endforeach; ?>
+            </select>
           </div>
           <button type="button" class="button ghost icon-only" aria-label="Remove required part" data-remove-requirement>&times;</button>
         </div>
@@ -2244,6 +2335,32 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
       return requirementOptions.find((option) => option.label === labelValue) || null;
     }
 
+    function maybeApplyS070Default(row, option) {
+      if (!row || !option) {
+        return;
+      }
+
+      const partNumber = String(option.part_number || '').trim().toUpperCase();
+      if (partNumber !== 'S070') {
+        return;
+      }
+
+      const policyInput = row.querySelector('[data-requirement-input="finish_policy"]');
+      const fixedFinishInput = row.querySelector('[data-requirement-input="fixed_finish"]');
+
+      if (!(fixedFinishInput instanceof HTMLSelectElement) || !(policyInput instanceof HTMLSelectElement)) {
+        return;
+      }
+
+      if (policyInput.value !== 'fixed') {
+        return;
+      }
+
+      if (fixedFinishInput.value === '' && fixedFinishInput.querySelector('option[value="C2"]')) {
+        fixedFinishInput.value = 'C2';
+      }
+    }
+
     function attachRow(row) {
       const removeButton = row.querySelector('[data-remove-requirement]');
       if (removeButton instanceof HTMLButtonElement) {
@@ -2278,6 +2395,7 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
         labelInput.addEventListener('input', function () {
           const match = findOptionByLabel(labelInput.value.trim());
           itemIdInput.value = match ? String(match.id) : '';
+          maybeApplyS070Default(row, match);
         });
       }
     }
@@ -2294,6 +2412,8 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
       const labelInput = newRow.querySelector('[data-requirement-input="label"]');
       const itemIdInput = newRow.querySelector('[data-requirement-input="item_id"]');
       const qtyInput = newRow.querySelector('[data-requirement-input="quantity"]');
+      const policyInput = newRow.querySelector('[data-requirement-input="finish_policy"]');
+      const fixedFinishInput = newRow.querySelector('[data-requirement-input="fixed_finish"]');
 
       if (labelInput instanceof HTMLInputElement && defaults.label) {
         labelInput.value = String(defaults.label);
@@ -2305,6 +2425,19 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
 
       if (qtyInput instanceof HTMLInputElement && Object.prototype.hasOwnProperty.call(defaults, 'quantity')) {
         qtyInput.value = String(defaults.quantity);
+      }
+
+      if (policyInput instanceof HTMLSelectElement && defaults.finish_policy) {
+        policyInput.value = String(defaults.finish_policy);
+      }
+
+      if (fixedFinishInput instanceof HTMLSelectElement && Object.prototype.hasOwnProperty.call(defaults, 'fixed_finish')) {
+        fixedFinishInput.value = String(defaults.fixed_finish);
+      }
+
+      if (labelInput instanceof HTMLInputElement) {
+        const match = findOptionByLabel(labelInput.value.trim());
+        maybeApplyS070Default(newRow, match);
       }
 
       attachRow(newRow);

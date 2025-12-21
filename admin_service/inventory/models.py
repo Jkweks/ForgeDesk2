@@ -826,6 +826,8 @@ class ConfiguratorPartRequirement(models.Model):
         related_name="configurator_dependents",
     )
     quantity = models.IntegerField(default=1)
+    finish_policy = models.TextField(default="fixed")
+    fixed_finish = models.TextField(blank=True, null=True)
 
     class Meta:
         managed = False

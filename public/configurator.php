@@ -1416,6 +1416,124 @@ if (!array_key_exists($doorFormData['inactive']['stile'], $doorStileOptions)) {
         ];
     }
 
+    $requiredPartsSummary = [];
+    $requirementWarnings = [];
+
+    if ($db instanceof PDO) {
+        $selectedPartIds = array_values(array_unique(array_filter(array_merge(
+            array_values($frameFormData['parts']),
+            array_values($doorFormData['active']['parts']),
+            $isPairOpening ? array_values($doorFormData['inactive']['parts']) : []
+        ), static fn ($value): bool => $value !== '' && $value !== null)));
+
+        $selectedPartIds = array_values(array_filter(
+            array_map('intval', $selectedPartIds),
+            static fn (int $id): bool => $id > 0
+        ));
+
+        $parentItems = configuratorLoadInventoryItemsByIds($db, $selectedPartIds);
+        $requirements = configuratorLoadRequirementsForItems($db, $selectedPartIds);
+
+        if ($requirements !== []) {
+            $partNumbers = array_values(array_unique(array_filter(array_map(
+                static fn (array $requirement): string => $requirement['required_part_number'],
+                $requirements
+            ), static fn (string $value): bool => $value !== '')));
+
+            $partFinishMap = [];
+
+            if ($partNumbers !== []) {
+                $placeholders = implode(', ', array_fill(0, count($partNumbers), '?'));
+                $statement = $db->prepare(
+                    'SELECT id, part_number, finish, sku, item
+                     FROM inventory_items
+                     WHERE part_number IN (' . $placeholders . ')'
+                );
+                $statement->execute($partNumbers);
+
+                while ($row = $statement->fetch(PDO::FETCH_ASSOC)) {
+                    $partNumber = (string) $row['part_number'];
+                    $finish = $row['finish'] !== null ? (string) $row['finish'] : '';
+                    if ($finish === '') {
+                        continue;
+                    }
+
+                    $partFinishMap[$partNumber][$finish] = [
+                        'id' => (int) $row['id'],
+                        'sku' => (string) $row['sku'],
+                        'item' => (string) $row['item'],
+                        'finish' => $finish,
+                    ];
+                }
+            }
+
+            foreach ($requirements as $requirement) {
+                $parent = $parentItems[$requirement['inventory_item_id']] ?? null;
+                $parentFinish = $parent['finish'] ?? null;
+                $frameFinish = $entryFormData['finish'] !== '' ? $entryFormData['finish'] : null;
+                $fallbackFinish = $requirement['fixed_finish'] ?? $requirement['required_finish'];
+                $targetFinish = null;
+
+                if ($requirement['finish_policy'] === 'fixed') {
+                    $targetFinish = $fallbackFinish;
+                } elseif ($requirement['finish_policy'] === 'match_parent') {
+                    $targetFinish = $parentFinish;
+                } elseif ($requirement['finish_policy'] === 'match_frame') {
+                    $targetFinish = $frameFinish;
+                }
+
+                $resolvedFinish = $targetFinish !== null && $targetFinish !== '' ? $targetFinish : $fallbackFinish;
+                $usedFallback = $resolvedFinish !== $targetFinish;
+                $resolvedItem = null;
+
+                if ($resolvedFinish !== null && $resolvedFinish !== '') {
+                    $resolvedItem = $partFinishMap[$requirement['required_part_number']][$resolvedFinish] ?? null;
+                }
+
+                if ($resolvedItem === null && $fallbackFinish !== null && $fallbackFinish !== '') {
+                    $resolvedItem = $partFinishMap[$requirement['required_part_number']][$fallbackFinish] ?? null;
+                    if ($resolvedItem !== null) {
+                        $resolvedFinish = $fallbackFinish;
+                        $usedFallback = true;
+                    }
+                }
+
+                if ($resolvedItem === null) {
+                    $resolvedItem = [
+                        'id' => $requirement['required_inventory_item_id'],
+                        'sku' => $requirement['required_sku'],
+                        'item' => $requirement['required_item'],
+                        'finish' => $requirement['required_finish'] ?? $fallbackFinish,
+                    ];
+                    $usedFallback = true;
+                }
+
+                $summaryKey = (int) $resolvedItem['id'];
+                if (!isset($requiredPartsSummary[$summaryKey])) {
+                    $requiredPartsSummary[$summaryKey] = [
+                        'sku' => $resolvedItem['sku'],
+                        'item' => $resolvedItem['item'],
+                        'finish' => $resolvedItem['finish'],
+                        'quantity' => 0,
+                    ];
+                }
+                $requiredPartsSummary[$summaryKey]['quantity'] += (int) $requirement['quantity'];
+
+                if ($usedFallback && $requirement['finish_policy'] !== 'fixed') {
+                    $parentLabel = $parent !== null
+                        ? ($parent['sku'] !== '' ? $parent['sku'] : $parent['item'])
+                        : 'Selected part';
+                    $requirementWarnings[] = sprintf(
+                        '%s requirement for %s defaulted to %s finish.',
+                        $parentLabel,
+                        $requirement['required_part_number'],
+                        $resolvedFinish !== null && $resolvedFinish !== '' ? $resolvedFinish : 'the base'
+                    );
+                }
+            }
+        }
+    }
+
     $formatMathInput = static fn (float $value): string => rtrim(rtrim(number_format($value, 4, '.', ''), '0'), '.');
 
 if (isset($_GET['success'])) {
@@ -2056,6 +2174,37 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                         </li>
                       <?php endif; ?>
                     </ul>
+                  </div>
+                </div>
+                <div class="card-grid two-column">
+                  <div class="card">
+                    <h3>Required parts</h3>
+                    <?php if ($requiredPartsSummary === []): ?>
+                      <p class="small muted">No required parts were added for the selected components.</p>
+                    <?php else: ?>
+                      <ul class="stacked gap-xxs">
+                        <?php foreach ($requiredPartsSummary as $required): ?>
+                          <li>
+                            <strong><?= e((string) $required['quantity']) ?>×</strong>
+                            <?= e($required['sku'] !== '' ? $required['sku'] : $required['item']) ?>
+                            <?php if (!empty($required['finish'])): ?>
+                              <span class="small muted">· Finish <?= e((string) $required['finish']) ?></span>
+                            <?php endif; ?>
+                          </li>
+                        <?php endforeach; ?>
+                      </ul>
+                    <?php endif; ?>
+
+                    <?php if ($requirementWarnings !== []): ?>
+                      <div class="callout warning">
+                        <p class="small"><strong>Finish fallback applied</strong></p>
+                        <ul class="small">
+                          <?php foreach ($requirementWarnings as $warning): ?>
+                            <li><?= e($warning) ?></li>
+                          <?php endforeach; ?>
+                        </ul>
+                      </div>
+                    <?php endif; ?>
                   </div>
                 </div>
                 <div class="form-actions">
