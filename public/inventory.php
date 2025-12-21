@@ -26,6 +26,7 @@ $inventorySummary = [
 ];
 $locationDiscrepancies = [];
 $locationPolicy = inventoryLocationStockPolicy();
+$stockIsCalculated = $locationPolicy === 'sync_stock';
 $editingId = null;
 $finishOptions = inventoryFinishOptions();
 $categoryOptions = inventoryCategoryOptions();
@@ -575,17 +576,20 @@ if ($dbError === null) {
         $payload['lead_time_days'] = $leadTimeDays === false ? 0 : $leadTimeDays;
         $payload['supplier_contact'] = $payload['supplier_contact'] !== '' ? $payload['supplier_contact'] : null;
 
-        $packSize = 0.0;
+        $packSize = 0;
         if ($packSizeRaw === '') {
             $formData['pack_size'] = '0';
-        } elseif (!is_numeric($packSizeRaw)) {
-            $errors['pack_size'] = 'Pack size must be a number.';
         } else {
-            $packSize = (float) $packSizeRaw;
-            if ($packSize < 0) {
-                $errors['pack_size'] = 'Pack size cannot be negative.';
+            $packSizeValue = filter_var($packSizeRaw, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
+            if ($packSizeValue === false) {
+                $errors['pack_size'] = 'Pack size must be a whole number.';
             } else {
-                $formData['pack_size'] = number_format($packSize, 3, '.', '');
+                $packSize = (int) $packSizeValue;
+                if ($packSize < 0) {
+                    $errors['pack_size'] = 'Pack size cannot be negative.';
+                } else {
+                    $formData['pack_size'] = (string) $packSize;
+                }
             }
         }
 
@@ -599,6 +603,10 @@ if ($dbError === null) {
             }
         } else {
             $formData['purchase_uom'] = '';
+        }
+
+        if ($purchaseUom === 'pack' && $packSize <= 0) {
+            $errors['pack_size'] = 'Pack size must be a positive whole number when purchasing in packs.';
         }
 
         $stockUomNormalized = $stockUomRaw !== ''
@@ -643,6 +651,21 @@ if ($dbError === null) {
             $existingItem = null;
         }
 
+        $addedLocations = [];
+        if ($editingId !== null && $existingItem !== null) {
+            $existingLocations = inventoryLoadItemLocations($db, $editingId);
+            $existingLocationIds = [];
+            foreach ($existingLocations as $location) {
+                $existingLocationIds[(int) $location['storage_location_id']] = true;
+            }
+            foreach ($locationAssignmentsList as $assignment) {
+                $locationId = (int) ($assignment['storage_location_id'] ?? 0);
+                if ($locationId > 0 && !isset($existingLocationIds[$locationId])) {
+                    $addedLocations[] = (string) ($assignment['name'] ?? 'Location #' . $locationId);
+                }
+            }
+        }
+
         $configuratorPartType = $formData['configurator_part_type'] !== ''
             ? $formData['configurator_part_type']
             : null;
@@ -679,6 +702,19 @@ if ($dbError === null) {
                         $configuratorHeight,
                         $configuratorDepth
                     );
+                    if ($addedLocations !== []) {
+                        recordInventoryTransaction($db, [
+                            'reference' => 'Location update',
+                            'notes' => 'Added to locations: ' . implode(', ', $addedLocations),
+                            'lines' => [
+                                [
+                                    'item_id' => $editingId,
+                                    'quantity_change' => 0,
+                                    'note' => 'Location assignments updated.',
+                                ],
+                            ],
+                        ]);
+                    }
                     if ($startedTransaction && $db->inTransaction()) {
                         $db->commit();
                     }
@@ -697,6 +733,17 @@ if ($dbError === null) {
                         $configuratorHeight,
                         $configuratorDepth
                     );
+                    recordInventoryTransaction($db, [
+                        'reference' => 'Inventory item created',
+                        'notes' => 'New item created in inventory.',
+                        'lines' => [
+                            [
+                                'item_id' => $newItemId,
+                                'quantity_change' => 0,
+                                'note' => 'Item created.',
+                            ],
+                        ],
+                    ]);
                     if ($startedTransaction && $db->inTransaction()) {
                         $db->commit();
                     }
@@ -724,6 +771,7 @@ if ($dbError === null) {
             if ($existing !== null) {
                 $currentAverageDailyUse = $existing['average_daily_use'] ?? null;
                 $existingPackSize = isset($existing['pack_size']) ? (float) $existing['pack_size'] : 0.0;
+                $normalizedPackSize = inventoryNormalizePackSize($existingPackSize);
                 $existingPurchaseUom = $existing['purchase_uom'] ?? '';
                 $existingStockUom = $existing['stock_uom'] ?? '';
                 $formData = [
@@ -737,7 +785,11 @@ if ($dbError === null) {
                     'supplier_contact' => $existing['supplier_contact'] ?? '',
                     'reorder_point' => (string) $existing['reorder_point'],
                     'lead_time_days' => (string) $existing['lead_time_days'],
-                    'pack_size' => number_format($existingPackSize, 3, '.', ''),
+                    'pack_size' => $normalizedPackSize > 0
+                        ? (string) $normalizedPackSize
+                        : ($existingPackSize > 0
+                            ? rtrim(rtrim(number_format($existingPackSize, 3, '.', ''), '0'), '.')
+                            : '0'),
                     'purchase_uom' => $existingPurchaseUom !== '' ? strtolower((string) $existingPurchaseUom) : '',
                     'stock_uom' => $existingStockUom ?? '',
                     'category' => '',
@@ -820,6 +872,7 @@ if ($dbError === null) {
     $inventorySummary = inventoryReservationSummary($db);
     $locationDiscrepancies = inventoryLocationDiscrepancies($db);
     $locationPolicy = inventoryLocationStockPolicy();
+    $stockIsCalculated = $locationPolicy === 'sync_stock';
 }
 
 if ($formData['locations'] === []) {
@@ -1166,7 +1219,18 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
           <div class="field-grid">
             <div class="field">
               <label for="stock">Stock<span aria-hidden="true">*</span></label>
-              <input type="number" id="stock" name="stock" min="0" value="<?= e($formData['stock']) ?>" required />
+              <input
+                type="number"
+                id="stock"
+                name="stock"
+                min="0"
+                value="<?= e($formData['stock']) ?>"
+                <?= $stockIsCalculated ? 'readonly' : '' ?>
+                required
+              />
+              <?php if ($stockIsCalculated): ?>
+                <p class="field-help">Stock is calculated from storage location balances.</p>
+              <?php endif; ?>
               <?php if (!empty($errors['stock'])): ?>
                 <p class="field-error"><?= e($errors['stock']) ?></p>
               <?php endif; ?>
@@ -1197,10 +1261,10 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
                 id="pack_size"
                 name="pack_size"
                 min="0"
-                step="0.01"
+                step="1"
                 value="<?= e($formData['pack_size']) ?>"
               />
-              <p class="field-help">Leave at 0 to order in eaches. Enter the number of eaches per pack when vendors require packs.</p>
+              <p class="field-help">Leave at 0 to order in eaches. Enter a positive whole number of eaches per pack when vendors require packs.</p>
               <?php if (!empty($errors['pack_size'])): ?>
                 <p class="field-error"><?= e($errors['pack_size']) ?></p>
               <?php endif; ?>
@@ -1470,10 +1534,16 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
                       $kind = $entry['kind'];
                       $typeLabel = $kind === 'cycle_count'
                         ? 'Cycle count'
-                        : ($kind === 'receipt' ? 'PO receipt' : 'Inventory transaction');
+                        : ($kind === 'receipt'
+                          ? 'PO receipt'
+                          : ($kind === 'on_order' ? 'On order (pending)' : 'Inventory transaction'));
                       $change = (float) $entry['quantity_change'];
-                      $pillClass = $change < 0 ? 'danger' : ($change > 0 ? 'success' : 'brand');
-                      $changeLabel = ($change > 0 ? '+' : '') . inventoryFormatQuantity($change);
+                      $pillClass = $kind === 'on_order'
+                        ? 'warning'
+                        : ($change < 0 ? 'danger' : ($change > 0 ? 'success' : 'brand'));
+                      $changeLabel = $kind === 'on_order'
+                        ? ('Pending ' . inventoryFormatQuantity($change))
+                        : (($change > 0 ? '+' : '') . inventoryFormatQuantity($change));
                       $details = $entry['details'] ?? [];
                       $context = '';
 
@@ -1487,6 +1557,12 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
                           $context = 'Received ' . $received;
                           if ($cancelled > 0.0001) {
                               $context .= ' · Cancelled ' . inventoryFormatQuantity($cancelled);
+                          }
+                      } elseif ($kind === 'on_order') {
+                          $pending = isset($details['outstanding_qty']) ? inventoryFormatQuantity($details['outstanding_qty']) : inventoryFormatQuantity($change);
+                          $context = 'Pending ' . $pending;
+                          if (!empty($details['expected_date'])) {
+                              $context .= ' · Expected ' . (string) $details['expected_date'];
                           }
                       } else {
                           $before = $details['stock_before'] ?? null;

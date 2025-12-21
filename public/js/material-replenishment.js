@@ -24,7 +24,19 @@
 
     const attr = row.getAttribute('data-pack-size') || '0';
     const parsed = Number.parseFloat(attr);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+    return Number.isFinite(parsed) && parsed > 0 && Number.isInteger(parsed) ? parsed : 0;
+  }
+
+  function isWholeNumber(value) {
+    return Number.isFinite(value) && Math.floor(value) === value;
+  }
+
+  function roundUpWholeNumber(value) {
+    if (!Number.isFinite(value) || value <= 0) {
+      return 0;
+    }
+
+    return Math.ceil(value);
   }
 
   function convertToEach(quantity, unit, packSize) {
@@ -44,13 +56,13 @@
   }
 
   function formatInputQuantity(value) {
-    if (!Number.isFinite(value) || value <= 0) {
+    const rounded = roundUpWholeNumber(value);
+
+    if (rounded <= 0) {
       return '';
     }
 
-    let formatted = value.toFixed(3);
-    formatted = formatted.replace(/0+$/, '').replace(/\.$/, '');
-    return formatted;
+    return rounded.toString();
   }
 
   function getRowUnit(row) {
@@ -89,7 +101,7 @@
     const unit = getRowUnit(row);
     const numericValue = Number.parseFloat(input.value || '0');
 
-    if (!Number.isFinite(numericValue) || numericValue <= 0) {
+    if (!Number.isFinite(numericValue) || numericValue <= 0 || !isWholeNumber(numericValue)) {
       row.removeAttribute('data-order-qty');
       return 0;
     }
@@ -307,7 +319,7 @@
         }
 
         const numericValue = Number.parseFloat(input.value);
-        if (!Number.isFinite(numericValue) || numericValue < 0) {
+        if (!Number.isFinite(numericValue) || numericValue < 0 || !isWholeNumber(numericValue)) {
           input.setAttribute('aria-invalid', 'true');
         } else {
           input.removeAttribute('aria-invalid');
@@ -404,7 +416,7 @@
         }
 
         const numericValue = Number.parseFloat(quantityInput.value);
-        if (!Number.isFinite(numericValue) || numericValue <= 0) {
+        if (!Number.isFinite(numericValue) || numericValue <= 0 || !isWholeNumber(numericValue)) {
           quantityInput.setAttribute('aria-invalid', 'true');
           hasInvalid = true;
         }
