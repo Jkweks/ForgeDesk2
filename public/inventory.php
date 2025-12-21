@@ -336,7 +336,7 @@ if ($dbError === null) {
 
             $itemIdRaw = trim((string) ($row['item_id'] ?? ''));
             $quantityRaw = trim((string) ($row['quantity'] ?? ''));
-            $matchFinishRaw = isset($row['match_finish']) ? (string) $row['match_finish'] : '';
+            $finishPolicyRaw = trim((string) ($row['finish_policy'] ?? 'fixed'));
             $fixedFinishRaw = trim((string) ($row['fixed_finish'] ?? ''));
             $labelRaw = trim((string) ($row['label'] ?? ''));
 
@@ -352,7 +352,7 @@ if ($dbError === null) {
                 'item_id' => $itemIdRaw,
                 'label' => $labelRaw,
                 'quantity' => $quantityRaw,
-                'match_finish' => $matchFinishRaw,
+                'finish_policy' => $finishPolicyRaw,
                 'fixed_finish' => $fixedFinishRaw,
             ];
 
@@ -374,14 +374,7 @@ if ($dbError === null) {
 
             $requiredId = (int) $itemIdRaw;
 
-            $matchFinish = $matchFinishRaw !== '';
-            $finishPolicy = 'fixed';
-            if ($matchFinish) {
-                $finishPolicy = $formData['configurator_part_type'] === 'frame'
-                    || $formData['configurator_part_type'] === 'accessory'
-                    ? 'match_frame'
-                    : 'match_parent';
-            }
+            $finishPolicy = strtolower($finishPolicyRaw);
             if (!in_array($finishPolicy, $allowedFinishPolicies, true)) {
                 $errors['configurator_requires'] = 'Select a valid finish policy for required parts.';
                 continue;
@@ -390,13 +383,6 @@ if ($dbError === null) {
             if ($fixedFinishRaw !== '' && !isset($finishOptions[$fixedFinishRaw])) {
                 $errors['configurator_requires'] = 'Select a valid fixed finish for required parts.';
                 continue;
-            }
-
-            if ($finishPolicy === 'fixed' && $fixedFinishRaw === '') {
-                $requiredPartNumber = $configuratorRequirementMap[$requiredId]['part_number'] ?? '';
-                if (strcasecmp((string) $requiredPartNumber, 'S070') === 0 && isset($finishOptions['C2'])) {
-                    $fixedFinishRaw = 'C2';
-                }
             }
 
             if (!isset($validConfiguratorRequires[$requiredId])) {
@@ -550,7 +536,6 @@ if ($dbError === null) {
                     'label' => '',
                     'quantity' => '1',
                     'finish_policy' => 'fixed',
-                    'match_finish' => '',
                     'fixed_finish' => '',
                 ];
             }
@@ -891,7 +876,6 @@ if ($dbError === null) {
                         'label' => $configuratorRequirementMap[$requiredId]['label'] ?? '',
                         'quantity' => (string) $requirement['quantity'],
                         'finish_policy' => $requirement['finish_policy'] ?? 'fixed',
-                        'match_finish' => ($requirement['finish_policy'] ?? 'fixed') !== 'fixed' ? '1' : '',
                         'fixed_finish' => $requirement['fixed_finish'] ?? '',
                     ];
                 }
@@ -927,7 +911,6 @@ if ($formData['configurator_requires'] === []) {
         'label' => '',
         'quantity' => '1',
         'finish_policy' => 'fixed',
-        'match_finish' => '',
         'fixed_finish' => '',
     ];
 }
@@ -1548,20 +1531,18 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
                         <?php endforeach; ?>
                       </select>
                     </div>
-                    <div class="field narrow">
-                      <label class="sr-only" for="configurator-requirement-match-finish-<?= e((string) $index) ?>">Match finish</label>
-                      <div class="checkbox-field">
-                        <input
-                          type="checkbox"
-                          id="configurator-requirement-match-finish-<?= e((string) $index) ?>"
-                          name="configurator_requires[<?= e((string) $index) ?>][match_finish]"
-                          value="1"
-                          <?= !empty($requirement['match_finish']) ? 'checked' : '' ?>
-                          data-configurator-toggle
-                          data-requirement-input="match_finish"
-                        />
-                        <span>Match finish</span>
-                      </div>
+                    <div class="field">
+                      <label class="sr-only" for="configurator-requirement-finish-policy-<?= e((string) $index) ?>">Finish policy</label>
+                      <select
+                        id="configurator-requirement-finish-policy-<?= e((string) $index) ?>"
+                        name="configurator_requires[<?= e((string) $index) ?>][finish_policy]"
+                        data-configurator-toggle
+                        data-requirement-input="finish_policy"
+                      >
+                        <option value="fixed"<?= ($requirement['finish_policy'] ?? 'fixed') === 'fixed' ? ' selected' : '' ?>>Fixed finish</option>
+                        <option value="match_parent"<?= ($requirement['finish_policy'] ?? '') === 'match_parent' ? ' selected' : '' ?>>Match parent finish</option>
+                        <option value="match_frame"<?= ($requirement['finish_policy'] ?? '') === 'match_frame' ? ' selected' : '' ?>>Match frame finish</option>
+                      </select>
                     </div>
                     <button
                       type="button"
@@ -1579,7 +1560,7 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
                   <option value="<?= e($option['label']) ?>" data-item-id="<?= e((string) $option['id']) ?>"></option>
                 <?php endforeach; ?>
               </datalist>
-              <p class="field-help">Search configurator-enabled parts, set quantities, and add as many required components as needed. Match finish uses the frame finish for frame/accessory parts and the parent finish otherwise, with the fixed finish used as fallback.</p>
+              <p class="field-help">Search configurator-enabled parts, set quantities, and add as many required components as needed. Match rules resolve finishes when possible and fall back to the required SKU if no match is available.</p>
               <?php if (!empty($errors['configurator_requires'])): ?>
                 <p class="field-error"><?= e($errors['configurator_requires']) ?></p>
               <?php endif; ?>
@@ -1742,18 +1723,17 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
               <?php endforeach; ?>
             </select>
           </div>
-          <div class="field narrow">
-            <label class="sr-only">Match finish</label>
-            <div class="checkbox-field">
-              <input
-                type="checkbox"
-                value="1"
-                data-configurator-toggle
-                data-requirement-input="match_finish"
-                data-name-key="match_finish"
-              />
-              <span>Match finish</span>
-            </div>
+          <div class="field">
+            <label class="sr-only">Finish policy</label>
+            <select
+              data-configurator-toggle
+              data-requirement-input="finish_policy"
+              data-name-key="finish_policy"
+            >
+              <option value="fixed" selected>Fixed finish</option>
+              <option value="match_parent">Match parent finish</option>
+              <option value="match_frame">Match frame finish</option>
+            </select>
           </div>
           <button type="button" class="button ghost icon-only" aria-label="Remove required part" data-remove-requirement>&times;</button>
         </div>
@@ -2348,32 +2328,6 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
       return requirementOptions.find((option) => option.label === labelValue) || null;
     }
 
-    function maybeApplyS070Default(row, option) {
-      if (!row || !option) {
-        return;
-      }
-
-      const partNumber = String(option.part_number || '').trim().toUpperCase();
-      if (partNumber !== 'S070') {
-        return;
-      }
-
-      const policyInput = row.querySelector('[data-requirement-input="match_finish"]');
-      const fixedFinishInput = row.querySelector('[data-requirement-input="fixed_finish"]');
-
-      if (!(fixedFinishInput instanceof HTMLSelectElement) || !(policyInput instanceof HTMLInputElement)) {
-        return;
-      }
-
-      if (policyInput.checked) {
-        return;
-      }
-
-      if (fixedFinishInput.value === '' && fixedFinishInput.querySelector('option[value="C2"]')) {
-        fixedFinishInput.value = 'C2';
-      }
-    }
-
     function attachRow(row) {
       const removeButton = row.querySelector('[data-remove-requirement]');
       if (removeButton instanceof HTMLButtonElement) {
@@ -2408,7 +2362,6 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
         labelInput.addEventListener('input', function () {
           const match = findOptionByLabel(labelInput.value.trim());
           itemIdInput.value = match ? String(match.id) : '';
-          maybeApplyS070Default(row, match);
         });
       }
     }
@@ -2425,8 +2378,8 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
       const labelInput = newRow.querySelector('[data-requirement-input="label"]');
       const itemIdInput = newRow.querySelector('[data-requirement-input="item_id"]');
       const qtyInput = newRow.querySelector('[data-requirement-input="quantity"]');
-      const policyInput = newRow.querySelector('[data-requirement-input="match_finish"]');
       const fixedFinishInput = newRow.querySelector('[data-requirement-input="fixed_finish"]');
+      const policyInput = newRow.querySelector('[data-requirement-input="finish_policy"]');
 
       if (labelInput instanceof HTMLInputElement && defaults.label) {
         labelInput.value = String(defaults.label);
@@ -2440,17 +2393,12 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
         qtyInput.value = String(defaults.quantity);
       }
 
-      if (policyInput instanceof HTMLInputElement && Object.prototype.hasOwnProperty.call(defaults, 'match_finish')) {
-        policyInput.checked = String(defaults.match_finish) !== '';
+      if (policyInput instanceof HTMLSelectElement && defaults.finish_policy) {
+        policyInput.value = String(defaults.finish_policy);
       }
 
       if (fixedFinishInput instanceof HTMLSelectElement && Object.prototype.hasOwnProperty.call(defaults, 'fixed_finish')) {
         fixedFinishInput.value = String(defaults.fixed_finish);
-      }
-
-      if (labelInput instanceof HTMLInputElement) {
-        const match = findOptionByLabel(labelInput.value.trim());
-        maybeApplyS070Default(newRow, match);
       }
 
       attachRow(newRow);

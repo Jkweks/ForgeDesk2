@@ -1471,11 +1471,11 @@ if (!array_key_exists($doorFormData['inactive']['stile'], $doorStileOptions)) {
                 $parent = $parentItems[$requirement['inventory_item_id']] ?? null;
                 $parentFinish = $parent['finish'] ?? null;
                 $frameFinish = $entryFormData['finish'] !== '' ? $entryFormData['finish'] : null;
-                $fallbackFinish = $requirement['fixed_finish'] ?? $requirement['required_finish'];
+                $fallbackFinish = $requirement['required_finish'];
                 $targetFinish = null;
 
                 if ($requirement['finish_policy'] === 'fixed') {
-                    $targetFinish = $fallbackFinish;
+                    $targetFinish = $requirement['fixed_finish'] ?? $fallbackFinish;
                 } elseif ($requirement['finish_policy'] === 'match_parent') {
                     $targetFinish = $parentFinish;
                 } elseif ($requirement['finish_policy'] === 'match_frame') {
@@ -1490,20 +1490,12 @@ if (!array_key_exists($doorFormData['inactive']['stile'], $doorStileOptions)) {
                     $resolvedItem = $partFinishMap[$requirement['required_part_number']][$resolvedFinish] ?? null;
                 }
 
-                if ($resolvedItem === null && $fallbackFinish !== null && $fallbackFinish !== '') {
-                    $resolvedItem = $partFinishMap[$requirement['required_part_number']][$fallbackFinish] ?? null;
-                    if ($resolvedItem !== null) {
-                        $resolvedFinish = $fallbackFinish;
-                        $usedFallback = true;
-                    }
-                }
-
                 if ($resolvedItem === null) {
                     $resolvedItem = [
                         'id' => $requirement['required_inventory_item_id'],
                         'sku' => $requirement['required_sku'],
                         'item' => $requirement['required_item'],
-                        'finish' => $requirement['required_finish'] ?? $fallbackFinish,
+                        'finish' => $requirement['required_finish'],
                     ];
                     $usedFallback = true;
                 }
