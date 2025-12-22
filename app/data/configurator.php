@@ -689,7 +689,7 @@ if (!function_exists('configuratorEnsureSchema')) {
      */
     function configuratorRequirementFinishPolicies(): array
     {
-        return ['fixed', 'match_parent', 'match_frame'];
+        return ['fixed', 'match_frame', 'match_door'];
     }
 
     function configuratorNormalizeFinishPolicy(?string $value): string

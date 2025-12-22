@@ -1471,15 +1471,16 @@ if (!array_key_exists($doorFormData['inactive']['stile'], $doorStileOptions)) {
                 $parent = $parentItems[$requirement['inventory_item_id']] ?? null;
                 $parentFinish = $parent['finish'] ?? null;
                 $frameFinish = $entryFormData['finish'] !== '' ? $entryFormData['finish'] : null;
+                $doorFinish = $entryFormData['finish'] !== '' ? $entryFormData['finish'] : null;
                 $fallbackFinish = $requirement['required_finish'];
                 $targetFinish = null;
 
                 if ($requirement['finish_policy'] === 'fixed') {
-                    $targetFinish = $requirement['fixed_finish'] ?? $fallbackFinish;
-                } elseif ($requirement['finish_policy'] === 'match_parent') {
-                    $targetFinish = $parentFinish;
+                    $targetFinish = $fallbackFinish;
                 } elseif ($requirement['finish_policy'] === 'match_frame') {
                     $targetFinish = $frameFinish;
+                } elseif ($requirement['finish_policy'] === 'match_door') {
+                    $targetFinish = $doorFinish;
                 }
 
                 $resolvedFinish = $targetFinish !== null && $targetFinish !== '' ? $targetFinish : $fallbackFinish;
