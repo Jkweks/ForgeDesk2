@@ -21,6 +21,34 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
         return ['draft', 'sent', 'partially_received'];
     }
 
+    function purchaseOrderNormalizePackSize($value): int
+    {
+        $normalized = is_numeric($value) ? (float) $value : 0.0;
+
+        if ($normalized <= 0.0) {
+            return 0;
+        }
+
+        $rounded = (int) round($normalized);
+
+        if (abs($normalized - $rounded) > 0.0001) {
+            return 0;
+        }
+
+        return max(0, $rounded);
+    }
+
+    function purchaseOrderNormalizeWholeQuantity($value): int
+    {
+        $normalized = is_numeric($value) ? (float) $value : 0.0;
+
+        if ($normalized <= 0.0) {
+            return 0;
+        }
+
+        return (int) ceil($normalized);
+    }
+
     function purchaseOrderEnsureSchema(\PDO $db): void
     {
         static $ensured = false;
@@ -183,7 +211,7 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
         foreach ($rows as $row) {
             $id = (int) $row['id'];
             $map[$id] = [
-                'pack_size' => $row['pack_size'] !== null ? (float) $row['pack_size'] : 0.0,
+                'pack_size' => purchaseOrderNormalizePackSize($row['pack_size']),
                 'purchase_uom' => $row['purchase_uom'] !== null ? (string) $row['purchase_uom'] : null,
                 'stock_uom' => $row['stock_uom'] !== null ? (string) $row['stock_uom'] : null,
                 'supplier_sku' => $row['supplier_sku'] !== null ? (string) $row['supplier_sku'] : null,
@@ -205,14 +233,12 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
         $inventoryItemId = $inventoryItemId !== null ? (int) $inventoryItemId : null;
         $defaults = $inventoryItemId !== null && isset($inventoryDefaults[$inventoryItemId]) ? $inventoryDefaults[$inventoryItemId] : ['pack_size' => 0.0, 'purchase_uom' => null, 'stock_uom' => null, 'supplier_sku' => null, 'item' => null];
 
-        $packSize = isset($line['pack_size']) ? max(0.0, (float) $line['pack_size']) : $defaults['pack_size'];
-        $packsOrdered = isset($line['packs_ordered']) ? max(0.0, (float) $line['packs_ordered']) : 0.0;
-        $quantityEach = isset($line['quantity_ordered']) ? max(0.0, (float) $line['quantity_ordered']) : 0.0;
+        $packSize = isset($line['pack_size']) ? purchaseOrderNormalizePackSize($line['pack_size']) : (int) $defaults['pack_size'];
+        $packsOrdered = isset($line['packs_ordered']) ? purchaseOrderNormalizeWholeQuantity($line['packs_ordered']) : 0;
+        $quantityEach = isset($line['quantity_ordered']) ? purchaseOrderNormalizeWholeQuantity($line['quantity_ordered']) : 0;
 
-        if ($packSize > 0.0 && $packsOrdered > 0.0) {
+        if ($packSize > 0 && $packsOrdered > 0) {
             $quantityEach = $packSize * $packsOrdered;
-        } elseif ($packSize > 0.0 && $quantityEach > 0.0 && $packsOrdered === 0.0) {
-            $packsOrdered = $quantityEach / $packSize;
         }
 
         $purchaseUom = $line['purchase_uom'] ?? $defaults['purchase_uom'];
@@ -1394,7 +1420,7 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
     function purchaseOrderFormatLineQuantity(array $line): string
     {
         $quantityEach = isset($line['quantity_ordered']) ? (float) $line['quantity_ordered'] : 0.0;
-        $packSize = isset($line['pack_size']) ? max(0.0, (float) $line['pack_size']) : 0.0;
+        $packSize = isset($line['pack_size']) ? purchaseOrderNormalizePackSize($line['pack_size']) : 0;
         $packs = isset($line['packs_ordered']) ? max(0.0, (float) $line['packs_ordered']) : 0.0;
         $purchaseUom = isset($line['purchase_uom']) && $line['purchase_uom'] !== null ? trim((string) $line['purchase_uom']) : '';
         $stockUom = isset($line['stock_uom']) && $line['stock_uom'] !== null ? trim((string) $line['stock_uom']) : '';
@@ -1405,7 +1431,7 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
         }
         $eachLabel = $eachValue . ' ' . ($stockUom !== '' ? $stockUom : 'ea');
 
-        if ($packSize > 0.0 && $packs > 0.0) {
+        if ($packSize > 0 && $packs > 0.0) {
             $packValue = rtrim(rtrim(number_format($packs, 3, '.', ','), '0'), '.');
             if ($packValue === '') {
                 $packValue = '0';
@@ -1421,8 +1447,9 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
 
     function purchaseOrderFormatQuantityForLine(array $line, float $quantityEach): string
     {
-        $packSize = isset($line['pack_size']) ? max(0.0, (float) $line['pack_size']) : 0.0;
-        $packs = $packSize > 0.0 ? $quantityEach / $packSize : 0.0;
+        $packSize = isset($line['pack_size']) ? purchaseOrderNormalizePackSize($line['pack_size']) : 0;
+        $packs = $packSize > 0 ? $quantityEach / $packSize : 0.0;
+        $packs = abs($packs - round($packs)) <= 0.0001 ? $packs : 0.0;
 
         return purchaseOrderFormatLineQuantity([
             'quantity_ordered' => $quantityEach,

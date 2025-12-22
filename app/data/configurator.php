@@ -71,6 +71,8 @@ if (!function_exists('configuratorEnsureSchema')) {
                 inventory_item_id BIGINT NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
                 required_inventory_item_id BIGINT NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
                 quantity INTEGER NOT NULL DEFAULT 1,
+                finish_policy TEXT NOT NULL DEFAULT \'fixed\',
+                fixed_finish TEXT NULL,
                 PRIMARY KEY (inventory_item_id, required_inventory_item_id)
             )'
         );
@@ -102,6 +104,14 @@ if (!function_exists('configuratorEnsureSchema')) {
         $db->exec(
             "ALTER TABLE configurator_part_requirements
                 ADD COLUMN IF NOT EXISTS quantity INTEGER NOT NULL DEFAULT 1"
+        );
+        $db->exec(
+            "ALTER TABLE configurator_part_requirements
+                ADD COLUMN IF NOT EXISTS finish_policy TEXT NOT NULL DEFAULT 'fixed'"
+        );
+        $db->exec(
+            "ALTER TABLE configurator_part_requirements
+                ADD COLUMN IF NOT EXISTS fixed_finish TEXT NULL"
         );
 
         $db->exec(
@@ -545,7 +555,7 @@ if (!function_exists('configuratorEnsureSchema')) {
         configuratorEnsureSchema($db);
 
         $statement = $db->query(
-            'SELECT ii.id, ii.sku, ii.item
+            'SELECT ii.id, ii.sku, ii.item, ii.part_number, ii.finish
              FROM inventory_items ii
              JOIN configurator_part_profiles cpp ON cpp.inventory_item_id = ii.id AND cpp.is_enabled = TRUE
              ORDER BY ii.item ASC'
@@ -564,6 +574,10 @@ if (!function_exists('configuratorEnsureSchema')) {
                 return [
                     'id' => (int) $row['id'],
                     'label' => $label,
+                    'sku' => $sku,
+                    'item' => $item,
+                    'part_number' => isset($row['part_number']) ? (string) $row['part_number'] : '',
+                    'finish' => $row['finish'] !== null ? (string) $row['finish'] : '',
                 ];
             },
             $statement->fetchAll()
@@ -571,7 +585,123 @@ if (!function_exists('configuratorEnsureSchema')) {
     }
 
     /**
-     * @return array{enabled:bool,part_type:?string,height_lz:?float,depth_ly:?float,use_ids:list<int>,requirements:list<array{item_id:int,quantity:int}>}
+     * @param list<int> $itemIds
+     * @return array<int,array{id:int,sku:string,item:string,part_number:string,finish:?string}>
+     */
+    function configuratorLoadInventoryItemsByIds(\PDO $db, array $itemIds): array
+    {
+        configuratorEnsureSchema($db);
+
+        $itemIds = array_values(array_unique(array_filter(array_map('intval', $itemIds), static fn (int $id): bool => $id > 0)));
+        if ($itemIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($itemIds), '?'));
+        $statement = $db->prepare(
+            'SELECT id, sku, item, part_number, finish
+             FROM inventory_items
+             WHERE id IN (' . $placeholders . ')'
+        );
+        $statement->execute($itemIds);
+
+        $rows = $statement->fetchAll();
+        $map = [];
+
+        foreach ($rows as $row) {
+            $id = (int) $row['id'];
+            $map[$id] = [
+                'id' => $id,
+                'sku' => (string) $row['sku'],
+                'item' => (string) $row['item'],
+                'part_number' => (string) $row['part_number'],
+                'finish' => $row['finish'] !== null ? (string) $row['finish'] : null,
+            ];
+        }
+
+        return $map;
+    }
+
+    /**
+     * @param list<int> $itemIds
+     * @return list<array{
+     *   inventory_item_id:int,
+     *   required_inventory_item_id:int,
+     *   quantity:int,
+     *   finish_policy:string,
+     *   fixed_finish:?string,
+     *   required_part_number:string,
+     *   required_finish:?string,
+     *   required_sku:string,
+     *   required_item:string
+     * }>
+     */
+    function configuratorLoadRequirementsForItems(\PDO $db, array $itemIds): array
+    {
+        configuratorEnsureSchema($db);
+
+        $itemIds = array_values(array_unique(array_filter(array_map('intval', $itemIds), static fn (int $id): bool => $id > 0)));
+        if ($itemIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($itemIds), '?'));
+        $statement = $db->prepare(
+            'SELECT r.inventory_item_id,
+                    r.required_inventory_item_id,
+                    r.quantity,
+                    r.finish_policy,
+                    r.fixed_finish,
+                    ii.part_number AS required_part_number,
+                    ii.finish AS required_finish,
+                    ii.sku AS required_sku,
+                    ii.item AS required_item
+             FROM configurator_part_requirements r
+             JOIN inventory_items ii ON ii.id = r.required_inventory_item_id
+             WHERE r.inventory_item_id IN (' . $placeholders . ')'
+        );
+        $statement->execute($itemIds);
+
+        $rows = $statement->fetchAll();
+        $results = [];
+
+        foreach ($rows as $row) {
+            $results[] = [
+                'inventory_item_id' => (int) $row['inventory_item_id'],
+                'required_inventory_item_id' => (int) $row['required_inventory_item_id'],
+                'quantity' => max(1, (int) $row['quantity']),
+                'finish_policy' => configuratorNormalizeFinishPolicy($row['finish_policy'] ?? null),
+                'fixed_finish' => isset($row['fixed_finish']) && $row['fixed_finish'] !== null
+                    ? (string) $row['fixed_finish']
+                    : null,
+                'required_part_number' => (string) $row['required_part_number'],
+                'required_finish' => $row['required_finish'] !== null ? (string) $row['required_finish'] : null,
+                'required_sku' => (string) $row['required_sku'],
+                'required_item' => (string) $row['required_item'],
+            ];
+        }
+
+        return $results;
+    }
+
+    /**
+     * @return list<string>
+     */
+    function configuratorRequirementFinishPolicies(): array
+    {
+        return ['fixed', 'match_frame', 'match_door'];
+    }
+
+    function configuratorNormalizeFinishPolicy(?string $value): string
+    {
+        $value = strtolower(trim((string) $value));
+        $allowed = configuratorRequirementFinishPolicies();
+
+        return in_array($value, $allowed, true) ? $value : 'fixed';
+    }
+
+    /**
+     * @return array{enabled:bool,part_type:?string,height_lz:?float,depth_ly:?float,use_ids:list<int>,requirements:list<array{item_id:int,quantity:int,finish_policy:string,fixed_finish:?string}>}
      */
     function configuratorLoadPartProfile(\PDO $db, int $inventoryItemId): array
     {
@@ -590,7 +720,7 @@ if (!function_exists('configuratorEnsureSchema')) {
         $useIds = array_map('intval', $useStatement->fetchAll(\PDO::FETCH_COLUMN));
 
         $requiresStatement = $db->prepare(
-            'SELECT required_inventory_item_id, quantity
+            'SELECT required_inventory_item_id, quantity, finish_policy, fixed_finish
              FROM configurator_part_requirements
              WHERE inventory_item_id = :item_id'
         );
@@ -599,6 +729,10 @@ if (!function_exists('configuratorEnsureSchema')) {
             static fn (array $row): array => [
                 'item_id' => (int) $row['required_inventory_item_id'],
                 'quantity' => max(1, (int) $row['quantity']),
+                'finish_policy' => configuratorNormalizeFinishPolicy($row['finish_policy'] ?? null),
+                'fixed_finish' => isset($row['fixed_finish']) && $row['fixed_finish'] !== null
+                    ? (string) $row['fixed_finish']
+                    : null,
             ],
             $requiresStatement->fetchAll()
         );
@@ -623,7 +757,7 @@ if (!function_exists('configuratorEnsureSchema')) {
      * Persist configurator metadata for an inventory item.
      *
      * @param list<int> $useIds
-     * @param list<array{item_id:int,quantity:int}> $requiredItems
+     * @param list<array{item_id:int,quantity:int,finish_policy?:string,fixed_finish?:?string}> $requiredItems
      */
     function configuratorSyncPartProfile(
         \PDO $db,
@@ -680,8 +814,14 @@ if (!function_exists('configuratorEnsureSchema')) {
 
             if ($enabled && $requiredItems !== []) {
                 $requireInsert = $db->prepare(
-                    'INSERT INTO configurator_part_requirements (inventory_item_id, required_inventory_item_id, quantity)
-                     VALUES (:item_id, :required_id, :quantity)'
+                    'INSERT INTO configurator_part_requirements (
+                        inventory_item_id,
+                        required_inventory_item_id,
+                        quantity,
+                        finish_policy,
+                        fixed_finish
+                     )
+                     VALUES (:item_id, :required_id, :quantity, :finish_policy, :fixed_finish)'
                 );
 
                 $uniqueRequired = [];
@@ -689,23 +829,35 @@ if (!function_exists('configuratorEnsureSchema')) {
                 foreach ($requiredItems as $requirement) {
                     $requiredId = (int) $requirement['item_id'];
                     $quantity = max(1, (int) $requirement['quantity']);
+                    $finishPolicy = configuratorNormalizeFinishPolicy($requirement['finish_policy'] ?? null);
+                    $fixedFinish = isset($requirement['fixed_finish']) ? trim((string) $requirement['fixed_finish']) : '';
+                    $fixedFinish = $fixedFinish !== '' ? $fixedFinish : null;
 
                     if ($requiredId === $inventoryItemId) {
                         continue;
                     }
 
                     if (!isset($uniqueRequired[$requiredId])) {
-                        $uniqueRequired[$requiredId] = $quantity;
+                        $uniqueRequired[$requiredId] = [
+                            'quantity' => $quantity,
+                            'finish_policy' => $finishPolicy,
+                            'fixed_finish' => $fixedFinish,
+                        ];
                     } else {
-                        $uniqueRequired[$requiredId] += $quantity;
+                        $uniqueRequired[$requiredId]['quantity'] += $quantity;
+                        if ($uniqueRequired[$requiredId]['fixed_finish'] === null && $fixedFinish !== null) {
+                            $uniqueRequired[$requiredId]['fixed_finish'] = $fixedFinish;
+                        }
                     }
                 }
 
-                foreach ($uniqueRequired as $requiredId => $quantity) {
+                foreach ($uniqueRequired as $requiredId => $payload) {
                     $requireInsert->execute([
                         ':item_id' => $inventoryItemId,
                         ':required_id' => $requiredId,
-                        ':quantity' => $quantity,
+                        ':quantity' => $payload['quantity'],
+                        ':finish_policy' => $payload['finish_policy'],
+                        ':fixed_finish' => $payload['fixed_finish'],
                     ]);
                 }
             }

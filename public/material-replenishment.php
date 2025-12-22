@@ -262,10 +262,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $dbError === null && $db instanceof
             $item = $itemsById[$itemId];
             $quantityString = $postedQuantities[$itemId] ?? '';
             $quantityNormalized = str_replace(',', '', (string) $quantityString);
-            $quantityValue = $quantityNormalized !== '' ? filter_var($quantityNormalized, FILTER_VALIDATE_FLOAT) : false;
+            $quantityValue = $quantityNormalized !== '' ? filter_var($quantityNormalized, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) : false;
 
             if ($quantityValue === false || $quantityValue <= 0) {
-                $formErrors[] = 'Enter a positive quantity for ' . $itemsById[$itemId]['item'] . '.';
+                $formErrors[] = 'Enter a positive whole-number quantity for ' . $itemsById[$itemId]['item'] . '.';
                 $invalidLineIds[$itemId] = true;
                 continue;
             }
@@ -280,7 +280,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $dbError === null && $db instanceof
                 continue;
             }
 
-            $packSize = isset($item['pack_size']) ? max(0.0, (float) $item['pack_size']) : 0.0;
+            $packSize = inventoryNormalizePackSize($item['pack_size'] ?? 0.0);
             $unitChoice = $postedUnits[$itemId] ?? ($packSize > 1.0 ? 'pack' : 'each');
             if ($unitChoice === 'pack' && $packSize <= 0.0) {
                 $unitChoice = 'each';
@@ -294,7 +294,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $dbError === null && $db instanceof
             }
 
             $quantityEach = inventoryQuantityToEach((float) $quantityValue, $packSize, $unitChoice);
-            $packsOrdered = $packSize > 0.0 ? ($quantityEach / $packSize) : 0.0;
+            $packsOrdered = $unitChoice === 'pack' ? (int) $quantityValue : 0;
 
             $lineInputs[] = [
                 'item' => $item,
@@ -454,6 +454,11 @@ if ($supplierGroups !== [] && ($activeSupplierKey === null || !isset($supplierGr
 function materialReplenishmentFormatDecimal(float $value, int $precision = 2): string
 {
     return number_format($value, $precision, '.', ',');
+}
+
+function materialReplenishmentRoundUpQuantity(float $value): int
+{
+    return $value > 0 ? (int) ceil($value) : 0;
 }
 
 ?>
@@ -681,8 +686,8 @@ function materialReplenishmentFormatDecimal(float $value, int $precision = 2): s
                               $itemId = (int) $item['id'];
                               $recommended = (float) $item['recommended_order_qty'];
                               $isSelected = $selected !== [] ? in_array($itemId, $selected, true) : false;
-                              $packSize = isset($item['pack_size']) ? (float) $item['pack_size'] : 0.0;
-                              $defaultUnitChoice = $packSize > 1.0 ? 'pack' : 'each';
+                              $packSize = inventoryNormalizePackSize($item['pack_size'] ?? 0.0);
+                              $defaultUnitChoice = $packSize > 1 ? 'pack' : 'each';
                               $unitChoice = $units[$itemId] ?? $defaultUnitChoice;
                               $unitChoice = $unitChoice === 'pack' ? 'pack' : 'each';
                               if ($unitChoice === 'pack' && $packSize <= 0.0) {
@@ -692,8 +697,9 @@ function materialReplenishmentFormatDecimal(float $value, int $precision = 2): s
                               $recommendedDisplay = '';
                               if ($recommended > 0.0001) {
                                   $convertedRecommended = inventoryEachToUnit($recommended, $packSize, $unitChoice);
-                                  if ($convertedRecommended > 0) {
-                                      $recommendedDisplay = materialReplenishmentFormatDecimal($convertedRecommended, 3);
+                                  $roundedRecommended = materialReplenishmentRoundUpQuantity($convertedRecommended);
+                                  if ($roundedRecommended > 0) {
+                                      $recommendedDisplay = materialReplenishmentFormatDecimal($roundedRecommended, 0);
                                   }
                               }
                               if ($displayValue === '' && $recommendedDisplay !== '') {
@@ -706,7 +712,7 @@ function materialReplenishmentFormatDecimal(float $value, int $precision = 2): s
                               } elseif ($recommended > 0.0001) {
                                   $orderQtyEach = $recommended;
                               }
-                              $recommendedEachValue = $recommended > 0.0001 ? number_format($recommended, 3, '.', '') : '';
+                              $recommendedEachValue = $recommended > 0.0001 ? number_format($recommended, 0, '.', '') : '';
                               $unitCost = $unitCosts[$itemId] ?? '';
                               $rowClasses = [];
                               if (isset($invalidLineIds[$itemId])) {
@@ -734,8 +740,8 @@ function materialReplenishmentFormatDecimal(float $value, int $precision = 2): s
                                   'projected' => number_format((float) $item['projected_available'], 3, '.', ''),
                                   'adu' => $averageDailyUse !== null ? number_format((float) $averageDailyUse, 6, '.', '') : '',
                                   'days-of-supply' => $daysOfSupply !== null ? number_format((float) $daysOfSupply, 6, '.', '') : '',
-                                  'order-qty' => $orderQtyEach > 0 ? number_format($orderQtyEach, 3, '.', '') : '',
-                                  'pack-size' => number_format($packSize, 3, '.', ''),
+                                  'order-qty' => $orderQtyEach > 0 ? number_format($orderQtyEach, 0, '.', '') : '',
+                                  'pack-size' => $packSize > 0 ? (string) $packSize : '0',
                                   'unit-cost' => $unitCost !== '' ? $unitCost : '',
                                   'uom' => ($item['purchase_uom'] ?? ($packSize > 1 ? 'pack' : ($item['stock_uom'] ?? 'ea'))) . '|' . ($item['stock_uom'] ?? 'ea'),
                                   'order-unit' => $unitChoice,
@@ -781,8 +787,8 @@ function materialReplenishmentFormatDecimal(float $value, int $precision = 2): s
                                   <label class="sr-only" for="qty-<?= e((string) $itemId) ?>">Order quantity for <?= e($item['item']) ?></label>
                                   <input
                                     type="number"
-                                    step="0.01"
-                                    min="0"
+                                    step="1"
+                                    min="1"
                                     id="qty-<?= e((string) $itemId) ?>"
                                     name="quantity[<?= e((string) $itemId) ?>]"
                                     value="<?= e($orderQuantity) ?>"

@@ -26,6 +26,7 @@ $inventorySummary = [
 ];
 $locationDiscrepancies = [];
 $locationPolicy = inventoryLocationStockPolicy();
+$stockIsCalculated = $locationPolicy === 'sync_stock';
 $editingId = null;
 $finishOptions = inventoryFinishOptions();
 $categoryOptions = inventoryCategoryOptions();
@@ -326,6 +327,7 @@ if ($dbError === null) {
 
         $validConfiguratorRequires = [];
         $requirementRows = [];
+        $allowedFinishPolicies = configuratorRequirementFinishPolicies();
 
         foreach ($submittedConfiguratorRequires as $row) {
             if (!is_array($row)) {
@@ -334,6 +336,7 @@ if ($dbError === null) {
 
             $itemIdRaw = trim((string) ($row['item_id'] ?? ''));
             $quantityRaw = trim((string) ($row['quantity'] ?? ''));
+            $finishPolicyRaw = trim((string) ($row['finish_policy'] ?? 'fixed'));
             $labelRaw = trim((string) ($row['label'] ?? ''));
 
             if ($itemIdRaw === '' && $labelRaw === '' && $quantityRaw === '') {
@@ -348,6 +351,7 @@ if ($dbError === null) {
                 'item_id' => $itemIdRaw,
                 'label' => $labelRaw,
                 'quantity' => $quantityRaw,
+                'finish_policy' => $finishPolicyRaw,
             ];
 
             if ($itemIdRaw === '' || !ctype_digit($itemIdRaw) || !isset($configuratorRequirementMap[(int) $itemIdRaw])) {
@@ -368,11 +372,19 @@ if ($dbError === null) {
 
             $requiredId = (int) $itemIdRaw;
 
+            $finishPolicy = strtolower($finishPolicyRaw);
+            if (!in_array($finishPolicy, $allowedFinishPolicies, true)) {
+                $errors['configurator_requires'] = 'Select a valid finish policy for required parts.';
+                continue;
+            }
+
             if (!isset($validConfiguratorRequires[$requiredId])) {
                 $validConfiguratorRequires[$requiredId] = [
                     'item_id' => $requiredId,
                     'quantity' => $quantity,
                     'label' => $configuratorRequirementMap[$requiredId]['label'] ?? '',
+                    'finish_policy' => $finishPolicy,
+                    'fixed_finish' => null,
                 ];
             } else {
                 $validConfiguratorRequires[$requiredId]['quantity'] += $quantity;
@@ -512,7 +524,12 @@ if ($dbError === null) {
             }
 
             if ($formData['configurator_requires'] === []) {
-                $formData['configurator_requires'][] = ['item_id' => '', 'label' => '', 'quantity' => '1'];
+                $formData['configurator_requires'][] = [
+                    'item_id' => '',
+                    'label' => '',
+                    'quantity' => '1',
+                    'finish_policy' => 'fixed',
+                ];
             }
         }
 
@@ -575,17 +592,20 @@ if ($dbError === null) {
         $payload['lead_time_days'] = $leadTimeDays === false ? 0 : $leadTimeDays;
         $payload['supplier_contact'] = $payload['supplier_contact'] !== '' ? $payload['supplier_contact'] : null;
 
-        $packSize = 0.0;
+        $packSize = 0;
         if ($packSizeRaw === '') {
             $formData['pack_size'] = '0';
-        } elseif (!is_numeric($packSizeRaw)) {
-            $errors['pack_size'] = 'Pack size must be a number.';
         } else {
-            $packSize = (float) $packSizeRaw;
-            if ($packSize < 0) {
-                $errors['pack_size'] = 'Pack size cannot be negative.';
+            $packSizeValue = filter_var($packSizeRaw, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
+            if ($packSizeValue === false) {
+                $errors['pack_size'] = 'Pack size must be a whole number.';
             } else {
-                $formData['pack_size'] = number_format($packSize, 3, '.', '');
+                $packSize = (int) $packSizeValue;
+                if ($packSize < 0) {
+                    $errors['pack_size'] = 'Pack size cannot be negative.';
+                } else {
+                    $formData['pack_size'] = (string) $packSize;
+                }
             }
         }
 
@@ -599,6 +619,10 @@ if ($dbError === null) {
             }
         } else {
             $formData['purchase_uom'] = '';
+        }
+
+        if ($purchaseUom === 'pack' && $packSize <= 0) {
+            $errors['pack_size'] = 'Pack size must be a positive whole number when purchasing in packs.';
         }
 
         $stockUomNormalized = $stockUomRaw !== ''
@@ -643,6 +667,21 @@ if ($dbError === null) {
             $existingItem = null;
         }
 
+        $addedLocations = [];
+        if ($editingId !== null && $existingItem !== null) {
+            $existingLocations = inventoryLoadItemLocations($db, $editingId);
+            $existingLocationIds = [];
+            foreach ($existingLocations as $location) {
+                $existingLocationIds[(int) $location['storage_location_id']] = true;
+            }
+            foreach ($locationAssignmentsList as $assignment) {
+                $locationId = (int) ($assignment['storage_location_id'] ?? 0);
+                if ($locationId > 0 && !isset($existingLocationIds[$locationId])) {
+                    $addedLocations[] = (string) ($assignment['name'] ?? 'Location #' . $locationId);
+                }
+            }
+        }
+
         $configuratorPartType = $formData['configurator_part_type'] !== ''
             ? $formData['configurator_part_type']
             : null;
@@ -679,6 +718,19 @@ if ($dbError === null) {
                         $configuratorHeight,
                         $configuratorDepth
                     );
+                    if ($addedLocations !== []) {
+                        recordInventoryTransaction($db, [
+                            'reference' => 'Location update',
+                            'notes' => 'Added to locations: ' . implode(', ', $addedLocations),
+                            'lines' => [
+                                [
+                                    'item_id' => $editingId,
+                                    'quantity_change' => 0,
+                                    'note' => 'Location assignments updated.',
+                                ],
+                            ],
+                        ]);
+                    }
                     if ($startedTransaction && $db->inTransaction()) {
                         $db->commit();
                     }
@@ -697,6 +749,17 @@ if ($dbError === null) {
                         $configuratorHeight,
                         $configuratorDepth
                     );
+                    recordInventoryTransaction($db, [
+                        'reference' => 'Inventory item created',
+                        'notes' => 'New item created in inventory.',
+                        'lines' => [
+                            [
+                                'item_id' => $newItemId,
+                                'quantity_change' => 0,
+                                'note' => 'Item created.',
+                            ],
+                        ],
+                    ]);
                     if ($startedTransaction && $db->inTransaction()) {
                         $db->commit();
                     }
@@ -724,6 +787,7 @@ if ($dbError === null) {
             if ($existing !== null) {
                 $currentAverageDailyUse = $existing['average_daily_use'] ?? null;
                 $existingPackSize = isset($existing['pack_size']) ? (float) $existing['pack_size'] : 0.0;
+                $normalizedPackSize = inventoryNormalizePackSize($existingPackSize);
                 $existingPurchaseUom = $existing['purchase_uom'] ?? '';
                 $existingStockUom = $existing['stock_uom'] ?? '';
                 $formData = [
@@ -737,7 +801,11 @@ if ($dbError === null) {
                     'supplier_contact' => $existing['supplier_contact'] ?? '',
                     'reorder_point' => (string) $existing['reorder_point'],
                     'lead_time_days' => (string) $existing['lead_time_days'],
-                    'pack_size' => number_format($existingPackSize, 3, '.', ''),
+                    'pack_size' => $normalizedPackSize > 0
+                        ? (string) $normalizedPackSize
+                        : ($existingPackSize > 0
+                            ? rtrim(rtrim(number_format($existingPackSize, 3, '.', ''), '0'), '.')
+                            : '0'),
                     'purchase_uom' => $existingPurchaseUom !== '' ? strtolower((string) $existingPurchaseUom) : '',
                     'stock_uom' => $existingStockUom ?? '',
                     'category' => '',
@@ -799,6 +867,7 @@ if ($dbError === null) {
                         'item_id' => (string) $requiredId,
                         'label' => $configuratorRequirementMap[$requiredId]['label'] ?? '',
                         'quantity' => (string) $requirement['quantity'],
+                        'finish_policy' => $requirement['finish_policy'] ?? 'fixed',
                     ];
                 }
 
@@ -820,6 +889,7 @@ if ($dbError === null) {
     $inventorySummary = inventoryReservationSummary($db);
     $locationDiscrepancies = inventoryLocationDiscrepancies($db);
     $locationPolicy = inventoryLocationStockPolicy();
+    $stockIsCalculated = $locationPolicy === 'sync_stock';
 }
 
 if ($formData['locations'] === []) {
@@ -827,7 +897,12 @@ if ($formData['locations'] === []) {
 }
 
 if ($formData['configurator_requires'] === []) {
-    $formData['configurator_requires'][] = ['item_id' => '', 'label' => '', 'quantity' => '1'];
+    $formData['configurator_requires'][] = [
+        'item_id' => '',
+        'label' => '',
+        'quantity' => '1',
+        'finish_policy' => 'fixed',
+    ];
 }
 
 if ($configuratorUsePaths === []) {
@@ -1166,7 +1241,18 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
           <div class="field-grid">
             <div class="field">
               <label for="stock">Stock<span aria-hidden="true">*</span></label>
-              <input type="number" id="stock" name="stock" min="0" value="<?= e($formData['stock']) ?>" required />
+              <input
+                type="number"
+                id="stock"
+                name="stock"
+                min="0"
+                value="<?= e($formData['stock']) ?>"
+                <?= $stockIsCalculated ? 'readonly' : '' ?>
+                required
+              />
+              <?php if ($stockIsCalculated): ?>
+                <p class="field-help">Stock is calculated from storage location balances.</p>
+              <?php endif; ?>
               <?php if (!empty($errors['stock'])): ?>
                 <p class="field-error"><?= e($errors['stock']) ?></p>
               <?php endif; ?>
@@ -1197,10 +1283,10 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
                 id="pack_size"
                 name="pack_size"
                 min="0"
-                step="0.01"
+                step="1"
                 value="<?= e($formData['pack_size']) ?>"
               />
-              <p class="field-help">Leave at 0 to order in eaches. Enter the number of eaches per pack when vendors require packs.</p>
+              <p class="field-help">Leave at 0 to order in eaches. Enter a positive whole number of eaches per pack when vendors require packs.</p>
               <?php if (!empty($errors['pack_size'])): ?>
                 <p class="field-error"><?= e($errors['pack_size']) ?></p>
               <?php endif; ?>
@@ -1421,6 +1507,19 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
                         data-requirement-input="quantity"
                       />
                     </div>
+                    <div class="field">
+                      <label class="sr-only" for="configurator-requirement-finish-policy-<?= e((string) $index) ?>">Finish policy</label>
+                      <select
+                        id="configurator-requirement-finish-policy-<?= e((string) $index) ?>"
+                        name="configurator_requires[<?= e((string) $index) ?>][finish_policy]"
+                        data-configurator-toggle
+                        data-requirement-input="finish_policy"
+                      >
+                        <option value="fixed"<?= ($requirement['finish_policy'] ?? 'fixed') === 'fixed' ? ' selected' : '' ?>>Fixed finish</option>
+                        <option value="match_frame"<?= ($requirement['finish_policy'] ?? '') === 'match_frame' ? ' selected' : '' ?>>Match frame finish</option>
+                        <option value="match_door"<?= ($requirement['finish_policy'] ?? '') === 'match_door' ? ' selected' : '' ?>>Match door finish</option>
+                      </select>
+                    </div>
                     <button
                       type="button"
                       class="button ghost icon-only"
@@ -1437,7 +1536,7 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
                   <option value="<?= e($option['label']) ?>" data-item-id="<?= e((string) $option['id']) ?>"></option>
                 <?php endforeach; ?>
               </datalist>
-              <p class="field-help">Search configurator-enabled parts, set quantities, and add as many required components as needed. Required parts cascade into the final bill of material.</p>
+              <p class="field-help">Search configurator-enabled parts, set quantities, and add as many required components as needed. Fixed finish uses the required part SKU, while match rules update the finish when forming the BOM.</p>
               <?php if (!empty($errors['configurator_requires'])): ?>
                 <p class="field-error"><?= e($errors['configurator_requires']) ?></p>
               <?php endif; ?>
@@ -1470,10 +1569,16 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
                       $kind = $entry['kind'];
                       $typeLabel = $kind === 'cycle_count'
                         ? 'Cycle count'
-                        : ($kind === 'receipt' ? 'PO receipt' : 'Inventory transaction');
+                        : ($kind === 'receipt'
+                          ? 'PO receipt'
+                          : ($kind === 'on_order' ? 'On order (pending)' : 'Inventory transaction'));
                       $change = (float) $entry['quantity_change'];
-                      $pillClass = $change < 0 ? 'danger' : ($change > 0 ? 'success' : 'brand');
-                      $changeLabel = ($change > 0 ? '+' : '') . inventoryFormatQuantity($change);
+                      $pillClass = $kind === 'on_order'
+                        ? 'warning'
+                        : ($change < 0 ? 'danger' : ($change > 0 ? 'success' : 'brand'));
+                      $changeLabel = $kind === 'on_order'
+                        ? ('Pending ' . inventoryFormatQuantity($change))
+                        : (($change > 0 ? '+' : '') . inventoryFormatQuantity($change));
                       $details = $entry['details'] ?? [];
                       $context = '';
 
@@ -1487,6 +1592,12 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
                           $context = 'Received ' . $received;
                           if ($cancelled > 0.0001) {
                               $context .= ' · Cancelled ' . inventoryFormatQuantity($cancelled);
+                          }
+                      } elseif ($kind === 'on_order') {
+                          $pending = isset($details['outstanding_qty']) ? inventoryFormatQuantity($details['outstanding_qty']) : inventoryFormatQuantity($change);
+                          $context = 'Pending ' . $pending;
+                          if (!empty($details['expected_date'])) {
+                              $context .= ' · Expected ' . (string) $details['expected_date'];
                           }
                       } else {
                           $before = $details['stock_before'] ?? null;
@@ -1574,6 +1685,18 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
               data-requirement-input="quantity"
               data-name-key="quantity"
             />
+          </div>
+          <div class="field">
+            <label class="sr-only">Finish policy</label>
+            <select
+              data-configurator-toggle
+              data-requirement-input="finish_policy"
+              data-name-key="finish_policy"
+            >
+              <option value="fixed" selected>Fixed finish</option>
+              <option value="match_frame">Match frame finish</option>
+              <option value="match_door">Match door finish</option>
+            </select>
           </div>
           <button type="button" class="button ghost icon-only" aria-label="Remove required part" data-remove-requirement>&times;</button>
         </div>
@@ -2218,6 +2341,7 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
       const labelInput = newRow.querySelector('[data-requirement-input="label"]');
       const itemIdInput = newRow.querySelector('[data-requirement-input="item_id"]');
       const qtyInput = newRow.querySelector('[data-requirement-input="quantity"]');
+      const policyInput = newRow.querySelector('[data-requirement-input="finish_policy"]');
 
       if (labelInput instanceof HTMLInputElement && defaults.label) {
         labelInput.value = String(defaults.label);
@@ -2229,6 +2353,10 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
 
       if (qtyInput instanceof HTMLInputElement && Object.prototype.hasOwnProperty.call(defaults, 'quantity')) {
         qtyInput.value = String(defaults.quantity);
+      }
+
+      if (policyInput instanceof HTMLSelectElement && defaults.finish_policy) {
+        policyInput.value = String(defaults.finish_policy);
       }
 
       attachRow(newRow);

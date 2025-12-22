@@ -261,6 +261,23 @@ if (!function_exists('loadInventory')) {
         return is_numeric($stringValue) ? (float) $stringValue : 0.0;
     }
 
+    function inventoryNormalizePackSize($value): int
+    {
+        $normalized = inventoryNormalizeNumericValue($value);
+
+        if ($normalized <= 0.0) {
+            return 0;
+        }
+
+        $rounded = (int) round($normalized);
+
+        if (abs($normalized - $rounded) > 0.0001) {
+            return 0;
+        }
+
+        return max(0, $rounded);
+    }
+
     function inventoryRoundUpToIncrement(float $quantity, float $increment): float
     {
         if ($quantity <= 0.0) {
@@ -285,7 +302,7 @@ if (!function_exists('loadInventory')) {
             return 0.0;
         }
 
-        return round($shortfall, 3);
+        return (float) ceil($shortfall);
     }
 
     function inventoryQuantityToEach(float $quantity, float $packSize, string $unit): float
@@ -1562,6 +1579,47 @@ if (!function_exists('loadInventory')) {
                     'receipt_reference' => (string) $row['reference'],
                 ],
             ];
+        }
+
+        // On-order (pending) quantities
+        $openStatuses = purchaseOrderOpenStatuses();
+        if ($openStatuses !== []) {
+            $placeholders = implode(', ', array_fill(0, count($openStatuses), '?'));
+            $pendingStatement = $db->prepare(
+                'SELECT po.id AS purchase_order_id, po.order_number, po.status, po.expected_date, '
+                . 'pol.created_at, pol.quantity_ordered, pol.quantity_received, pol.quantity_cancelled '
+                . 'FROM purchase_order_lines pol '
+                . 'INNER JOIN purchase_orders po ON po.id = pol.purchase_order_id '
+                . 'WHERE pol.inventory_item_id = ? AND po.status IN (' . $placeholders . ') '
+                . 'ORDER BY pol.created_at DESC, pol.id DESC'
+            );
+            $pendingStatement->execute(array_merge([$itemId], $openStatuses));
+
+            while ($row = $pendingStatement->fetch()) {
+                $ordered = $row['quantity_ordered'] !== null ? (float) $row['quantity_ordered'] : 0.0;
+                $received = $row['quantity_received'] !== null ? (float) $row['quantity_received'] : 0.0;
+                $cancelled = $row['quantity_cancelled'] !== null ? (float) $row['quantity_cancelled'] : 0.0;
+                $outstanding = max(0.0, $ordered - $received - $cancelled);
+
+                if ($outstanding <= 0.0001) {
+                    continue;
+                }
+
+                $events[] = [
+                    'kind' => 'on_order',
+                    'occurred_at' => (string) $row['created_at'],
+                    'reference' => $row['order_number'] !== null
+                        ? (string) $row['order_number']
+                        : sprintf('PO #%d', (int) $row['purchase_order_id']),
+                    'quantity_change' => $outstanding,
+                    'note' => null,
+                    'details' => [
+                        'outstanding_qty' => $outstanding,
+                        'expected_date' => $row['expected_date'] !== null ? (string) $row['expected_date'] : null,
+                        'status' => (string) $row['status'],
+                    ],
+                ];
+            }
         }
 
         usort(
