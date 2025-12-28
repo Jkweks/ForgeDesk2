@@ -1259,6 +1259,111 @@ if (!function_exists('loadInventory')) {
     }
 
     /**
+     * Apply a quantity delta to storage locations in primary-first order and keep item stock synchronized.
+     *
+     * @return array{stock_before:int,stock_after:int}
+     */
+    function inventoryApplyLocationTransaction(\PDO $db, int $itemId, int $quantityChange): array
+    {
+        storageLocationsEnsureSchema($db);
+
+        $itemLock = $db->prepare('SELECT id FROM inventory_items WHERE id = :id FOR UPDATE');
+        $itemLock->execute([':id' => $itemId]);
+
+        if ($itemLock->fetchColumn() === false) {
+            throw new \RuntimeException('Inventory item not found for transaction.');
+        }
+
+        $locationsStatement = $db->prepare(
+            'SELECT storage_location_id, quantity ' .
+            'FROM inventory_item_locations WHERE inventory_item_id = :item_id ' .
+            'ORDER BY storage_location_id ASC FOR UPDATE'
+        );
+        $locationsStatement->execute([':item_id' => $itemId]);
+
+        $locations = array_map(
+            static fn (array $row): array => [
+                'storage_location_id' => (int) $row['storage_location_id'],
+                'quantity' => (int) $row['quantity'],
+            ],
+            $locationsStatement->fetchAll()
+        );
+
+        if ($locations === []) {
+            $defaultLocationId = inventorySelectDefaultStorageLocation($db);
+
+            if ($defaultLocationId === null) {
+                throw new \RuntimeException('No storage locations are available for inventory adjustments.');
+            }
+
+            $db->prepare(
+                'INSERT INTO inventory_item_locations (inventory_item_id, storage_location_id, quantity) ' .
+                'VALUES (:item_id, :location_id, 0)'
+            )->execute([
+                ':item_id' => $itemId,
+                ':location_id' => $defaultLocationId,
+            ]);
+
+            $locations[] = [
+                'storage_location_id' => $defaultLocationId,
+                'quantity' => 0,
+            ];
+        }
+
+        $stockBefore = array_sum(array_column($locations, 'quantity'));
+
+        if ($quantityChange > 0) {
+            $locations[0]['quantity'] += $quantityChange;
+        } elseif ($quantityChange < 0) {
+            $remaining = abs($quantityChange);
+
+            $reducePrimary = min($locations[0]['quantity'], $remaining);
+            $locations[0]['quantity'] -= $reducePrimary;
+            $remaining -= $reducePrimary;
+
+            if ($remaining > 0) {
+                for ($index = 1; $index < count($locations) && $remaining > 0; $index++) {
+                    $available = $locations[$index]['quantity'];
+                    $reduce = min($available, $remaining);
+                    $locations[$index]['quantity'] -= $reduce;
+                    $remaining -= $reduce;
+                }
+            }
+
+            if ($remaining > 0) {
+                $locations[0]['quantity'] -= $remaining;
+            }
+        }
+
+        $updateLocation = $db->prepare(
+            'UPDATE inventory_item_locations ' .
+            'SET quantity = :quantity WHERE inventory_item_id = :item_id AND storage_location_id = :location_id'
+        );
+
+        foreach ($locations as $location) {
+            $updateLocation->execute([
+                ':quantity' => $location['quantity'],
+                ':item_id' => $itemId,
+                ':location_id' => $location['storage_location_id'],
+            ]);
+        }
+
+        $stockAfter = array_sum(array_column($locations, 'quantity'));
+
+        $db->prepare('UPDATE inventory_items SET stock = :stock WHERE id = :id')->execute([
+            ':id' => $itemId,
+            ':stock' => $stockAfter,
+        ]);
+
+        inventoryRefreshLocationSummary($db, $itemId);
+
+        return [
+            'stock_before' => $stockBefore,
+            'stock_after' => $stockAfter,
+        ];
+    }
+
+    /**
      * Record an inventory transaction and persist line adjustments.
      *
      * @param array{
@@ -1266,8 +1371,6 @@ if (!function_exists('loadInventory')) {
      *   notes:?string,
      *   lines:list<array{item_id:int,quantity_change:int,note:?string}>
      * } $payload
-     *
-     * Location-level balances are not adjusted here; use reconciliation utilities when location quantities are authoritative.
      */
     function recordInventoryTransaction(\PDO $db, array $payload): int
     {
@@ -1305,8 +1408,6 @@ if (!function_exists('loadInventory')) {
             $createdAt = $transactionRow[1] ?? null;
             $usageDate = $createdAt !== null ? substr($createdAt, 0, 10) : date('Y-m-d');
 
-            $lockStatement = $db->prepare('SELECT stock FROM inventory_items WHERE id = :id FOR UPDATE');
-            $updateStatement = $db->prepare('UPDATE inventory_items SET stock = :stock WHERE id = :id');
             $lineStatement = $db->prepare(
                 'INSERT INTO inventory_transaction_lines (transaction_id, inventory_item_id, quantity_change, note, stock_before, stock_after) '
                 . 'VALUES (:transaction_id, :inventory_item_id, :quantity_change, :note, :stock_before, :stock_after)'
@@ -1319,32 +1420,15 @@ if (!function_exists('loadInventory')) {
                 $quantityChange = (int) $line['quantity_change'];
                 $note = $line['note'] ?? null;
 
-                $lockStatement->execute([':id' => $itemId]);
-                $stockRow = $lockStatement->fetch();
-
-                if ($stockRow === false) {
-                    throw new \RuntimeException('Inventory item not found for transaction.');
-                }
-
-                $stockBefore = (int) $stockRow['stock'];
-                $stockAfter = $stockBefore + $quantityChange;
-
-                if ($stockAfter < 0) {
-                    throw new \RuntimeException('Transaction would reduce stock below zero.');
-                }
-
-                $updateStatement->execute([
-                    ':id' => $itemId,
-                    ':stock' => $stockAfter,
-                ]);
+                $locationTotals = inventoryApplyLocationTransaction($db, $itemId, $quantityChange);
 
                 $lineStatement->execute([
                     ':transaction_id' => $transactionId,
                     ':inventory_item_id' => $itemId,
                     ':quantity_change' => $quantityChange,
                     ':note' => $note,
-                    ':stock_before' => $stockBefore,
-                    ':stock_after' => $stockAfter,
+                    ':stock_before' => $locationTotals['stock_before'],
+                    ':stock_after' => $locationTotals['stock_after'],
                 ]);
 
                 if ($quantityChange < 0) {
