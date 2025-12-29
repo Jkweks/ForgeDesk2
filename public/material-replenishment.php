@@ -10,6 +10,7 @@ require_once __DIR__ . '/../app/helpers/view.php';
 require_once __DIR__ . '/../app/data/inventory.php';
 require_once __DIR__ . '/../app/data/purchase_orders.php';
 require_once __DIR__ . '/../app/services/purchase_order_documents.php';
+require_once __DIR__ . '/../app/services/ez_estimate_templates.php';
 
 /**
  * @param list<array<string,mixed>> $items
@@ -373,7 +374,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $dbError === null && $db instanceof
                 }
 
                 if ($action === 'generate_tubelite') {
-                    $templatePath = __DIR__ . '/../app/helpers/EZ_Estimate.xlsm';
+                    $templatePath = ezEstimateActiveTemplatePath();
                     $tempBase = tempnam(sys_get_temp_dir(), 'fd_tubelite_');
                     if ($tempBase === false) {
                         $formErrors[] = 'Unable to create a temporary file for the workbook.';

@@ -1,0 +1,3 @@
+# Ignore uploaded EZ Estimate templates and other runtime artifacts
+*
+!/.gitignore
