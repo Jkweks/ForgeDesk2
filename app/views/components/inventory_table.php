@@ -132,6 +132,14 @@ if (!function_exists('renderInventoryTable')) {
                 $dailyUseAttr = number_format($dailyUseRaw, 4, '.', '');
                 $dailyUseDisplay = inventoryFormatDailyUse($dailyUseRaw);
                 $availableClass = ((int) $row['available_qty']) <= 0 ? 'danger' : 'success';
+                $reservationDetails = $row['reservation_details'] ?? [];
+                $reservationData = '[]';
+
+                try {
+                    $reservationData = json_encode($reservationDetails, JSON_THROW_ON_ERROR);
+                } catch (\JsonException $exception) {
+                    $reservationData = '[]';
+                }
 
                 echo '<tr'
                     . ' data-index="' . e((string) $index) . '"'
@@ -147,6 +155,7 @@ if (!function_exists('renderInventoryTable')) {
                     . ' data-average-daily-use="' . e($dailyUseAttr) . '"'
                     . ' data-status="' . e((string) $row['status']) . '"'
                     . ' data-reservations="' . e((string) $row['active_reservations']) . '"'
+                    . ' data-reservation-details="' . e($reservationData) . '"'
                     . ' data-finish="' . e($row['finish'] ?? '') . '"'
                     . ' data-item-id="' . e((string) $row['id']) . '"'
                     . '>';
@@ -155,7 +164,10 @@ if (!function_exists('renderInventoryTable')) {
                 echo '<td class="sku"><span class="sku-badge">' . e((string) $row['sku']) . '</span></td>';
                 echo '<td>' . e((string) $row['location']) . '</td>';
                 echo '<td class="numeric"><span class="quantity-pill">' . e(inventoryFormatQuantity((int) $row['stock'])) . '</span></td>';
-                echo '<td class="numeric"><span class="quantity-pill brand">' . e(inventoryFormatQuantity((int) $row['committed_qty'])) . '</span></td>';
+                echo '<td class="numeric">'
+                    . '<button type="button" class="quantity-pill brand" data-reservation-trigger="committed"'
+                    . ' aria-label="View committed jobs for ' . e((string) $row['item']) . '">' . e(inventoryFormatQuantity((int) $row['committed_qty'])) . '</button>'
+                    . '</td>';
                 echo '<td class="numeric"><span class="quantity-pill ' . $availableClass . '">' . e(inventoryFormatQuantity((int) $row['available_qty'])) . '</span></td>';
                 echo '<td class="numeric">' . e((string) $row['lead_time_days']) . '</td>';
                 echo '<td class="numeric"><span class="quantity-pill">' . e($dailyUseDisplay) . '<span class="muted">/day</span></span></td>';
@@ -166,7 +178,8 @@ if (!function_exists('renderInventoryTable')) {
                     $reservationText = (int) $row['active_reservations'] === 1
                         ? '1 active job'
                         : $row['active_reservations'] . ' active jobs';
-                    echo '<a class="reservation-link" href="/admin/job-reservations.php?inventory_id=' . e((string) $row['id']) . '">' . e((string) $reservationText) . '</a>';
+                    echo '<button type="button" class="reservation-link" data-reservation-trigger="reservations"'
+                        . ' aria-label="View active jobs for ' . e((string) $row['item']) . '">' . e((string) $reservationText) . '</button>';
                 } else {
                     echo '<span class="reservation-link muted">None</span>';
                 }
@@ -191,5 +204,23 @@ if (!function_exists('renderInventoryTable')) {
         echo '</div>';
         echo '</div>';
         echo '</div>';
+
+        static $renderedReservationModal = false;
+        if (!$renderedReservationModal) {
+            echo '<div class="modal" id="reservation-breakdown-modal" role="dialog" aria-modal="true" aria-hidden="true" hidden data-reservation-modal>';
+            echo '<div class="modal-dialog">';
+            echo '<header>';
+            echo '<div>';
+            echo '<p class="muted small" data-reservation-modal-subtitle>Committed jobs</p>';
+            echo '<h2 id="reservation-breakdown-title" data-reservation-modal-title>Job commitments</h2>';
+            echo '<p class="muted" data-reservation-modal-meta></p>';
+            echo '</div>';
+            echo '<button type="button" class="modal-close" data-reservation-modal-close aria-label="Close job commitments">&times;</button>';
+            echo '</header>';
+            echo '<div class="modal-body" data-reservation-modal-body></div>';
+            echo '</div>';
+            echo '</div>';
+            $renderedReservationModal = true;
+        }
     }
 }

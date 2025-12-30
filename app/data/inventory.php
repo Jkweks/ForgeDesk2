@@ -1724,6 +1724,65 @@ if (!function_exists('loadInventory')) {
     }
 
     /**
+     * Map inventory item IDs to the active job reservations that hold their committed quantities.
+     *
+     * @return array<int, list<array{job_label:string,committed_qty:int}>>
+     */
+    function inventoryLoadReservationBreakdown(\PDO $db, array $itemIds): array
+    {
+        if (!inventorySupportsReservations($db)) {
+            return [];
+        }
+
+        $ids = array_values(array_unique(array_filter(
+            array_map(static fn ($value) => (int) $value, $itemIds),
+            static fn (int $value): bool => $value > 0
+        )));
+
+        if ($ids === []) {
+            return [];
+        }
+
+        $statuses = "('draft', 'committed', 'active', 'in_progress', 'on_hold')";
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $statement = $db->prepare(
+            'SELECT jri.inventory_item_id, jri.committed_qty, jr.job_name, jr.job_number, jr.release_number '
+            . 'FROM job_reservation_items jri '
+            . 'INNER JOIN job_reservations jr ON jr.id = jri.reservation_id '
+            . 'WHERE jri.inventory_item_id IN (' . $placeholders . ') '
+            . "AND jr.status IN $statuses AND jri.committed_qty > 0 "
+            . 'ORDER BY jr.job_name ASC NULLS LAST, jr.job_number ASC, jr.release_number ASC'
+        );
+        $statement->execute($ids);
+
+        $rows = $statement->fetchAll();
+        $map = [];
+
+        foreach ($rows as $row) {
+            $itemId = (int) $row['inventory_item_id'];
+            $jobName = trim((string) ($row['job_name'] ?? ''));
+            $jobNumber = (string) ($row['job_number'] ?? '');
+            $release = (int) ($row['release_number'] ?? 0);
+
+            $label = $jobName !== ''
+                ? $jobName
+                : ($jobNumber !== '' ? 'Job ' . $jobNumber : 'Job');
+
+            if ($release > 0) {
+                $label .= ' (Release ' . $release . ')';
+            }
+
+            $map[$itemId] ??= [];
+            $map[$itemId][] = [
+                'job_label' => $label,
+                'committed_qty' => (int) $row['committed_qty'],
+            ];
+        }
+
+        return $map;
+    }
+
+    /**
      * Fetch inventory rows ordered by item name.
      *
      * Available quantities may be negative when commitments exceed on-hand stock.
@@ -1744,6 +1803,7 @@ if (!function_exists('loadInventory')) {
      *   reorder_point:int,
      *   lead_time_days:int,
      *   active_reservations:int,
+     *   reservation_details:list<array{job_label:string,committed_qty:int}>,
      *   discontinued:bool,
      *   id:int
      * }>
@@ -1796,9 +1856,12 @@ if (!function_exists('loadInventory')) {
 
             $averageUsage = inventoryCalculateAverageDailyUseMap($db, $idList);
             $locationMap = inventoryLoadLocationsForItems($db, $idList);
+            $reservationBreakdownMap = $supportsReservations
+                ? inventoryLoadReservationBreakdown($db, $idList)
+                : [];
 
             return array_map(
-                static function (array $row) use ($averageUsage, $locationMap): array {
+                static function (array $row) use ($averageUsage, $locationMap, $reservationBreakdownMap): array {
                     $available = inventoryNormalizeNumericValue($row['available_qty'] ?? 0.0);
                     $reorderPoint = (int) $row['reorder_point'];
                     $storedStatus = (string) $row['status'];
@@ -1836,6 +1899,7 @@ if (!function_exists('loadInventory')) {
                         'lead_time_days' => (int) $row['lead_time_days'],
                         'average_daily_use' => $averageUsage[$id] ?? null,
                         'active_reservations' => (int) $row['active_reservations'],
+                        'reservation_details' => $reservationBreakdownMap[$id] ?? [],
                         'discontinued' => inventoryIsDiscontinuedStatus($storedStatus),
                         'supplier_lead_time_days' => $row['supplier_lead_time'] !== null ? (int) $row['supplier_lead_time'] : 0,
                     ];
