@@ -93,12 +93,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-render('components/header', ['title' => 'EZ Estimate Template · ' . $app['name'], 'nav' => $nav]);
+$bodyClasses = ['has-sidebar-toggle'];
+$bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
 ?>
-<body>
-  <?php render('components/topbar', ['title' => 'EZ Estimate Template']); ?>
-  <div class="page">
-    <?php render('components/sidebar', ['nav' => $nav]); ?>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title><?= e($app['name']) ?> · EZ Estimate Template</title>
+  <link rel="stylesheet" href="/css/dashboard.css" />
+</head>
+<body<?= $bodyAttributes ?>>
+  <div class="layout">
+    <?php require __DIR__ . '/../../app/views/partials/sidebar.php'; ?>
+
+    <?php
+    $topbarTitle = 'EZ Estimate Template';
+    require __DIR__ . '/../../app/views/partials/topbar.php';
+    unset($topbarTitle, $topbarSubhead, $topbarExtras);
+    ?>
 
     <main class="content">
       <?php if (!empty($errors['general'])): ?>
