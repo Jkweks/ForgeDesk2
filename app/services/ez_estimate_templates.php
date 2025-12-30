@@ -76,10 +76,26 @@ if (!function_exists('ezEstimateStoreTemplateUpload')) {
         }
 
         $storageDir = ezEstimateTemplateStorageDir();
+        if (!is_writable($storageDir)) {
+            $previousUmask = umask(0);
+            @chmod($storageDir, 0770);
+            umask($previousUmask);
+        }
+
+        if (!is_writable($storageDir)) {
+            throw new \RuntimeException(
+                'Unable to save the uploaded template. Verify that the web server can write to ' . $storageDir . '.'
+            );
+        }
+
         $targetPath = ezEstimateUploadedTemplatePath();
 
         if (!@move_uploaded_file($file['tmp_name'], $targetPath)) {
-            throw new \RuntimeException('Unable to save the uploaded template.');
+            if (!@copy($file['tmp_name'], $targetPath)) {
+                throw new \RuntimeException('Unable to save the uploaded template.');
+            }
+
+            @unlink($file['tmp_name']);
         }
 
         return $targetPath;
