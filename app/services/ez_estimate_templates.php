@@ -11,11 +11,58 @@ if (!function_exists('ezEstimateTemplateStorageDir')) {
 
         if (!is_dir($dir)) {
             $previousUmask = umask(0);
-            @mkdir($dir, 0770, true);
+            if (!@mkdir($dir, 0770, true) && !is_dir($dir)) {
+                umask($previousUmask);
+                throw new \RuntimeException(
+                    'Unable to create the EZ Estimate storage directory at ' . $dir . '. '
+                    . 'Ensure the parent directory is writable by the web server.'
+                );
+            }
             umask($previousUmask);
         }
 
         return $dir;
+    }
+}
+
+if (!function_exists('ezEstimateEnsureWritableStorage')) {
+    function ezEstimateEnsureWritableStorage(): string
+    {
+        $storageDir = ezEstimateTemplateStorageDir();
+
+        if (!is_dir($storageDir)) {
+            throw new \RuntimeException(
+                'Unable to prepare the EZ Estimate storage directory at ' . $storageDir . '. '
+                . 'Ensure the parent directory is writable by the web server.'
+            );
+        }
+
+        if (!is_writable($storageDir)) {
+            $previousUmask = umask(0);
+            @chmod($storageDir, 0770);
+            umask($previousUmask);
+        }
+
+        if (!is_writable($storageDir)) {
+            $previousUmask = umask(0);
+            @chmod($storageDir, 0775);
+            @chmod($storageDir, 0777);
+            umask($previousUmask);
+        }
+
+        $testFile = $storageDir . '/.write_test_' . uniqid('', true);
+        $handle = @fopen($testFile, 'wb');
+
+        if ($handle === false) {
+            throw new \RuntimeException(
+                'Unable to save the uploaded template. Verify that the web server can write to ' . $storageDir . '.'
+            );
+        }
+
+        fclose($handle);
+        @unlink($testFile);
+
+        return $storageDir;
     }
 }
 
@@ -75,18 +122,7 @@ if (!function_exists('ezEstimateStoreTemplateUpload')) {
             throw new \RuntimeException('Upload an Excel macro-enabled workbook (.xlsm) or .xlsx file.');
         }
 
-        $storageDir = ezEstimateTemplateStorageDir();
-        if (!is_writable($storageDir)) {
-            $previousUmask = umask(0);
-            @chmod($storageDir, 0770);
-            umask($previousUmask);
-        }
-
-        if (!is_writable($storageDir)) {
-            throw new \RuntimeException(
-                'Unable to save the uploaded template. Verify that the web server can write to ' . $storageDir . '.'
-            );
-        }
+        $storageDir = ezEstimateEnsureWritableStorage();
 
         $targetPath = ezEstimateUploadedTemplatePath();
 
