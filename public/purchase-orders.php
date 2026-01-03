@@ -10,6 +10,7 @@ require_once __DIR__ . '/../app/helpers/view.php';
 require_once __DIR__ . '/../app/data/purchase_orders.php';
 require_once __DIR__ . '/../app/data/suppliers.php';
 require_once __DIR__ . '/../app/services/purchase_order_documents.php';
+require_once __DIR__ . '/../app/services/ez_estimate_templates.php';
 
 foreach ($nav as &$groupItems) {
     foreach ($groupItems as &$item) {
@@ -130,7 +131,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($db)) {
                 throw new RuntimeException('Tubelite exports are only available for Tubelite suppliers.');
             }
 
-            $templatePath = __DIR__ . '/../app/helpers/EZ_Estimate.xlsm';
+            $templatePath = ezEstimateActiveTemplatePath();
             $tempBase = tempnam(sys_get_temp_dir(), 'fd_po_');
             if ($tempBase === false) {
                 throw new RuntimeException('Unable to prepare a temporary workbook.');

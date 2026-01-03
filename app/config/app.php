@@ -1,7 +1,7 @@
 <?php
 return [
     'name' => getenv('APP_NAME') ?: 'ForgeDesk ERP',
-    'version' => 'v0.4.0',
+    'version' => 'v0.4.2',
     'user' => [
         'email' => getenv('APP_USER_EMAIL') ?: 'inventory@forgedesk.io',
         'avatar' => getenv('APP_USER_AVATAR') ?: 'FD',

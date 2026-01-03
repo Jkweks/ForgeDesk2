@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+$dbError = $dbError ?? null;
+
 foreach ($nav as &$groupItems) {
     foreach ($groupItems as &$item) {
         if (($item['label'] ?? '') === 'Database Health') {
