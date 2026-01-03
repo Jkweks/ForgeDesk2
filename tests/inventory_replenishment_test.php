@@ -23,9 +23,9 @@ assertAlmostEquals(32.0, $quantity);
 $quantity = inventoryCalculateRecommendedOrderQuantity(-5, -10.0);
 assertAlmostEquals(10.0, $quantity);
 
-// 4. Shortfalls are rounded to three decimal places
+// 4. Shortfalls are rounded up to whole units to avoid under-ordering
 $quantity = inventoryCalculateRecommendedOrderQuantity(5, 1.6665);
-assertAlmostEquals(3.334, $quantity, 0.0005);
+assertAlmostEquals(4.0, $quantity, 0.0005);
 
 // 5. Pack conversions map cleanly between pack and each quantities
 $eachQuantity = inventoryQuantityToEach(3, 12, 'pack');
