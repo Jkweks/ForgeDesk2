@@ -402,8 +402,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $dbError === null && $db instanceof
                     }
                 } elseif ($action === 'generate_pdf') {
                     try {
-                        $lines = purchaseOrderBuildPdfLines($purchaseOrder);
-                        $pdfContent = purchaseOrderGenerateSimplePdf($lines);
+                        $pdfContent = generatePurchaseOrderPdfContent($db, (int) $purchaseOrder['id']);
                         header('Content-Type: application/pdf');
                         header('Content-Disposition: attachment; filename="' . $filenameBase . '.pdf"');
                         header('Content-Length: ' . strlen($pdfContent));
