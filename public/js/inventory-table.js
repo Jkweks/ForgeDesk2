@@ -5,6 +5,129 @@
       return;
     }
 
+    const reservationModal = document.querySelector('[data-reservation-modal]');
+    const reservationModalBody = reservationModal instanceof HTMLElement
+      ? reservationModal.querySelector('[data-reservation-modal-body]')
+      : null;
+    const reservationModalTitle = reservationModal instanceof HTMLElement
+      ? reservationModal.querySelector('[data-reservation-modal-title]')
+      : null;
+    const reservationModalMeta = reservationModal instanceof HTMLElement
+      ? reservationModal.querySelector('[data-reservation-modal-meta]')
+      : null;
+    const reservationModalSubtitle = reservationModal instanceof HTMLElement
+      ? reservationModal.querySelector('[data-reservation-modal-subtitle]')
+      : null;
+    const reservationCloseButton = reservationModal instanceof HTMLElement
+      ? reservationModal.querySelector('[data-reservation-modal-close]')
+      : null;
+
+    function formatQuantity(value) {
+      if (Number.isNaN(Number(value))) {
+        return String(value);
+      }
+
+      const numeric = typeof value === 'number' ? value : parseFloat(value);
+      return Number.isFinite(numeric)
+        ? numeric.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })
+        : String(value);
+    }
+
+    function closeReservationModal() {
+      if (!(reservationModal instanceof HTMLElement)) {
+        return;
+      }
+
+      reservationModal.classList.remove('open');
+      reservationModal.setAttribute('aria-hidden', 'true');
+      reservationModal.setAttribute('hidden', 'hidden');
+      document.body.classList.remove('reservation-modal-open');
+    }
+
+    function renderReservationList(reservations) {
+      if (!(reservationModalBody instanceof HTMLElement)) {
+        return;
+      }
+
+      reservationModalBody.innerHTML = '';
+
+      if (!Array.isArray(reservations) || reservations.length === 0) {
+        const empty = document.createElement('p');
+        empty.className = 'muted';
+        empty.textContent = 'No active job commitments for this part.';
+        reservationModalBody.appendChild(empty);
+        return;
+      }
+
+      const list = document.createElement('ul');
+      list.className = 'reservation-breakdown-list';
+
+      reservations.forEach((reservation) => {
+        const row = document.createElement('li');
+
+        const label = document.createElement('span');
+        label.className = 'job-label';
+        label.textContent = reservation && reservation.job_label ? String(reservation.job_label) : 'Job';
+
+        const qty = document.createElement('span');
+        qty.className = 'job-qty';
+        qty.textContent = formatQuantity(reservation && typeof reservation.committed_qty !== 'undefined'
+          ? reservation.committed_qty
+          : 0);
+
+        row.appendChild(label);
+        row.appendChild(qty);
+        list.appendChild(row);
+      });
+
+      reservationModalBody.appendChild(list);
+    }
+
+    function openReservationModal(options) {
+      if (!(reservationModal instanceof HTMLElement)) {
+        return;
+      }
+
+      const { title, meta, subtitle, reservations } = options;
+
+      if (reservationModalTitle instanceof HTMLElement) {
+        reservationModalTitle.textContent = title || 'Job commitments';
+      }
+
+      if (reservationModalSubtitle instanceof HTMLElement) {
+        reservationModalSubtitle.textContent = subtitle || 'Committed jobs';
+      }
+
+      if (reservationModalMeta instanceof HTMLElement) {
+        reservationModalMeta.textContent = meta || '';
+        reservationModalMeta.hidden = !meta;
+      }
+
+      renderReservationList(reservations);
+
+      reservationModal.classList.add('open');
+      reservationModal.removeAttribute('hidden');
+      reservationModal.setAttribute('aria-hidden', 'false');
+      document.body.classList.add('reservation-modal-open');
+
+      if (reservationCloseButton instanceof HTMLElement) {
+        reservationCloseButton.focus();
+      }
+    }
+
+    if (reservationCloseButton instanceof HTMLElement) {
+      reservationCloseButton.addEventListener('click', (event) => {
+        event.preventDefault();
+        closeReservationModal();
+      });
+    }
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && reservationModal instanceof HTMLElement && reservationModal.classList.contains('open')) {
+        closeReservationModal();
+      }
+    });
+
     containers.forEach((container, containerIndex) => {
       const table = container.querySelector('table');
       if (!(table instanceof HTMLTableElement)) {
@@ -20,6 +143,8 @@
       if (rowElements.length === 0) {
         return;
       }
+
+      container.addEventListener('click', handleReservationTrigger);
 
       const headers = Array.from(table.querySelectorAll('thead th.sortable'));
       const headerMeta = headers.map((header) => {
@@ -44,6 +169,46 @@
         element,
         originalIndex: index,
       }));
+
+      function handleReservationTrigger(event) {
+        const trigger = event.target instanceof HTMLElement
+          ? event.target.closest('[data-reservation-trigger]')
+          : null;
+
+        if (!trigger) {
+          return;
+        }
+
+        event.preventDefault();
+
+        const row = trigger.closest('tr');
+        if (!row) {
+          return;
+        }
+
+        const rawDetails = row.getAttribute('data-reservation-details') || '[]';
+        let details = [];
+
+        try {
+          const parsed = JSON.parse(rawDetails);
+          if (Array.isArray(parsed)) {
+            details = parsed;
+          }
+        } catch (error) {
+          details = [];
+        }
+
+        const subtitle = trigger.dataset.reservationTrigger === 'committed'
+          ? 'Committed quantity by job'
+          : 'Active job commitments';
+
+        openReservationModal({
+          title: row.dataset.item || 'Job commitments',
+          meta: row.dataset.sku ? `SKU ${row.dataset.sku}` : '',
+          subtitle,
+          reservations: details,
+        });
+      }
 
       let sortKey = '';
       let sortDirection = 'asc';

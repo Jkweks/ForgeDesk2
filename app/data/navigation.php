@@ -29,6 +29,7 @@ return [
         ['icon' => 'tag', 'label' => 'Suppliers', 'href' => '/admin/suppliers.php'],
         ['icon' => 'map', 'label' => 'Storage Locations', 'href' => '/admin/storage-locations.php'],
         ['icon' => 'database', 'label' => 'Database Health', 'href' => '/database-health.php', 'badge' => 'beta'],
+        ['icon' => 'upload', 'label' => 'EZ Estimate Template', 'href' => '/admin/ez-estimate-template.php'],
         ['icon' => 'activity', 'label' => 'Dashboard Metrics', 'href' => '/admin/metrics.php'],
         // ['icon' => 'upload', 'label' => 'Data Seeding', 'href' => '/admin/import.php'],
     ],

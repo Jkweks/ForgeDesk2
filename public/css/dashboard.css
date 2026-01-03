@@ -983,6 +983,12 @@ a.link:focus{
   background:rgba(255,255,255,.08);
   color:#fff;
 }
+button.quantity-pill{
+  border:0;
+  cursor:pointer;
+  font:inherit;
+}
+button.quantity-pill:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
 
 .quantity-pill.brand{background:rgba(255,159,67,.18);color:var(--brand)}
 .quantity-pill.success{background:rgba(90,200,166,.18);color:var(--accent)}
@@ -1001,6 +1007,12 @@ a.link:focus{
   text-decoration:none;
   transition:background-color .2s ease, color .2s ease;
 }
+button.reservation-link{
+  border:0;
+  cursor:pointer;
+  font:inherit;
+}
+button.reservation-link:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
 .reservation-link:hover,
 .reservation-link:focus{
@@ -1731,6 +1743,29 @@ a.link:focus{
 }
 
 body.modal-open{overflow:hidden}
+body.reservation-modal-open{overflow:hidden}
+
+.reservation-breakdown-list{
+  list-style:none;
+  padding:0;
+  margin:0;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+
+.reservation-breakdown-list li{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:10px 12px;
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:10px;
+  background:rgba(255,255,255,.02);
+}
+
+.reservation-breakdown-list .job-label{font-weight:700;}
+.reservation-breakdown-list .job-qty{font-weight:700;color:var(--brand);}
 
 .import-summary{
   display:grid;
