@@ -12,6 +12,7 @@ if (!function_exists('renderTopbarExtras')) {
     }
 }
 ?>
+<?php
 $forceLegacyTopbar = $forceLegacyTopbar ?? false;
 $isAdminRoute = isset($_SERVER['SCRIPT_NAME']) && strpos((string) $_SERVER['SCRIPT_NAME'], '/admin/') !== false;
 $useLegacyTopbar = $forceLegacyTopbar || $isAdminRoute;
