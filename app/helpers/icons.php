@@ -1,5 +1,5 @@
 <?php
-function icon(string $name): string
+function icon(string $name, string $class = 'icon'): string
 {
     static $map = [
         'grid' => 'M3 3h7v7H3V3zm11 0h7v7h-7V3zM3 14h7v7H3v-7zm11 7v-7h7v7h-7z',
@@ -24,12 +24,19 @@ function icon(string $name): string
         'map' => 'M1 6l8-3 6 2 8-3v13l-8 3-6-2-8 3zM9 3v13M15 5v13',
         'alert-triangle' => 'M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z M12 9v4M12 17h.01',
         'users' => 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 1 1 0 7.75',
+        'user' => 'M12 4a4 4 0 1 1 0 8 4 4 0 0 1 0-8zm0 8a7 7 0 0 0-7 7h14a7 7 0 0 0-7-7z',
+        'logout' => 'M14 8v-2a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2v-2m-4-4h11M18 9l3 3-3 3',
+        'plus' => 'M12 5v14m-7-7h14',
+        'dots' => 'M5 12a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm9 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm7 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0z',
     ];
 
     $path = $map[$name] ?? '';
 
+    $classAttr = $class !== '' ? " class='" . htmlspecialchars($class, ENT_QUOTES) . "'" : '';
+
     return sprintf(
-        "<svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' aria-hidden='true'><path d='%s'/></svg>",
+        "<svg width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' aria-hidden='true'%s><path d='%s'/></svg>",
+        $classAttr,
         $path
     );
 }

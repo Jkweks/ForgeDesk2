@@ -944,11 +944,37 @@ if (isset($_GET['tab']) && in_array($_GET['tab'], ['details', 'categories', 'con
 
 $modalRequested = isset($_GET['modal']) && $_GET['modal'] === 'open';
 $modalOpen = $modalRequested || $editingId !== null || ($errors !== [] && $_SERVER['REQUEST_METHOD'] === 'POST');
-$bodyClasses = ['has-sidebar-toggle'];
-if ($modalOpen) {
-    $bodyClasses[] = 'modal-open';
-}
+$bodyClasses = ['page', 'has-sidebar-toggle'];
 $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
+$availableValue = (float) $inventorySummary['total_available'];
+$inventoryStats = [
+    [
+        'label' => 'Units on hand',
+        'value' => inventoryFormatQuantity($inventorySummary['total_stock']),
+        'icon' => 'box',
+        'tone' => 'primary',
+    ],
+    [
+        'label' => 'Committed to jobs',
+        'value' => inventoryFormatQuantity($inventorySummary['total_committed']),
+        'icon' => 'checklist',
+        'tone' => 'orange',
+    ],
+    [
+        'label' => 'Available to promise',
+        'value' => inventoryFormatQuantity($inventorySummary['total_available']),
+        'icon' => 'truck',
+        'tone' => $availableValue < 0 ? 'red' : 'teal',
+        'badge' => $availableValue < 0 ? ['tone' => 'red', 'label' => 'Shortfall'] : null,
+    ],
+    [
+        'label' => 'Active reservations',
+        'value' => (string) $inventorySummary['active_reservations'],
+        'icon' => 'users',
+        'tone' => 'indigo',
+        'url' => '/admin/job-reservations.php',
+    ],
+];
 ?>
 <!doctype html>
 <html lang="en">
@@ -956,86 +982,111 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title><?= e($app['name']) ?> Inventory Manager</title>
-  <link rel="stylesheet" href="css/dashboard.css" />
+  <script src="js/tabler-theme.js"></script>
+  <link rel="stylesheet" href="css/tabler.min.css" />
+  <script src="js/tabler.min.js" defer></script>
+  <script src="js/tabler-init.js" defer></script>
 </head>
 <body<?= $bodyAttributes ?>>
-  <div class="layout">
+  <div class="page">
     <?php require __DIR__ . '/../app/views/partials/sidebar.php'; ?>
 
-    <?php
-    $topbarTitle = 'Inventory Manager';
-    require __DIR__ . '/../app/views/partials/topbar.php';
-    unset($topbarTitle, $topbarSubhead, $topbarExtras);
-    ?>
+    <div class="page-wrapper">
+      <?php
+      $topbarTitle = 'Inventory Manager';
+      require __DIR__ . '/../app/views/partials/topbar.php';
+      unset($topbarTitle, $topbarSubhead, $topbarExtras);
+      ?>
 
-    <main class="content">
-      <section class="panel" aria-labelledby="inventory-manager-title">
-        <header class="panel-header">
-          <div>
-            <h1 id="inventory-manager-title">Inventory Manager</h1>
-            <p class="small">Review stock levels, update item details, and manage supplier information.</p>
+      <div class="page-body">
+        <div class="container-xl">
+          <main class="page-content">
+      <div class="card card-stacked mb-4" aria-labelledby="inventory-manager-title">
+        <div class="card-header d-flex flex-column flex-md-row align-items-start gap-2 gap-md-3">
+          <div class="me-md-auto">
+            <h1 id="inventory-manager-title" class="card-title mb-1">Inventory Manager</h1>
+            <p class="card-subtitle">Review stock levels, update item details, and manage supplier information.</p>
           </div>
-          <div class="header-actions">
-            <a class="button secondary" href="inventory_export.php">Download CSV</a>
-            <a class="button secondary" href="cycle-count.php">Start cycle count</a>
-            <a class="button secondary" href="/admin/estimate-check.php">Analyze EZ Estimate</a>
-            <a class="button primary" href="inventory.php?modal=open">Add Inventory Item</a>
+          <div class="btn-list ms-md-auto">
+            <a class="btn btn-outline-secondary" href="inventory_export.php">Download CSV</a>
+            <a class="btn btn-outline-secondary" href="cycle-count.php">Start cycle count</a>
+            <a class="btn btn-outline-secondary" href="/admin/estimate-check.php">Analyze EZ Estimate</a>
+            <a class="btn btn-primary" href="inventory.php?modal=open">Add Inventory Item</a>
             <?php if ($editingId !== null): ?>
-              <a class="button secondary" href="inventory.php">Exit edit</a>
+              <a class="btn btn-outline-secondary" href="inventory.php">Exit edit</a>
             <?php endif; ?>
           </div>
-        </header>
+        </div>
 
-        <?php if ($dbError !== null): ?>
-          <div class="alert error" role="alert">
-            <strong>Database connection issue:</strong> <?= e($dbError) ?>
-          </div>
-        <?php endif; ?>
-
-        <?php if ($successMessage !== null): ?>
-          <div class="alert success" role="status">
-            <?= e($successMessage) ?>
-          </div>
-        <?php endif; ?>
-
-        <div class="table-wrapper">
-          <?php if ($dbError === null): ?>
-            <div class="inventory-metrics" role="list">
-              <div class="metric" role="listitem">
-                <span class="metric-label">Units on hand</span>
-                <span class="metric-value"><?= e(inventoryFormatQuantity($inventorySummary['total_stock'])) ?></span>
-              </div>
-              <div class="metric" role="listitem">
-                <span class="metric-label">Committed to jobs</span>
-                <span class="metric-value"><?= e(inventoryFormatQuantity($inventorySummary['total_committed'])) ?></span>
-              </div>
-              <div class="metric" role="listitem">
-                <span class="metric-label">Available to promise</span>
-                <span class="metric-value"><?= e(inventoryFormatQuantity($inventorySummary['total_available'])) ?></span>
-              </div>
-              <div class="metric" role="listitem">
-                <span class="metric-label">Active reservations</span>
-                <span class="metric-value">
-                  <a class="metric-link" href="/admin/job-reservations.php">
-                    <?= e((string) $inventorySummary['active_reservations']) ?>
-                  </a>
-                </span>
+        <div class="card-body">
+          <?php if ($dbError !== null): ?>
+            <div class="alert alert-danger alert-important" role="alert">
+              <div class="d-flex align-items-center">
+                <div class="me-2"><?= icon('alert-circle', 'icon') ?></div>
+                <div><strong>Database connection issue:</strong> <?= e($dbError) ?></div>
               </div>
             </div>
+          <?php endif; ?>
+
+          <?php if ($successMessage !== null): ?>
+            <div class="alert alert-success" role="status">
+              <div class="d-flex align-items-center">
+                <div class="me-2"><?= icon('circle-check', 'icon') ?></div>
+                <div><?= e($successMessage) ?></div>
+              </div>
+            </div>
+          <?php endif; ?>
+
+          <?php if ($dbError === null): ?>
+            <div class="row row-cards mb-4" role="list">
+              <?php foreach ($inventoryStats as $stat): ?>
+                <div class="col-sm-6 col-lg-3" role="listitem">
+                  <div class="card card-sm card-stacked h-100">
+                    <div class="card-body">
+                      <div class="d-flex align-items-center gap-3">
+                        <span class="avatar avatar-sm bg-<?= e($stat['tone']) ?>-lt text-<?= e($stat['tone']) ?>" aria-hidden="true">
+                          <?= icon($stat['icon'], 'icon icon-sm') ?>
+                        </span>
+                        <div class="flex-fill">
+                          <div class="text-muted small mb-1"><?= e($stat['label']) ?></div>
+                          <div class="d-flex align-items-center gap-2">
+                            <?php if (!empty($stat['url'])): ?>
+                              <a class="fw-semibold" href="<?= e((string) $stat['url']) ?>"><?= e($stat['value']) ?></a>
+                            <?php else: ?>
+                              <div class="fw-semibold"><?= e($stat['value']) ?></div>
+                            <?php endif; ?>
+                            <?php if (!empty($stat['badge'])): ?>
+                              <span class="badge bg-<?= e($stat['badge']['tone']) ?>-lt text-<?= e($stat['badge']['tone']) ?>">
+                                <?= e($stat['badge']['label']) ?>
+                              </span>
+                            <?php endif; ?>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              <?php endforeach; ?>
+            </div>
             <?php if ($locationDiscrepancies !== []): ?>
-              <div class="callout warning">
-                <p class="strong">Location reconciliation needed</p>
-                <p class="small">Stock totals differ from location quantities for <?= e((string) count($locationDiscrepancies)) ?> item(s). <a href="/admin/inventory-reconciliation.php">Review the reconciliation report</a>.</p>
-                <p class="small muted">Policy: <?= e($locationPolicy === 'block_on_mismatch' ? 'Block on mismatch' : 'Sync stock to locations') ?>.</p>
-                <?php $reconciliationPreview = array_slice($locationDiscrepancies, 0, 5); ?>
-                <ul class="small">
-                  <?php foreach ($reconciliationPreview as $row): ?>
-                    <li>
-                      <?= e($row['item']) ?> (<?= e($row['sku']) ?>):
-                      item stock <?= e(inventoryFormatQuantity($row['stock'])) ?> vs locations <?= e(inventoryFormatQuantity($row['location_stock'])) ?>
-                    </li>
-                  <?php endforeach; ?>
-                </ul>
+              <div class="alert alert-warning" role="alert">
+                <div class="d-flex align-items-start">
+                  <div class="me-2 mt-1" aria-hidden="true"><?= icon('alert-triangle', 'icon') ?></div>
+                  <div>
+                    <p class="fw-semibold mb-1">Location reconciliation needed</p>
+                    <p class="mb-1">Stock totals differ from location quantities for <?= e((string) count($locationDiscrepancies)) ?> item(s). <a href="/admin/inventory-reconciliation.php">Review the reconciliation report</a>.</p>
+                    <p class="text-muted mb-2">Policy: <?= e($locationPolicy === 'block_on_mismatch' ? 'Block on mismatch' : 'Sync stock to locations') ?>.</p>
+                    <?php $reconciliationPreview = array_slice($locationDiscrepancies, 0, 5); ?>
+                    <ul class="mb-0 ps-3">
+                      <?php foreach ($reconciliationPreview as $row): ?>
+                        <li>
+                          <?= e($row['item']) ?> (<?= e($row['sku']) ?>):
+                          item stock <?= e(inventoryFormatQuantity($row['stock'])) ?> vs locations <?= e(inventoryFormatQuantity($row['location_stock'])) ?>
+                        </li>
+                      <?php endforeach; ?>
+                    </ul>
+                  </div>
+                </div>
               </div>
             <?php endif; ?>
             <?php renderInventoryTable($inventory, [
@@ -1047,96 +1098,113 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
             ]); ?>
           <?php endif; ?>
         </div>
-      </section>
-    </main>
+      </div>
+          </main>
+        </div>
+      </div>
+    </div>
   </div>
 
   <?php
-  $modalClasses = 'modal' . ($modalOpen ? ' open' : '');
   $modalTitle = $editingId === null ? 'Add Inventory Item' : 'Edit Inventory Item';
   $modalDescription = $editingId === null
       ? 'Define the base part, finish, and stocking targets before onboarding data.'
       : 'Update the part details, finish, and stocking targets for this item.';
   ?>
-  <div id="inventory-modal" class="<?= e($modalClasses) ?>" role="dialog" aria-modal="true" aria-labelledby="inventory-modal-title" aria-hidden="<?= $modalOpen ? 'false' : 'true' ?>" data-close-url="inventory.php">
-    <div class="modal-dialog">
-      <header>
-        <div>
-          <h2 id="inventory-modal-title"><?= e($modalTitle) ?></h2>
-          <p><?= e($modalDescription) ?></p>
-        </div>
-        <a class="modal-close" href="inventory.php" aria-label="Close inventory form">&times;</a>
-      </header>
-
-      <form method="post" class="form" novalidate>
-        <input type="hidden" name="action" value="<?= $editingId === null ? 'create' : 'update' ?>" />
-        <?php if ($editingId !== null): ?>
-          <input type="hidden" name="id" value="<?= e((string) $editingId) ?>" />
-        <?php endif; ?>
-
-        <?php if (!empty($errors['general'])): ?>
-          <div class="alert error" role="alert">
-            <?= e($errors['general']) ?>
+  <div
+    id="inventory-modal"
+    class="modal modal-blur fade<?= $modalOpen ? ' show' : '' ?>"
+    tabindex="-1"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="inventory-modal-title"
+    aria-hidden="<?= $modalOpen ? 'false' : 'true' ?>"
+    data-close-url="inventory.php"
+    data-tabler-close-url="inventory.php"
+    <?= $modalOpen ? 'data-tabler-autoshow="modal" style="display: block;"' : '' ?>
+  >
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+      <form method="post" class="modal-content" novalidate>
+        <div class="modal-header">
+          <div>
+            <h2 id="inventory-modal-title" class="modal-title h4 mb-1"><?= e($modalTitle) ?></h2>
+            <p class="mb-0 text-muted small"><?= e($modalDescription) ?></p>
           </div>
-        <?php endif; ?>
-
-        <?php
-        $detailsActive = $activeModalTab === 'details';
-        $categoriesActive = $activeModalTab === 'categories';
-        $configuratorActive = $activeModalTab === 'configurator';
-        $activityActive = $activeModalTab === 'activity';
-        ?>
-        <div class="modal-tabs" role="tablist">
-          <button type="button" role="tab" id="inventory-tab-details" aria-controls="inventory-panel-details" aria-selected="<?= $detailsActive ? 'true' : 'false' ?>" tabindex="<?= $detailsActive ? '0' : '-1' ?>">Part Details</button>
-          <button type="button" role="tab" id="inventory-tab-categories" aria-controls="inventory-panel-categories" aria-selected="<?= $categoriesActive ? 'true' : 'false' ?>" tabindex="<?= $categoriesActive ? '0' : '-1' ?>">Categories</button>
-          <button type="button" role="tab" id="inventory-tab-configurator" aria-controls="inventory-panel-configurator" aria-selected="<?= $configuratorActive ? 'true' : 'false' ?>" tabindex="<?= $configuratorActive ? '0' : '-1' ?>">Configurator</button>
-          <button type="button" role="tab" id="inventory-tab-activity" aria-controls="inventory-panel-activity" aria-selected="<?= $activityActive ? 'true' : 'false' ?>" tabindex="<?= $activityActive ? '0' : '-1' ?>">Activity</button>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close inventory form"></button>
         </div>
+
+        <div class="modal-body">
+          <input type="hidden" name="action" value="<?= $editingId === null ? 'create' : 'update' ?>" />
+          <?php if ($editingId !== null): ?>
+            <input type="hidden" name="id" value="<?= e((string) $editingId) ?>" />
+          <?php endif; ?>
+
+          <?php if (!empty($errors['general'])): ?>
+            <div class="alert alert-danger" role="alert">
+              <?= e($errors['general']) ?>
+            </div>
+          <?php endif; ?>
+
+          <?php
+          $detailsActive = $activeModalTab === 'details';
+          $categoriesActive = $activeModalTab === 'categories';
+          $configuratorActive = $activeModalTab === 'configurator';
+          $activityActive = $activeModalTab === 'activity';
+          ?>
+          <div class="nav nav-tabs mb-4" role="tablist">
+            <button type="button" class="nav-link<?= $detailsActive ? ' active' : '' ?>" role="tab" id="inventory-tab-details" aria-controls="inventory-panel-details" aria-selected="<?= $detailsActive ? 'true' : 'false' ?>" tabindex="<?= $detailsActive ? '0' : '-1' ?>">Part Details</button>
+            <button type="button" class="nav-link<?= $categoriesActive ? ' active' : '' ?>" role="tab" id="inventory-tab-categories" aria-controls="inventory-panel-categories" aria-selected="<?= $categoriesActive ? 'true' : 'false' ?>" tabindex="<?= $categoriesActive ? '0' : '-1' ?>">Categories</button>
+            <button type="button" class="nav-link<?= $configuratorActive ? ' active' : '' ?>" role="tab" id="inventory-tab-configurator" aria-controls="inventory-panel-configurator" aria-selected="<?= $configuratorActive ? 'true' : 'false' ?>" tabindex="<?= $configuratorActive ? '0' : '-1' ?>">Configurator</button>
+            <button type="button" class="nav-link<?= $activityActive ? ' active' : '' ?>" role="tab" id="inventory-tab-activity" aria-controls="inventory-panel-activity" aria-selected="<?= $activityActive ? 'true' : 'false' ?>" tabindex="<?= $activityActive ? '0' : '-1' ?>">Activity</button>
+          </div>
 
         <div id="inventory-panel-details" class="tab-panel" role="tabpanel" aria-labelledby="inventory-tab-details"<?= $detailsActive ? '' : ' hidden' ?>>
-          <div class="field">
-            <label for="item">Item<span aria-hidden="true">*</span></label>
-            <input type="text" id="item" name="item" value="<?= e($formData['item']) ?>" required data-modal-focus="true" />
+          <div class="mb-3">
+            <label for="item" class="form-label">Item<span aria-hidden="true" class="text-danger">*</span></label>
+            <input type="text" id="item" name="item" value="<?= e($formData['item']) ?>" class="form-control<?= !empty($errors['item']) ? ' is-invalid' : '' ?>" required data-modal-focus="true" />
             <?php if (!empty($errors['item'])): ?>
-              <p class="field-error"><?= e($errors['item']) ?></p>
+              <div class="invalid-feedback d-block"><?= e($errors['item']) ?></div>
             <?php endif; ?>
           </div>
 
-          <div class="field">
-            <label for="part_number">Part Number<span aria-hidden="true">*</span></label>
-            <input type="text" id="part_number" name="part_number" value="<?= e($formData['part_number']) ?>" required />
+          <div class="mb-3">
+            <label for="part_number" class="form-label">Part Number<span aria-hidden="true" class="text-danger">*</span></label>
+            <input type="text" id="part_number" name="part_number" value="<?= e($formData['part_number']) ?>" class="form-control<?= !empty($errors['part_number']) ? ' is-invalid' : '' ?>" required />
             <?php if (!empty($errors['part_number'])): ?>
-              <p class="field-error"><?= e($errors['part_number']) ?></p>
+              <div class="invalid-feedback d-block"><?= e($errors['part_number']) ?></div>
             <?php endif; ?>
           </div>
 
-          <div class="field">
-            <label for="finish">Finish</label>
-            <select id="finish" name="finish">
+          <div class="mb-3">
+            <label for="finish" class="form-label">Finish</label>
+            <select id="finish" name="finish" class="form-select">
               <option value="">No finish specified</option>
               <?php foreach ($finishOptions as $option): ?>
                 <option value="<?= e($option) ?>"<?= strtoupper($formData['finish']) === $option ? ' selected' : '' ?>><?= e($option) ?></option>
               <?php endforeach; ?>
             </select>
-            <p class="field-help">Choose the finish code used when composing SKUs.</p>
+            <p class="form-text">Choose the finish code used when composing SKUs.</p>
             <?php if (!empty($errors['finish'])): ?>
-              <p class="field-error"><?= e($errors['finish']) ?></p>
+              <div class="invalid-feedback d-block"><?= e($errors['finish']) ?></div>
             <?php endif; ?>
           </div>
 
-          <div class="field">
-            <label for="sku">Generated SKU</label>
-            <input type="text" id="sku" name="sku" value="<?= e($formData['sku']) ?>" readonly />
-            <p class="field-help">The SKU is automatically built from the part number and finish.</p>
+          <div class="mb-4">
+            <label for="sku" class="form-label">Generated SKU</label>
+            <input type="text" id="sku" name="sku" value="<?= e($formData['sku']) ?>" class="form-control" readonly />
+            <p class="form-text">The SKU is automatically built from the part number and finish.</p>
             <?php if (!empty($errors['sku'])): ?>
-              <p class="field-error"><?= e($errors['sku']) ?></p>
+              <div class="invalid-feedback d-block"><?= e($errors['sku']) ?></div>
             <?php endif; ?>
           </div>
 
-          <section class="location-manager">
-            <div class="location-manager__header">
-              <span>Storage locations<span aria-hidden="true">*</span></span>
-              <p class="small">Assign one or more storage locations along with the quantity typically staged there.</p>
+          <section class="location-manager card card-body mb-4">
+            <div class="d-flex justify-content-between align-items-start mb-3">
+              <div>
+                <span class="fw-semibold">Storage locations<span aria-hidden="true" class="text-danger">*</span></span>
+                <p class="text-muted mb-0 small">Assign one or more storage locations along with the quantity typically staged there.</p>
+              </div>
+              <button type="button" class="btn btn-outline-primary" data-add-location>+ Add location</button>
             </div>
             <div class="location-rows" data-location-rows>
               <?php
@@ -1145,13 +1213,14 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
                   : [['location_id' => '', 'label' => '', 'quantity' => '']];
               ?>
               <?php foreach ($renderLocations as $index => $row): ?>
-                <div class="location-row" data-location-row>
-                  <div class="field">
-                    <label for="location-select-<?= e((string) $index) ?>">Location</label>
+                <div class="location-row row g-3 align-items-end" data-location-row>
+                  <div class="col-md-6">
+                    <label for="location-select-<?= e((string) $index) ?>" class="form-label">Location</label>
                     <select
                       id="location-select-<?= e((string) $index) ?>"
                       data-location-input="location_id"
                       name="locations[<?= e((string) $index) ?>][location_id]"
+                      class="form-select"
                       required
                     >
                       <option value="">Select location</option>
@@ -1166,35 +1235,35 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
                       <?php endforeach; ?>
                     </select>
                   </div>
-                  <div class="field">
-                    <label for="location-qty-<?= e((string) $index) ?>">Qty in slot</label>
+                  <div class="col-md-4">
+                    <label for="location-qty-<?= e((string) $index) ?>" class="form-label">Qty in slot</label>
                     <input
                       type="number"
                       id="location-qty-<?= e((string) $index) ?>"
                       data-location-input="quantity"
                       name="locations[<?= e((string) $index) ?>][quantity]"
+                      class="form-control"
                       min="0"
                       step="1"
                       value="<?= e((string) ($row['quantity'] ?? '')) ?>"
                     />
                   </div>
-                  <button type="button" class="button ghost icon-only" data-remove-location aria-label="Remove location">&times;</button>
+                  <div class="col-md-2 d-flex justify-content-end">
+                    <button type="button" class="btn btn-outline-secondary" data-remove-location aria-label="Remove location">&times;</button>
+                  </div>
                 </div>
               <?php endforeach; ?>
             </div>
-            <div class="location-actions">
-              <button type="button" class="button secondary" data-add-location>Add another location</button>
-              <p class="field-help">Manage the available locations from the <a href="/admin/storage-locations.php">Storage Locations dashboard</a>.</p>
-            </div>
+            <p class="form-text mb-0 mt-3">Manage the available locations from the <a href="/admin/storage-locations.php">Storage Locations dashboard</a>.</p>
             <?php if (!empty($errors['locations'])): ?>
-              <p class="field-error"><?= e($errors['locations']) ?></p>
+              <div class="invalid-feedback d-block"><?= e($errors['locations']) ?></div>
             <?php endif; ?>
           </section>
 
           <div class="field-grid">
             <div class="field">
-              <label for="supplier_id">Supplier<span aria-hidden="true">*</span></label>
-              <select id="supplier_id" name="supplier_id" data-supplier-select>
+              <label for="supplier_id" class="form-label">Supplier<span aria-hidden="true" class="text-danger">*</span></label>
+              <select id="supplier_id" name="supplier_id" class="form-select" data-supplier-select>
                 <option value="">Select a supplier</option>
                 <?php foreach ($suppliers as $supplier): ?>
                   <?php
@@ -1214,70 +1283,72 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
                 <?php endforeach; ?>
                 <option value="custom"<?= $formData['supplier_id'] === 'custom' ? ' selected' : '' ?>>Custom supplier</option>
               </select>
-              <p class="field-help">Maintain supplier records from the Suppliers admin dashboard.</p>
+              <p class="form-text">Maintain supplier records from the Suppliers admin dashboard.</p>
               <?php if (!empty($errors['supplier'])): ?>
-                <p class="field-error"><?= e($errors['supplier']) ?></p>
+                <div class="invalid-feedback d-block"><?= e($errors['supplier']) ?></div>
               <?php endif; ?>
             </div>
 
             <div class="field">
-              <label for="supplier">Custom supplier name<span aria-hidden="true">*</span></label>
+              <label for="supplier" class="form-label">Custom supplier name<span aria-hidden="true" class="text-danger">*</span></label>
               <input
                 type="text"
                 id="supplier"
                 name="supplier_custom"
                 value="<?= e($formData['supplier']) ?>"
+                class="form-control"
                 placeholder="Other vendor name"
               />
-              <p class="field-help">Use when the vendor is not yet in the directory.</p>
+              <p class="form-text">Use when the vendor is not yet in the directory.</p>
             </div>
           </div>
 
-          <div class="field">
-            <label for="supplier_contact">Supplier Contact</label>
-            <input type="text" id="supplier_contact" name="supplier_contact" value="<?= e($formData['supplier_contact']) ?>" />
+          <div class="field mb-3">
+            <label for="supplier_contact" class="form-label">Supplier Contact</label>
+            <input type="text" id="supplier_contact" name="supplier_contact" value="<?= e($formData['supplier_contact']) ?>" class="form-control" />
           </div>
 
           <div class="field-grid">
             <div class="field">
-              <label for="stock">Stock<span aria-hidden="true">*</span></label>
+              <label for="stock" class="form-label">Stock<span aria-hidden="true" class="text-danger">*</span></label>
               <input
                 type="number"
                 id="stock"
                 name="stock"
                 min="0"
                 value="<?= e($formData['stock']) ?>"
+                class="form-control<?= !empty($errors['stock']) ? ' is-invalid' : '' ?>"
                 <?= $stockIsCalculated ? 'readonly' : '' ?>
                 required
               />
               <?php if ($stockIsCalculated): ?>
-                <p class="field-help">Stock is calculated from storage location balances.</p>
+                <p class="form-text">Stock is calculated from storage location balances.</p>
               <?php endif; ?>
               <?php if (!empty($errors['stock'])): ?>
-                <p class="field-error"><?= e($errors['stock']) ?></p>
+                <div class="invalid-feedback d-block"><?= e($errors['stock']) ?></div>
               <?php endif; ?>
             </div>
 
             <div class="field">
-              <label for="reorder_point">Reorder Point<span aria-hidden="true">*</span></label>
-              <input type="number" id="reorder_point" name="reorder_point" min="0" value="<?= e($formData['reorder_point']) ?>" required />
+              <label for="reorder_point" class="form-label">Reorder Point<span aria-hidden="true" class="text-danger">*</span></label>
+              <input type="number" id="reorder_point" name="reorder_point" min="0" value="<?= e($formData['reorder_point']) ?>" class="form-control<?= !empty($errors['reorder_point']) ? ' is-invalid' : '' ?>" required />
               <?php if (!empty($errors['reorder_point'])): ?>
-                <p class="field-error"><?= e($errors['reorder_point']) ?></p>
+                <div class="invalid-feedback d-block"><?= e($errors['reorder_point']) ?></div>
               <?php endif; ?>
             </div>
           </div>
 
           <div class="field-grid">
             <div class="field">
-              <label for="lead_time_days">Lead Time (days)<span aria-hidden="true">*</span></label>
-              <input type="number" id="lead_time_days" name="lead_time_days" min="0" value="<?= e($formData['lead_time_days']) ?>" required />
+              <label for="lead_time_days" class="form-label">Lead Time (days)<span aria-hidden="true" class="text-danger">*</span></label>
+              <input type="number" id="lead_time_days" name="lead_time_days" min="0" value="<?= e($formData['lead_time_days']) ?>" class="form-control<?= !empty($errors['lead_time_days']) ? ' is-invalid' : '' ?>" required />
               <?php if (!empty($errors['lead_time_days'])): ?>
-                <p class="field-error"><?= e($errors['lead_time_days']) ?></p>
+                <div class="invalid-feedback d-block"><?= e($errors['lead_time_days']) ?></div>
               <?php endif; ?>
             </div>
 
             <div class="field">
-              <label for="pack_size">Pack Size</label>
+              <label for="pack_size" class="form-label">Pack Size</label>
               <input
                 type="number"
                 id="pack_size"
@@ -1285,30 +1356,31 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
                 min="0"
                 step="1"
                 value="<?= e($formData['pack_size']) ?>"
+                class="form-control<?= !empty($errors['pack_size']) ? ' is-invalid' : '' ?>"
               />
-              <p class="field-help">Leave at 0 to order in eaches. Enter a positive whole number of eaches per pack when vendors require packs.</p>
+              <p class="form-text">Leave at 0 to order in eaches. Enter a positive whole number of eaches per pack when vendors require packs.</p>
               <?php if (!empty($errors['pack_size'])): ?>
-                <p class="field-error"><?= e($errors['pack_size']) ?></p>
+                <div class="invalid-feedback d-block"><?= e($errors['pack_size']) ?></div>
               <?php endif; ?>
             </div>
           </div>
 
           <div class="field-grid">
             <div class="field">
-              <label for="purchase_uom">Purchase Unit</label>
-              <select id="purchase_uom" name="purchase_uom">
+              <label for="purchase_uom" class="form-label">Purchase Unit</label>
+              <select id="purchase_uom" name="purchase_uom" class="form-select<?= !empty($errors['purchase_uom']) ? ' is-invalid' : '' ?>">
                 <option value="">Match packs/eaches automatically</option>
                 <option value="pack"<?= $formData['purchase_uom'] === 'pack' ? ' selected' : '' ?>>Packs</option>
                 <option value="each"<?= $formData['purchase_uom'] === 'each' ? ' selected' : '' ?>>Each</option>
               </select>
-              <p class="field-help">Controls the default unit shown on Material Replenishment.</p>
+              <p class="form-text">Controls the default unit shown on Material Replenishment.</p>
               <?php if (!empty($errors['purchase_uom'])): ?>
-                <p class="field-error"><?= e($errors['purchase_uom']) ?></p>
+                <div class="invalid-feedback d-block"><?= e($errors['purchase_uom']) ?></div>
               <?php endif; ?>
             </div>
 
             <div class="field">
-              <label for="stock_uom">Stock Unit</label>
+              <label for="stock_uom" class="form-label">Stock Unit</label>
               <input
                 type="text"
                 id="stock_uom"
@@ -1316,8 +1388,9 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
                 value="<?= e($formData['stock_uom']) ?>"
                 maxlength="16"
                 placeholder="ea"
+                class="form-control"
               />
-              <p class="field-help">Displayed in replenishment tables and purchase orders (ex: ea, ft, kit).</p>
+              <p class="form-text">Displayed in replenishment tables and purchase orders (ex: ea, ft, kit).</p>
             </div>
           </div>
 
@@ -1628,16 +1701,18 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
           <?php endif; ?>
         </div>
 
-        <footer>
-          <a class="button secondary" href="inventory.php">Cancel</a>
-          <button type="submit" class="button primary"><?= $editingId === null ? 'Create Item' : 'Update Item' ?></button>
-        </footer>
+        </div>
+
+        <div class="modal-footer">
+          <a class="btn btn-link" href="inventory.php" data-bs-dismiss="modal">Cancel</a>
+          <button type="submit" class="btn btn-primary"><?= $editingId === null ? 'Create Item' : 'Update Item' ?></button>
+        </div>
       </form>
       <template id="location-row-template">
-        <div class="location-row" data-location-row>
-          <div class="field">
-            <label>Location</label>
-            <select data-location-input="location_id" required>
+        <div class="location-row row g-3 align-items-end" data-location-row>
+          <div class="col-md-6">
+            <label class="form-label">Location</label>
+            <select class="form-select" data-location-input="location_id" required>
               <option value="">Select location</option>
               <?php foreach ($storageLocations as $option): ?>
                 <option value="<?= e((string) $option['id']) ?>">
@@ -1646,11 +1721,13 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
               <?php endforeach; ?>
             </select>
           </div>
-          <div class="field">
-            <label>Qty in slot</label>
-            <input type="number" min="0" step="1" data-location-input="quantity" />
+          <div class="col-md-4">
+            <label class="form-label">Qty in slot</label>
+            <input type="number" class="form-control" min="0" step="1" data-location-input="quantity" />
           </div>
-          <button type="button" class="button ghost icon-only" data-remove-location aria-label="Remove location">&times;</button>
+          <div class="col-md-2 d-flex justify-content-end">
+            <button type="button" class="btn btn-outline-secondary" data-remove-location aria-label="Remove location">&times;</button>
+          </div>
         </div>
       </template>
       <template id="use-path-template">

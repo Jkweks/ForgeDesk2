@@ -468,19 +468,24 @@ function materialReplenishmentRoundUpQuantity(float $value): int
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title><?= e($app['name']) ?> · Material Replenishment</title>
-  <link rel="stylesheet" href="css/dashboard.css" />
+  <script src="js/tabler-theme.js"></script>
+  <link rel="stylesheet" href="css/tabler.min.css" />
+  <script src="js/tabler.min.js" defer></script>
 </head>
-<body class="has-sidebar-toggle">
-  <div class="layout">
+<body class="page has-sidebar-toggle">
+  <div class="page">
     <?php require __DIR__ . '/../app/views/partials/sidebar.php'; ?>
 
-    <?php
-    $topbarTitle = 'Material Replenishment';
-    require __DIR__ . '/../app/views/partials/topbar.php';
-    unset($topbarTitle, $topbarSubhead, $topbarExtras);
-    ?>
+    <div class="page-wrapper">
+      <?php
+      $topbarTitle = 'Material Replenishment';
+      require __DIR__ . '/../app/views/partials/topbar.php';
+      unset($topbarTitle, $topbarSubhead, $topbarExtras);
+      ?>
 
-    <main class="content">
+      <div class="page-body">
+        <div class="container-xl">
+          <main class="page-content content">
       <header class="content-header">
         <div>
           <h1>Material Replenishment</h1>
@@ -891,7 +896,10 @@ function materialReplenishmentRoundUpQuantity(float $value): int
           </div>
         </div>
       <?php endif; ?>
-    </main>
+          </main>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script src="js/dashboard.js"></script>

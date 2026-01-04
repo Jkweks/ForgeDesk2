@@ -199,7 +199,7 @@ if (isset($_GET['success']) && $_GET['success'] === 'recorded') {
     $successMessage = 'Receipt recorded successfully.';
 }
 
-$bodyAttributes = ' class="has-sidebar-toggle"';
+$bodyAttributes = ' class="page has-sidebar-toggle"';
 ?>
 <!doctype html>
 <html lang="en">
@@ -207,19 +207,24 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title><?= e($app['name']) ?> Receive Material</title>
-  <link rel="stylesheet" href="css/dashboard.css" />
+  <script src="js/tabler-theme.js"></script>
+  <link rel="stylesheet" href="css/tabler.min.css" />
+  <script src="js/tabler.min.js" defer></script>
 </head>
 <body<?= $bodyAttributes ?>>
-  <div class="layout">
+  <div class="page">
     <?php require __DIR__ . '/../app/views/partials/sidebar.php'; ?>
 
-    <?php
-    $topbarTitle = 'Receive Material';
-    require __DIR__ . '/../app/views/partials/topbar.php';
-    unset($topbarTitle, $topbarSubhead, $topbarExtras);
-    ?>
+    <div class="page-wrapper">
+      <?php
+      $topbarTitle = 'Receive Material';
+      require __DIR__ . '/../app/views/partials/topbar.php';
+      unset($topbarTitle, $topbarSubhead, $topbarExtras);
+      ?>
 
-    <main class="content">
+      <div class="page-body">
+        <div class="container-xl">
+          <main class="page-content content">
       <section class="panel" aria-labelledby="receive-material-title">
         <header class="panel-header">
           <div>
@@ -517,10 +522,13 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                 </div>
               </section>
             <?php endif; ?>
+            </div>
           </div>
+        </section>
+          </main>
         </div>
-      </section>
-    </main>
+      </div>
+    </div>
   </div>
 
   <script src="js/dashboard.js"></script>

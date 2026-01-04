@@ -1554,7 +1554,7 @@ if ($editorMode && !in_array($currentStep, $stepIds, true)) {
     $currentStep = 'configuration';
 }
 
-$bodyAttributes = ' class="has-sidebar-toggle"';
+$bodyAttributes = ' class="page has-sidebar-toggle"';
 ?>
 <!doctype html>
 <html lang="en">
@@ -1562,19 +1562,24 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title><?= e($app['name']) ?> Door Configurator</title>
-  <link rel="stylesheet" href="css/dashboard.css" />
+  <script src="js/tabler-theme.js"></script>
+  <link rel="stylesheet" href="css/tabler.min.css" />
+  <script src="js/tabler.min.js" defer></script>
 </head>
 <body<?= $bodyAttributes ?>>
-  <div class="layout">
+  <div class="page">
     <?php require __DIR__ . '/../app/views/partials/sidebar.php'; ?>
 
-    <?php
-    $topbarTitle = 'Door Configurator';
-    require __DIR__ . '/../app/views/partials/topbar.php';
-    unset($topbarTitle, $topbarSubhead, $topbarExtras);
-    ?>
+    <div class="page-wrapper">
+      <?php
+      $topbarTitle = 'Door Configurator';
+      require __DIR__ . '/../app/views/partials/topbar.php';
+      unset($topbarTitle, $topbarSubhead, $topbarExtras);
+      ?>
 
-    <main class="content">
+      <div class="page-body">
+        <div class="container-xl">
+          <main class="page-content content">
       <section class="panel" aria-labelledby="configurator-title">
         <header class="panel-header">
           <div>
@@ -2445,8 +2450,10 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
           </table>
         </div>
       </section>
-    </main>
-  </div>
+          </main>
+        </div>
+      </div>
+    </div>
 
   <script>
     window.localSavePayload = <?= json_encode($localSavePayload, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;

@@ -74,6 +74,39 @@ foreach ($nav as &$groupItems) {
 }
 unset($groupItems, $item);
 
+$statCards = [
+    [
+        'label' => 'SKUs tracked',
+        'value' => inventoryFormatQuantity($inventoryStats['sku_count']),
+        'description' => 'Live parts currently in the system.',
+        'time' => null,
+        'accent' => false,
+        'tone' => 'indigo',
+        'icon' => 'grid',
+    ],
+    [
+        'label' => 'Units on hand',
+        'value' => inventoryFormatQuantity($inventoryStats['units_on_hand']),
+        'description' => 'Quantities available across all SKUs.',
+        'time' => null,
+        'accent' => false,
+        'tone' => 'teal',
+        'icon' => 'database',
+    ],
+];
+
+foreach ($metrics as $metric) {
+    $statCards[] = [
+        'label' => $metric['label'],
+        'value' => $metric['value'],
+        'description' => $metric['delta'] ?? null,
+        'time' => $metric['time'] ?? null,
+        'accent' => $metric['accent'],
+        'tone' => $metric['accent'] ? 'orange' : 'blue',
+        'icon' => $metric['accent'] ? 'alert-triangle' : 'activity',
+    ];
+}
+
 ?>
 <!doctype html>
 <html lang="en">
@@ -81,48 +114,66 @@ unset($groupItems, $item);
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title><?= e($app['name']) ?> Inventory Dashboard</title>
-  <link rel="stylesheet" href="css/dashboard.css" />
+  <script src="js/tabler-theme.js"></script>
+  <link rel="stylesheet" href="css/tabler.min.css" />
+  <script src="js/tabler.min.js" defer></script>
+  <script src="js/tabler-init.js" defer></script>
 </head>
-<body class="has-sidebar-toggle">
-  <div class="layout">
+<body class="page has-sidebar-toggle">
+  <div class="page">
     <?php require __DIR__ . '/../app/views/partials/sidebar.php'; ?>
 
-    <?php
-    $topbarTitle = 'Dashboard';
-    require __DIR__ . '/../app/views/partials/topbar.php';
-    unset($topbarTitle, $topbarSubhead, $topbarExtras);
-    ?>
+    <div class="page-wrapper">
+      <?php
+      $topbarTitle = 'Dashboard';
+      require __DIR__ . '/../app/views/partials/topbar.php';
+      unset($topbarTitle, $topbarSubhead, $topbarExtras);
+      ?>
 
-    <main class="content">
-      <section class="metrics" aria-label="Inventory health metrics">
-        <article class="metric">
-          <div class="metric-header">
-            <span>SKUs tracked</span>
+      <div class="page-body">
+        <div class="container-xl">
+          <main class="page-content">
+      <section class="card card-stats" aria-label="Inventory health metrics">
+        <div class="card-body">
+          <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-3 stats-group">
+            <?php foreach ($statCards as $stat): ?>
+              <div class="col">
+                <div class="card card-sm">
+                  <div class="card-body">
+                    <div class="d-flex align-items-center gap-3">
+                      <?php
+                      $tone = $stat['tone'] ?? 'primary';
+                      $accentClass = !empty($stat['accent']) ? 'bg-orange-lt text-orange' : 'bg-' . $tone . '-lt text-' . $tone;
+                      ?>
+                      <span class="avatar avatar-sm <?= e($accentClass) ?>">
+                        <?= icon($stat['icon'], 'icon') ?>
+                      </span>
+                      <div class="w-100">
+                        <div class="d-flex align-items-center justify-content-between gap-2">
+                          <div class="subheader text-uppercase text-secondary mb-1"><?= e($stat['label']) ?></div>
+                          <?php if (!empty($stat['time'])): ?>
+                            <span class="badge bg-secondary-lt text-secondary"><?= e($stat['time']) ?></span>
+                          <?php endif; ?>
+                        </div>
+                        <div class="d-flex align-items-baseline gap-2">
+                          <?php if (!empty($stat['accent'])): ?>
+                            <span class="status-dot status-dot-animated bg-orange" aria-hidden="true"></span>
+                          <?php endif; ?>
+                          <div class="h2 mb-0<?= !empty($stat['accent']) ? ' text-orange' : '' ?>"><?= e((string) $stat['value']) ?></div>
+                        </div>
+                        <?php if (!empty($stat['description'])): ?>
+                          <div class="text-secondary small mt-1">
+                            <?= e($stat['description']) ?>
+                          </div>
+                        <?php endif; ?>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            <?php endforeach; ?>
           </div>
-          <p class="metric-value"><?= e(inventoryFormatQuantity($inventoryStats['sku_count'])) ?></p>
-          <p class="metric-delta small">Live parts currently in the system.</p>
-        </article>
-        <article class="metric">
-          <div class="metric-header">
-            <span>Units on hand</span>
-          </div>
-          <p class="metric-value"><?= e(inventoryFormatQuantity($inventoryStats['units_on_hand'])) ?></p>
-          <p class="metric-delta small">Quantities available across all SKUs.</p>
-        </article>
-        <?php foreach ($metrics as $metric): ?>
-          <article class="metric<?= !empty($metric['accent']) ? ' accent' : '' ?>">
-            <div class="metric-header">
-              <span><?= e($metric['label']) ?></span>
-              <?php if (!empty($metric['time'])): ?>
-                <span class="metric-time"><?= e($metric['time']) ?></span>
-              <?php endif; ?>
-            </div>
-            <p class="metric-value"><?= e((string) $metric['value']) ?></p>
-            <?php if (!empty($metric['delta'])): ?>
-              <p class="metric-delta"><?= e($metric['delta']) ?></p>
-            <?php endif; ?>
-          </article>
-        <?php endforeach; ?>
+        </div>
       </section>
 
       <section class="panel" id="stock-levels" aria-labelledby="inventory-title">
@@ -197,7 +248,10 @@ unset($groupItems, $item);
           </article>
         </div>
       </section>
-    </main>
+          </main>
+        </div>
+      </div>
+    </div>
   </div>
   <script src="js/dashboard.js"></script>
   <script src="js/inventory-table.js"></script>

@@ -1,132 +1,163 @@
 (function () {
-  function initTables() {
+  function formatQuantity(value) {
+    if (Number.isNaN(Number(value))) {
+      return String(value);
+    }
+
+    const numeric = typeof value === 'number' ? value : parseFloat(value);
+    return Number.isFinite(numeric)
+      ? numeric.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })
+      : String(value);
+  }
+
+  function parseNumeric(value) {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function closeReservationModal(modal) {
+    if (!(modal instanceof HTMLElement)) {
+      return;
+    }
+
+    modal.classList.remove('open');
+    modal.setAttribute('aria-hidden', 'true');
+    modal.setAttribute('hidden', 'hidden');
+    document.body.classList.remove('reservation-modal-open');
+  }
+
+  function renderReservationList(container, reservations) {
+    if (!(container instanceof HTMLElement)) {
+      return;
+    }
+
+    container.innerHTML = '';
+
+    if (!Array.isArray(reservations) || reservations.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'muted';
+      empty.textContent = 'No active job commitments for this part.';
+      container.appendChild(empty);
+      return;
+    }
+
+    const list = document.createElement('ul');
+    list.className = 'reservation-breakdown-list';
+
+    reservations.forEach((reservation) => {
+      const row = document.createElement('li');
+
+      const label = document.createElement('span');
+      label.className = 'job-label';
+      label.textContent = reservation && reservation.job_label ? String(reservation.job_label) : 'Job';
+
+      const qty = document.createElement('span');
+      qty.className = 'job-qty';
+      qty.textContent = formatQuantity(reservation && typeof reservation.committed_qty !== 'undefined'
+        ? reservation.committed_qty
+        : 0);
+
+      row.appendChild(label);
+      row.appendChild(qty);
+      list.appendChild(row);
+    });
+
+    container.appendChild(list);
+  }
+
+  function openReservationModal(options) {
+    const {
+      modal,
+      titleElement,
+      subtitleElement,
+      metaElement,
+      bodyElement,
+      closeButton,
+      title,
+      subtitle,
+      meta,
+      reservations,
+    } = options;
+
+    if (!(modal instanceof HTMLElement)) {
+      return;
+    }
+
+    if (titleElement instanceof HTMLElement) {
+      titleElement.textContent = title || 'Job commitments';
+    }
+
+    if (subtitleElement instanceof HTMLElement) {
+      subtitleElement.textContent = subtitle || 'Committed jobs';
+    }
+
+    if (metaElement instanceof HTMLElement) {
+      metaElement.textContent = meta || '';
+      metaElement.hidden = !meta;
+    }
+
+    renderReservationList(bodyElement, reservations);
+
+    modal.classList.add('open');
+    modal.removeAttribute('hidden');
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('reservation-modal-open');
+
+    if (closeButton instanceof HTMLElement) {
+      closeButton.focus();
+    }
+  }
+
+  function initReservationModal() {
+    const modal = document.querySelector('[data-reservation-modal]');
+    const body = modal instanceof HTMLElement ? modal.querySelector('[data-reservation-modal-body]') : null;
+    const title = modal instanceof HTMLElement ? modal.querySelector('[data-reservation-modal-title]') : null;
+    const subtitle = modal instanceof HTMLElement ? modal.querySelector('[data-reservation-modal-subtitle]') : null;
+    const meta = modal instanceof HTMLElement ? modal.querySelector('[data-reservation-modal-meta]') : null;
+    const closeButton = modal instanceof HTMLElement ? modal.querySelector('[data-reservation-modal-close]') : null;
+
+    if (closeButton instanceof HTMLElement) {
+      closeButton.addEventListener('click', (event) => {
+        event.preventDefault();
+        closeReservationModal(modal);
+      });
+    }
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && modal instanceof HTMLElement && modal.classList.contains('open')) {
+        closeReservationModal(modal);
+      }
+    });
+
+    return {
+      modal,
+      body,
+      title,
+      subtitle,
+      meta,
+      closeButton,
+    };
+  }
+
+  function initInventoryTables() {
     const containers = Array.from(document.querySelectorAll('[data-inventory-table]'));
     if (containers.length === 0) {
       return;
     }
 
-    const reservationModal = document.querySelector('[data-reservation-modal]');
-    const reservationModalBody = reservationModal instanceof HTMLElement
-      ? reservationModal.querySelector('[data-reservation-modal-body]')
-      : null;
-    const reservationModalTitle = reservationModal instanceof HTMLElement
-      ? reservationModal.querySelector('[data-reservation-modal-title]')
-      : null;
-    const reservationModalMeta = reservationModal instanceof HTMLElement
-      ? reservationModal.querySelector('[data-reservation-modal-meta]')
-      : null;
-    const reservationModalSubtitle = reservationModal instanceof HTMLElement
-      ? reservationModal.querySelector('[data-reservation-modal-subtitle]')
-      : null;
-    const reservationCloseButton = reservationModal instanceof HTMLElement
-      ? reservationModal.querySelector('[data-reservation-modal-close]')
-      : null;
-
-    function formatQuantity(value) {
-      if (Number.isNaN(Number(value))) {
-        return String(value);
-      }
-
-      const numeric = typeof value === 'number' ? value : parseFloat(value);
-      return Number.isFinite(numeric)
-        ? numeric.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })
-        : String(value);
-    }
-
-    function closeReservationModal() {
-      if (!(reservationModal instanceof HTMLElement)) {
-        return;
-      }
-
-      reservationModal.classList.remove('open');
-      reservationModal.setAttribute('aria-hidden', 'true');
-      reservationModal.setAttribute('hidden', 'hidden');
-      document.body.classList.remove('reservation-modal-open');
-    }
-
-    function renderReservationList(reservations) {
-      if (!(reservationModalBody instanceof HTMLElement)) {
-        return;
-      }
-
-      reservationModalBody.innerHTML = '';
-
-      if (!Array.isArray(reservations) || reservations.length === 0) {
-        const empty = document.createElement('p');
-        empty.className = 'muted';
-        empty.textContent = 'No active job commitments for this part.';
-        reservationModalBody.appendChild(empty);
-        return;
-      }
-
-      const list = document.createElement('ul');
-      list.className = 'reservation-breakdown-list';
-
-      reservations.forEach((reservation) => {
-        const row = document.createElement('li');
-
-        const label = document.createElement('span');
-        label.className = 'job-label';
-        label.textContent = reservation && reservation.job_label ? String(reservation.job_label) : 'Job';
-
-        const qty = document.createElement('span');
-        qty.className = 'job-qty';
-        qty.textContent = formatQuantity(reservation && typeof reservation.committed_qty !== 'undefined'
-          ? reservation.committed_qty
-          : 0);
-
-        row.appendChild(label);
-        row.appendChild(qty);
-        list.appendChild(row);
-      });
-
-      reservationModalBody.appendChild(list);
-    }
-
-    function openReservationModal(options) {
-      if (!(reservationModal instanceof HTMLElement)) {
-        return;
-      }
-
-      const { title, meta, subtitle, reservations } = options;
-
-      if (reservationModalTitle instanceof HTMLElement) {
-        reservationModalTitle.textContent = title || 'Job commitments';
-      }
-
-      if (reservationModalSubtitle instanceof HTMLElement) {
-        reservationModalSubtitle.textContent = subtitle || 'Committed jobs';
-      }
-
-      if (reservationModalMeta instanceof HTMLElement) {
-        reservationModalMeta.textContent = meta || '';
-        reservationModalMeta.hidden = !meta;
-      }
-
-      renderReservationList(reservations);
-
-      reservationModal.classList.add('open');
-      reservationModal.removeAttribute('hidden');
-      reservationModal.setAttribute('aria-hidden', 'false');
-      document.body.classList.add('reservation-modal-open');
-
-      if (reservationCloseButton instanceof HTMLElement) {
-        reservationCloseButton.focus();
-      }
-    }
-
-    if (reservationCloseButton instanceof HTMLElement) {
-      reservationCloseButton.addEventListener('click', (event) => {
-        event.preventDefault();
-        closeReservationModal();
-      });
-    }
-
-    document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape' && reservationModal instanceof HTMLElement && reservationModal.classList.contains('open')) {
-        closeReservationModal();
-      }
-    });
+    const reservationModal = initReservationModal();
+    const sortableColumns = [
+      'item',
+      'sku',
+      'location',
+      'stock',
+      'committed',
+      'available',
+      'leadTime',
+      'averageDailyUse',
+      'status',
+      'reservations',
+    ];
 
     containers.forEach((container, containerIndex) => {
       const table = container.querySelector('table');
@@ -144,31 +175,139 @@
         return;
       }
 
-      container.addEventListener('click', handleReservationTrigger);
+      const searchInput = container.querySelector('[data-filter-search]');
+      const statusSelect = container.querySelector('[data-filter-status]');
+      const locationSelect = container.querySelector('[data-filter-location]');
 
-      const headers = Array.from(table.querySelectorAll('thead th.sortable'));
-      const headerMeta = headers.map((header) => {
+      const pagination = container.querySelector('[data-pagination]');
+      const paginationStatus = pagination instanceof HTMLElement ? pagination.querySelector('[data-pagination-status]') : null;
+      const paginationPrev = pagination instanceof HTMLElement ? pagination.querySelector('[data-pagination-prev]') : null;
+      const paginationNext = pagination instanceof HTMLElement ? pagination.querySelector('[data-pagination-next]') : null;
+
+      const defaultPageSize = table.dataset.defaultPageSize || container.dataset.pageSize || '50';
+      const pageSize = Math.max(1, parseInt(defaultPageSize, 10));
+
+      const headers = Array.from(table.querySelectorAll('thead th'));
+      headers.forEach((header, index) => {
+        const key = sortableColumns[index] || '';
+        if (!key) {
+          return;
+        }
+
+        header.dataset.sortKey = key;
         header.setAttribute('tabindex', '0');
-        return {
-          element: header,
-          key: header.dataset.sortKey || '',
-          type: header.dataset.sortType || 'string',
-        };
+        header.classList.add('sortable');
       });
 
-      const filters = Array.from(container.querySelectorAll('.column-filter'));
-      const locationFilters = Array.from(container.querySelectorAll('[data-location-filter]'));
-      const pagination = container.querySelector('[data-pagination]');
-      const prevButton = pagination instanceof HTMLElement ? pagination.querySelector('[data-pagination-prev]') : null;
-      const nextButton = pagination instanceof HTMLElement ? pagination.querySelector('[data-pagination-next]') : null;
-      const statusElement = pagination instanceof HTMLElement ? pagination.querySelector('[data-pagination-status]') : null;
-      const pageSizeRaw = container.dataset.pageSize || '50';
-      const pageSize = Math.max(1, parseInt(pageSizeRaw, 10));
+      let sortKey = 'item';
+      let sortDirection = 'asc';
+      let filteredRows = [...rowElements];
+      let currentPage = 1;
 
-      const allRows = rowElements.map((element, index) => ({
-        element,
-        originalIndex: index,
-      }));
+      function updateSortIndicators() {
+        headers.forEach((header) => {
+          const key = header.dataset.sortKey || '';
+          if (key === sortKey) {
+            header.setAttribute('data-sort-direction', sortDirection);
+            header.setAttribute('aria-sort', sortDirection);
+          } else if (key) {
+            header.removeAttribute('data-sort-direction');
+            header.setAttribute('aria-sort', 'none');
+          }
+        });
+      }
+
+      function applyFilters() {
+        const searchTerm = searchInput instanceof HTMLInputElement ? searchInput.value.trim().toLowerCase() : '';
+        const statusValue = statusSelect instanceof HTMLSelectElement ? statusSelect.value.trim().toLowerCase() : '';
+        const locationValue = locationSelect instanceof HTMLSelectElement ? locationSelect.value.trim() : '';
+
+        filteredRows = rowElements.filter((row) => {
+          const combinedText = [row.dataset.item, row.dataset.sku, row.dataset.location]
+            .map((value) => (value || '').toLowerCase())
+            .join(' ');
+
+          if (searchTerm && !combinedText.includes(searchTerm)) {
+            return false;
+          }
+
+          if (statusValue && (row.dataset.status || '').toLowerCase() !== statusValue) {
+            return false;
+          }
+
+          if (locationValue !== '') {
+            const ids = (row.dataset.locationIds || '')
+              .split(',')
+              .map((value) => value.trim())
+              .filter((value) => value !== '');
+
+            if (!ids.includes(locationValue)) {
+              return false;
+            }
+          }
+
+          return true;
+        });
+
+        currentPage = 1;
+      }
+
+      function compareRows(a, b, key) {
+        const numericKeys = new Set(['stock', 'committed', 'available', 'leadTime', 'averageDailyUse', 'reservations']);
+
+        const aValue = a.dataset[key] || '';
+        const bValue = b.dataset[key] || '';
+
+        if (numericKeys.has(key)) {
+          return parseNumeric(aValue) - parseNumeric(bValue);
+        }
+
+        return aValue.toLowerCase().localeCompare(bValue.toLowerCase(), undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        });
+      }
+
+      function updatePagination(totalRows, startIndex, visibleCount) {
+        const startDisplay = totalRows === 0 ? 0 : startIndex + 1;
+        const endDisplay = totalRows === 0 ? 0 : startIndex + visibleCount;
+
+        if (paginationStatus instanceof HTMLElement) {
+          const label = totalRows === 0
+            ? 'No matching items'
+            : `Showing ${startDisplay}–${endDisplay} of ${totalRows} items`;
+          paginationStatus.textContent = label;
+        }
+
+        const onFirstPage = currentPage === 1;
+        const onLastPage = startIndex + visibleCount >= totalRows;
+
+        if (paginationPrev instanceof HTMLButtonElement) {
+          paginationPrev.disabled = onFirstPage;
+          const parent = paginationPrev.closest('.page-item');
+          if (parent) {
+            parent.classList.toggle('disabled', onFirstPage);
+          }
+        }
+
+        if (paginationNext instanceof HTMLButtonElement) {
+          paginationNext.disabled = onLastPage;
+          const parent = paginationNext.closest('.page-item');
+          if (parent) {
+            parent.classList.toggle('disabled', onLastPage);
+          }
+        }
+      }
+
+      function render() {
+        const sorted = [...filteredRows].sort((a, b) => compareRows(a, b, sortKey) * (sortDirection === 'desc' ? -1 : 1));
+        const startIndex = (currentPage - 1) * pageSize;
+        const pageRows = sorted.slice(startIndex, startIndex + pageSize);
+
+        tbody.innerHTML = '';
+        pageRows.forEach((row) => tbody.appendChild(row));
+        updatePagination(sorted.length, startIndex, pageRows.length);
+      }
 
       function handleReservationTrigger(event) {
         const trigger = event.target instanceof HTMLElement
@@ -203,6 +342,12 @@
           : 'Active job commitments';
 
         openReservationModal({
+          modal: reservationModal.modal,
+          titleElement: reservationModal.title,
+          subtitleElement: reservationModal.subtitle,
+          metaElement: reservationModal.meta,
+          bodyElement: reservationModal.body,
+          closeButton: reservationModal.closeButton,
           title: row.dataset.item || 'Job commitments',
           meta: row.dataset.sku ? `SKU ${row.dataset.sku}` : '',
           subtitle,
@@ -210,630 +355,89 @@
         });
       }
 
-      let sortKey = '';
-      let sortDirection = 'asc';
-      let filteredRows = [...allRows];
-      let currentPage = 1;
-
-      const tableId = table.id || container.id || '';
-      const storageKey = tableId
-        ? `inventoryTableState:${tableId}`
-        : `inventoryTableState:index-${containerIndex}`;
-
-      function loadState() {
-        if (typeof window === 'undefined' || !('localStorage' in window)) {
-          return null;
-        }
-
-        try {
-          const raw = window.localStorage.getItem(storageKey);
-          if (!raw) {
-            return null;
-          }
-
-          const parsed = JSON.parse(raw);
-          return typeof parsed === 'object' && parsed !== null ? parsed : null;
-        } catch (error) {
-          return null;
-        }
-      }
-
-      function persistState() {
-        if (typeof window === 'undefined' || !('localStorage' in window)) {
-          return;
-        }
-
-        try {
-          const data = {
-            sortKey,
-            sortDirection,
-            currentPage,
-            filters: filters.map((input, index) => ({
-              key: input.dataset.key || '',
-              index,
-              value: input instanceof HTMLInputElement ? input.value : '',
-            })),
-          };
-
-          const hasFilterValues = data.filters.some((entry) => entry.value.trim() !== '');
-          const shouldStore = hasFilterValues || data.sortKey !== '' || data.currentPage > 1;
-
-          if (!shouldStore) {
-            window.localStorage.removeItem(storageKey);
-            return;
-          }
-
-          window.localStorage.setItem(storageKey, JSON.stringify(data));
-        } catch (error) {
-          // Ignore storage errors.
-        }
-      }
-
-      function restoreFilters(savedFilters) {
-        if (!Array.isArray(savedFilters)) {
-          return;
-        }
-
-        savedFilters.forEach((saved) => {
-          if (!saved || typeof saved !== 'object') {
-            return;
-          }
-
-          const target = filters.find((input, index) => {
-            const key = input.dataset.key || '';
-            if (saved.key && saved.key === key) {
-              return true;
-            }
-
-            if (typeof saved.index === 'number' && saved.index === index) {
-              return true;
-            }
-
-            return false;
-          });
-
-          if (target instanceof HTMLInputElement) {
-            target.value = typeof saved.value === 'string' ? saved.value : '';
-          }
-        });
-      }
-
-      function getLocationFilterId(filterContainer) {
-        return filterContainer.dataset.locationFilterId || '';
-      }
-
-      function getLocationFilterToggles(filterContainer) {
-        const tableContainer = filterContainer.closest('[data-inventory-table]');
-        const filterId = getLocationFilterId(filterContainer);
-        if (filterId) {
-          const scope = tableContainer instanceof HTMLElement ? tableContainer : document;
-          const matches = Array.from(scope.querySelectorAll(`[data-location-filter-toggle][data-location-filter-id="${filterId}"]`));
-          if (matches.length > 0) {
-            return matches;
-          }
-        }
-
-        return Array.from(filterContainer.querySelectorAll('[data-location-filter-toggle]'));
-      }
-
-      function getLocationFilterLabels(toggles) {
-        const labels = [];
-        toggles.forEach((toggle) => {
-          labels.push(...Array.from(toggle.querySelectorAll('.location-filter__label')));
-        });
-        return labels;
-      }
-
-      function syncLocationFilterFromInput(filterContainer) {
-        if (!(filterContainer instanceof HTMLElement)) {
-          return;
-        }
-
-        const toggles = getLocationFilterToggles(filterContainer);
-        const labels = getLocationFilterLabels(toggles);
-        const input = filterContainer.querySelector('.column-filter[data-filter-type="tokens"]');
-        const modal = filterContainer.querySelector('[data-location-filter-modal]');
-        const binCheckboxes = input
-          ? Array.from((modal || filterContainer).querySelectorAll('input[type="checkbox"][data-location-node="bin"]'))
-          : [];
-        const groupCheckboxes = input
-          ? Array.from((modal || filterContainer).querySelectorAll('input[type="checkbox"][data-location-group]'))
-          : [];
-
-        if (!(input instanceof HTMLInputElement)) {
-          return;
-        }
-
-        const tokens = input.value
-          .split(',')
-          .map((token) => token.trim())
-          .filter((token) => token !== '');
-
-        binCheckboxes.forEach((bin) => {
-          bin.checked = tokens.includes(bin.value);
-        });
-
-        function getChildIds(node) {
-          const raw = node.dataset.childIds;
-          if (!raw) {
-            return [];
-          }
-
-          return raw
-            .split(',')
-            .map((value) => value.trim())
-            .filter((value) => value !== '');
-        }
-
-        function updateGroupStates() {
-          groupCheckboxes.forEach((group) => {
-            const childIds = getChildIds(group);
-            const matchingBins = binCheckboxes.filter((bin) => childIds.includes(bin.value));
-            const checkedCount = matchingBins.filter((bin) => bin.checked).length;
-
-            group.checked = checkedCount === matchingBins.length && matchingBins.length > 0;
-            group.indeterminate = checkedCount > 0 && checkedCount < matchingBins.length;
-          });
-        }
-
-        function updateLabel() {
-          const active = binCheckboxes.filter((bin) => bin.checked).length;
-          const text = active === 0 ? 'All locations' : `${active} selected`;
-          if (labels.length > 0) {
-            labels.forEach((label) => {
-              label.textContent = text;
-            });
-          } else {
-            toggles.forEach((toggle) => {
-              if (toggle instanceof HTMLButtonElement) {
-                toggle.textContent = text;
-              }
-            });
-          }
-        }
-
-        updateGroupStates();
-        updateLabel();
-      }
-
-      function initLocationFilter(filterContainer) {
-        if (!(filterContainer instanceof HTMLElement)) {
-          return;
-        }
-
-        const toggles = getLocationFilterToggles(filterContainer);
-        const labels = getLocationFilterLabels(toggles);
-        const modal = filterContainer.querySelector('[data-location-filter-modal]');
-        const backdrop = filterContainer.querySelector('[data-location-filter-backdrop]');
-        const closeButton = filterContainer.querySelector('[data-location-filter-close]');
-        const applyButton = filterContainer.querySelector('[data-location-filter-apply]');
-        const clearButton = filterContainer.querySelector('[data-location-filter-clear]');
-        const input = filterContainer.querySelector('.column-filter[data-filter-type="tokens"]');
-        const binCheckboxes = input
-          ? Array.from(filterContainer.querySelectorAll('input[type="checkbox"][data-location-node="bin"]'))
-          : [];
-        const groupCheckboxes = input
-          ? Array.from(filterContainer.querySelectorAll('input[type="checkbox"][data-location-group]'))
-          : [];
-
-        if (
-          toggles.length === 0
-          || !(modal instanceof HTMLElement)
-          || !(input instanceof HTMLInputElement)
-        ) {
-          return;
-        }
-
-        const primaryToggle = toggles[0];
-
-        function getChildIds(node) {
-          const raw = node.dataset.childIds;
-          if (!raw) {
-            return [];
-          }
-
-          return raw
-            .split(',')
-            .map((value) => value.trim())
-            .filter((value) => value !== '');
-        }
-
-        function updateGroupStates() {
-          groupCheckboxes.forEach((group) => {
-            const childIds = getChildIds(group);
-            const matchingBins = binCheckboxes.filter((bin) => childIds.includes(bin.value));
-            const checkedCount = matchingBins.filter((bin) => bin.checked).length;
-
-            group.checked = checkedCount === matchingBins.length && matchingBins.length > 0;
-            group.indeterminate = checkedCount > 0 && checkedCount < matchingBins.length;
-          });
-        }
-
-        function updateLabel() {
-          const active = binCheckboxes.filter((bin) => bin.checked).length;
-          const text = active === 0 ? 'All locations' : `${active} selected`;
-          if (labels.length > 0) {
-            labels.forEach((label) => {
-              label.textContent = text;
-            });
-          } else {
-            toggles.forEach((toggle) => {
-              if (toggle instanceof HTMLButtonElement) {
-                toggle.textContent = text;
-              }
-            });
-          }
-        }
-
-        function syncInputFromSelection() {
-          const selected = binCheckboxes
-            .filter((bin) => bin.checked)
-            .map((bin) => bin.value)
-            .filter((value) => value !== '');
-
-          input.value = selected.join(',');
-          updateGroupStates();
-          updateLabel();
-          applyFilters({ preservePage: true });
-          persistState();
-        }
-
-        function setModal(open) {
-          if (open) {
-            modal.removeAttribute('hidden');
-            toggles.forEach((toggle) => {
-              toggle.setAttribute('aria-expanded', 'true');
-            });
-          } else {
-            modal.setAttribute('hidden', 'hidden');
-            toggles.forEach((toggle) => {
-              toggle.setAttribute('aria-expanded', 'false');
-            });
-          }
-        }
-
-        function clearSelections() {
-          binCheckboxes.forEach((bin) => {
-            bin.checked = false;
-          });
-          syncInputFromSelection();
-        }
-
-        toggles.forEach((toggle) => {
-          toggle.addEventListener('click', (event) => {
-            event.preventDefault();
-            const isOpen = primaryToggle.getAttribute('aria-expanded') === 'true';
-            setModal(!isOpen);
-          });
-        });
-
-        if (closeButton instanceof HTMLElement) {
-          closeButton.addEventListener('click', (event) => {
-            event.preventDefault();
-            setModal(false);
-          });
-        }
-
-        if (backdrop instanceof HTMLElement) {
-          backdrop.addEventListener('click', () => {
-            setModal(false);
-          });
-        }
-
-        if (applyButton instanceof HTMLElement) {
-          applyButton.addEventListener('click', (event) => {
-            event.preventDefault();
-            setModal(false);
-            syncInputFromSelection();
-          });
-        }
-
-        if (clearButton instanceof HTMLElement) {
-          clearButton.addEventListener('click', (event) => {
-            event.preventDefault();
-            clearSelections();
-          });
-        }
-
-        groupCheckboxes.forEach((group) => {
-          group.addEventListener('change', (event) => {
-            const target = event.target;
-            if (!(target instanceof HTMLInputElement)) {
-              return;
-            }
-
-            const childIds = getChildIds(target);
-            const shouldCheck = target.checked;
-
-            binCheckboxes.forEach((bin) => {
-              if (childIds.includes(bin.value)) {
-                bin.checked = shouldCheck;
-              }
-            });
-
-            updateGroupStates();
-            updateLabel();
-          });
-        });
-
-        binCheckboxes.forEach((bin) => {
-          bin.addEventListener('change', () => {
-            updateGroupStates();
-            updateLabel();
-          });
-        });
-
-        syncLocationFilterFromInput(filterContainer);
-      }
-
-      const savedState = loadState();
-      if (savedState) {
-        if (typeof savedState.sortKey === 'string') {
-          sortKey = savedState.sortKey;
-        }
-
-        if (savedState.sortDirection === 'asc' || savedState.sortDirection === 'desc') {
-          sortDirection = savedState.sortDirection;
-        }
-
-        if (typeof savedState.currentPage === 'number' && Number.isFinite(savedState.currentPage)) {
-          currentPage = Math.max(1, Math.floor(savedState.currentPage));
-        }
-
-        restoreFilters(savedState.filters);
-      }
-
-      locationFilters.forEach((filter) => {
-        syncLocationFilterFromInput(filter);
-        initLocationFilter(filter);
-      });
-
-      function getDatasetValue(element, key) {
+      function setSort(key) {
         if (!key) {
-          return '';
-        }
-
-        const raw = element.dataset[key];
-        return typeof raw === 'string' ? raw : '';
-      }
-
-      function updateHeaderAria() {
-        headerMeta.forEach(({ element, key }) => {
-          if (!key) {
-            element.setAttribute('aria-sort', 'none');
-            return;
-          }
-
-          if (key === sortKey) {
-            element.setAttribute('aria-sort', sortDirection);
-          } else {
-            element.setAttribute('aria-sort', 'none');
-          }
-        });
-      }
-
-      function sortFilteredRows() {
-        if (!sortKey) {
-          filteredRows.sort((a, b) => a.originalIndex - b.originalIndex);
           return;
         }
 
-        const header = headerMeta.find((meta) => meta.key === sortKey);
-        const sortType = header?.type === 'number' ? 'number' : 'string';
-        const directionMultiplier = sortDirection === 'asc' ? 1 : -1;
-
-        filteredRows.sort((a, b) => {
-          const aValue = getDatasetValue(a.element, sortKey);
-          const bValue = getDatasetValue(b.element, sortKey);
-
-          if (sortType === 'number') {
-            const aNum = parseFloat(aValue);
-            const bNum = parseFloat(bValue);
-            const safeANum = Number.isNaN(aNum) ? 0 : aNum;
-            const safeBNum = Number.isNaN(bNum) ? 0 : bNum;
-            if (safeANum !== safeBNum) {
-              return (safeANum - safeBNum) * directionMultiplier;
-            }
-          } else {
-            const comparison = aValue.toLowerCase().localeCompare(bValue.toLowerCase(), undefined, {
-              numeric: true,
-              sensitivity: 'base',
-            });
-            if (comparison !== 0) {
-              return comparison * directionMultiplier;
-            }
-          }
-
-          return a.originalIndex - b.originalIndex;
-        });
-
-        filteredRows.forEach(({ element }) => {
-          tbody.appendChild(element);
-        });
-      }
-
-      function renderPage() {
-        const totalRows = filteredRows.length;
-        const totalPages = totalRows === 0 ? 1 : Math.ceil(totalRows / pageSize);
-        currentPage = Math.min(Math.max(currentPage, 1), totalPages);
-
-        allRows.forEach(({ element }) => {
-          element.style.display = 'none';
-        });
-
-        if (totalRows === 0) {
-          if (statusElement) {
-            statusElement.textContent = 'No results';
-          }
-          if (prevButton instanceof HTMLButtonElement) {
-            prevButton.disabled = true;
-          }
-          if (nextButton instanceof HTMLButtonElement) {
-            nextButton.disabled = true;
-          }
-          persistState();
-          return;
+        if (sortKey === key) {
+          sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+          sortKey = key;
+          sortDirection = 'asc';
         }
 
-        const startIndex = (currentPage - 1) * pageSize;
-        const endIndex = Math.min(startIndex + pageSize, totalRows);
-        for (let index = startIndex; index < endIndex; index += 1) {
-          const row = filteredRows[index];
-          if (row && row.element) {
-            row.element.style.display = '';
-          }
-        }
-
-        if (statusElement) {
-          statusElement.textContent = `Page ${currentPage} of ${totalPages}`;
-        }
-        if (prevButton instanceof HTMLButtonElement) {
-          prevButton.disabled = currentPage <= 1;
-        }
-        if (nextButton instanceof HTMLButtonElement) {
-          nextButton.disabled = currentPage >= totalPages;
-        }
-
-        persistState();
-      }
-
-      function applyFilters(options) {
-        filteredRows = allRows.filter(({ element }) => {
-          return filters.every((input) => {
-            const rawValue = input instanceof HTMLInputElement ? input.value : '';
-            const value = rawValue.trim();
-            if (value === '') {
-              return true;
-            }
-
-            const keys = [];
-            if (input.dataset.key) {
-              keys.push(input.dataset.key);
-            }
-            if (input.dataset.altKeys) {
-              input.dataset.altKeys.split(',').forEach((alt) => {
-                const trimmed = alt.trim();
-                if (trimmed !== '') {
-                  keys.push(trimmed);
-                }
-              });
-            }
-
-            if (keys.length === 0) {
-              return true;
-            }
-
-            const filterType = input.dataset.filterType || 'text';
-            if (filterType === 'tokens') {
-              const tokens = value
-                .split(',')
-                .map((token) => token.trim().toLowerCase())
-                .filter((token) => token !== '');
-
-              if (tokens.length === 0) {
-                return true;
-              }
-
-              return keys.some((key) => {
-                const datasetValue = getDatasetValue(element, key);
-                const rowTokens = datasetValue
-                  .split(',')
-                  .map((token) => token.trim().toLowerCase())
-                  .filter((token) => token !== '');
-
-                if (rowTokens.length === 0) {
-                  return false;
-                }
-
-                return tokens.some((token) => rowTokens.includes(token));
-              });
-            }
-
-            const normalizedValue = value.toLowerCase();
-
-            return keys.some((key) => {
-              const datasetValue = getDatasetValue(element, key);
-              return datasetValue.toLowerCase().includes(normalizedValue);
-            });
-          });
-        });
-
-        const preservePage = typeof options === 'object' && options !== null && options.preservePage === true;
-
-        if (!preservePage) {
-          currentPage = 1;
-        }
-
-        sortFilteredRows();
-        renderPage();
+        currentPage = 1;
+        updateSortIndicators();
+        render();
       }
 
       headers.forEach((header) => {
-        header.addEventListener('click', () => {
-          const key = header.dataset.sortKey || '';
-          if (!key) {
-            return;
-          }
+        const key = header.dataset.sortKey || '';
+        if (!key) {
+          return;
+        }
 
-          if (sortKey === key) {
-            sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
-          } else {
-            sortKey = key;
-            sortDirection = 'asc';
-          }
-
-          updateHeaderAria();
-          sortFilteredRows();
-          renderPage();
-        });
-
+        header.addEventListener('click', () => setSort(key));
         header.addEventListener('keydown', (event) => {
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
-            header.click();
+            setSort(key);
           }
         });
       });
 
-      filters.forEach((input) => {
-        input.addEventListener('input', () => {
+      if (searchInput instanceof HTMLInputElement) {
+        searchInput.addEventListener('input', () => {
           applyFilters();
+          render();
         });
-      });
+      }
 
-      if (prevButton instanceof HTMLButtonElement) {
-        prevButton.addEventListener('click', () => {
+      if (statusSelect instanceof HTMLSelectElement) {
+        statusSelect.addEventListener('change', () => {
+          applyFilters();
+          render();
+        });
+      }
+
+      if (locationSelect instanceof HTMLSelectElement) {
+        locationSelect.addEventListener('change', () => {
+          applyFilters();
+          render();
+        });
+      }
+
+      if (paginationPrev instanceof HTMLButtonElement) {
+        paginationPrev.addEventListener('click', () => {
           if (currentPage > 1) {
             currentPage -= 1;
-            renderPage();
+            render();
           }
         });
       }
 
-      if (nextButton instanceof HTMLButtonElement) {
-        nextButton.addEventListener('click', () => {
-          const totalPages = filteredRows.length === 0 ? 1 : Math.ceil(filteredRows.length / pageSize);
+      if (paginationNext instanceof HTMLButtonElement) {
+        paginationNext.addEventListener('click', () => {
+          const totalPages = Math.ceil(filteredRows.length / pageSize);
           if (currentPage < totalPages) {
             currentPage += 1;
-            renderPage();
+            render();
           }
         });
       }
 
-      updateHeaderAria();
+      container.addEventListener('click', handleReservationTrigger);
 
-      if (savedState) {
-        applyFilters({ preservePage: true });
-      } else {
-        sortFilteredRows();
-        renderPage();
-      }
+      applyFilters();
+      updateSortIndicators();
+      render();
     });
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initTables);
+    document.addEventListener('DOMContentLoaded', initInventoryTables);
   } else {
-    initTables();
+    initInventoryTables();
   }
 })();
