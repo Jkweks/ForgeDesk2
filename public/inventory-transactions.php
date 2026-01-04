@@ -214,7 +214,11 @@ if (isset($_GET['success']) && $_GET['success'] === 'recorded') {
   <title><?= e($app['name']) ?> Inventory Transactions</title>
   <script src="js/tabler-theme.js"></script>
   <link rel="stylesheet" href="css/tabler.min.css" />
+  <link rel="stylesheet" href="css/datatables.css" />
   <script src="js/tabler.min.js" defer></script>
+  <script src="js/datatables.js" defer></script>
+  <script src="js/tabler-init.js" defer></script>
+  <script src="js/datatables-init.js" defer></script>
 </head>
 <body class="page has-sidebar-toggle">
   <div class="page">

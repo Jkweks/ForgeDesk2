@@ -116,8 +116,11 @@ foreach ($metrics as $metric) {
   <title><?= e($app['name']) ?> Inventory Dashboard</title>
   <script src="js/tabler-theme.js"></script>
   <link rel="stylesheet" href="css/tabler.min.css" />
+  <link rel="stylesheet" href="css/datatables.css" />
   <script src="js/tabler.min.js" defer></script>
+  <script src="js/datatables.js" defer></script>
   <script src="js/tabler-init.js" defer></script>
+  <script src="js/datatables-init.js" defer></script>
 </head>
 <body class="page has-sidebar-toggle">
   <div class="page">
@@ -254,7 +257,6 @@ foreach ($metrics as $metric) {
     </div>
   </div>
   <script src="js/dashboard.js"></script>
-  <script src="js/inventory-table.js"></script>
   <script>
   (function () {
     const container = document.querySelector('[data-report-tabs]');

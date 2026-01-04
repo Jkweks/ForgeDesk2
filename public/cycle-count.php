@@ -245,7 +245,11 @@ $reportModalOpen = $reportSession !== null;
   <title><?= e($app['name']) ?> · Cycle Counts</title>
   <script src="js/tabler-theme.js"></script>
   <link rel="stylesheet" href="css/tabler.min.css" />
+  <link rel="stylesheet" href="css/datatables.css" />
   <script src="js/tabler.min.js" defer></script>
+  <script src="js/datatables.js" defer></script>
+  <script src="js/tabler-init.js" defer></script>
+  <script src="js/datatables-init.js" defer></script>
 </head>
 <?php
 $bodyClasses = ['page', 'has-sidebar-toggle'];
@@ -479,46 +483,83 @@ $bodyClassAttribute = ' class="' . implode(' ', $bodyClasses) . '"';
           <?php else: ?>
             <?php if ($reportCountedLines !== []): ?>
               <h3>Counted items</h3>
-              <div class="table-wrapper">
-                <table>
+              <div data-datatable-wrapper>
+                <div class="row g-2 align-items-end mb-2 datatable-search">
+                  <div class="col-sm-6 col-md-4">
+                    <label class="form-label" for="counted-search">Search</label>
+                    <div class="input-icon">
+                      <input type="search" class="form-control" id="counted-search" data-filter-search placeholder="Search item or SKU" aria-label="Search counted items">
+                      <span class="input-icon-addon"><i class="ti ti-search" aria-hidden="true"></i></span>
+                    </div>
+                  </div>
+                </div>
+                <div class="table-responsive">
+                  <table class="table table-vcenter card-table datatable" data-datatable="cycle-count" data-default-page-size="25">
                   <thead>
                     <tr>
-                      <th>Location</th>
-                      <th>SKU</th>
-                      <th>Item</th>
-                      <th>Counted</th>
-                      <th>Expected</th>
-                      <th>Variance</th>
+                      <th scope="col" data-sort-key="location">Location</th>
+                      <th scope="col" data-sort-key="sku">SKU</th>
+                      <th scope="col" data-sort-key="item">Item</th>
+                      <th scope="col" data-sort-key="counted" class="text-end">Counted</th>
+                      <th scope="col" data-sort-key="expected" class="text-end">Expected</th>
+                      <th scope="col" data-sort-key="variance" class="text-end">Variance</th>
                     </tr>
                   </thead>
                   <tbody>
                     <?php foreach ($reportCountedLines as $line): ?>
                       <?php $variance = $line['variance'] ?? ($line['counted_qty'] !== null ? $line['counted_qty'] - $line['expected_qty'] : 0); ?>
-                      <tr>
+                      <tr
+                        data-location="<?= e($line['location']) ?>"
+                        data-sku="<?= e($line['sku']) ?>"
+                        data-item="<?= e($line['item']) ?>"
+                        data-counted="<?= e((string) $line['counted_qty']) ?>"
+                        data-expected="<?= e((string) $line['expected_qty']) ?>"
+                        data-variance="<?= e((string) $variance) ?>"
+                      >
                         <td><?= e($line['location']) ?></td>
                         <td><?= e($line['sku']) ?></td>
                         <td><?= e($line['item']) ?></td>
-                        <td><?= e((string) $line['counted_qty']) ?></td>
-                        <td><?= e((string) $line['expected_qty']) ?></td>
-                        <td><?= e((string) $variance) ?></td>
+                        <td class="text-end" data-order="<?= e((string) $line['counted_qty']) ?>"><?= e((string) $line['counted_qty']) ?></td>
+                        <td class="text-end" data-order="<?= e((string) $line['expected_qty']) ?>"><?= e((string) $line['expected_qty']) ?></td>
+                        <td class="text-end" data-order="<?= e((string) $variance) ?>"><?= e((string) $variance) ?></td>
                       </tr>
                     <?php endforeach; ?>
                   </tbody>
-                </table>
+                  </table>
+                </div>
+                <div class="card-footer border-0 pt-2">
+                  <div class="datatable-pagination" data-pagination role="navigation" aria-label="Counted items pagination">
+                    <div class="datatable-status" data-pagination-status>Showing 0 of 0</div>
+                    <ul class="pagination mb-0 datatable-controls">
+                      <li class="page-item disabled"><button type="button" class="page-link" data-pagination-prev aria-label="Previous page">Previous</button></li>
+                      <li class="page-item disabled"><button type="button" class="page-link" data-pagination-next aria-label="Next page">Next</button></li>
+                    </ul>
+                  </div>
+                </div>
               </div>
             <?php endif; ?>
 
             <h3>Skipped items</h3>
-            <div class="table-wrapper">
-              <table>
+            <div data-datatable-wrapper>
+              <div class="row g-2 align-items-end mb-2 datatable-search">
+                <div class="col-sm-6 col-md-4">
+                  <label class="form-label" for="skipped-search">Search</label>
+                  <div class="input-icon">
+                    <input type="search" class="form-control" id="skipped-search" data-filter-search placeholder="Search item or SKU" aria-label="Search skipped items">
+                    <span class="input-icon-addon"><i class="ti ti-search" aria-hidden="true"></i></span>
+                  </div>
+                </div>
+              </div>
+              <div class="table-responsive">
+                <table class="table table-vcenter card-table datatable" data-datatable="cycle-count" data-default-page-size="25">
                 <thead>
                   <tr>
-                    <th>Location</th>
-                    <th>SKU</th>
-                    <th>Item</th>
-                    <th>Counted</th>
-                    <th>Expected</th>
-                    <th>Status</th>
+                    <th scope="col" data-sort-key="location">Location</th>
+                    <th scope="col" data-sort-key="sku">SKU</th>
+                    <th scope="col" data-sort-key="item">Item</th>
+                    <th scope="col" class="text-end" data-sort-key="counted">Counted</th>
+                    <th scope="col" class="text-end" data-sort-key="expected">Expected</th>
+                    <th scope="col" data-sort-key="status">Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -526,24 +567,41 @@ $bodyClassAttribute = ' class="' . implode(' ', $bodyClasses) . '"';
                     <tr><td colspan="6">Nothing was skipped in this session.</td></tr>
                   <?php else: ?>
                     <?php foreach ($reportSkippedLines as $line): ?>
-                      <tr>
+                      <tr
+                        data-location="<?= e($line['location']) ?>"
+                        data-sku="<?= e($line['sku']) ?>"
+                        data-item="<?= e($line['item']) ?>"
+                        data-counted="<?= e((string) ($line['counted_qty'] ?? '')) ?>"
+                        data-expected="<?= e((string) $line['expected_qty']) ?>"
+                        data-status="skipped"
+                      >
                         <td><?= e($line['location']) ?></td>
                         <td><?= e($line['sku']) ?></td>
                         <td><?= e($line['item']) ?></td>
-                        <td>
+                        <td class="text-end">
                           <?php if ($line['counted_qty'] !== null): ?>
                             <?= e((string) $line['counted_qty']) ?>
                           <?php else: ?>
                             <span class="muted">Not counted</span>
                           <?php endif; ?>
                         </td>
-                        <td><?= e((string) $line['expected_qty']) ?></td>
+                        <td class="text-end" data-order="<?= e((string) $line['expected_qty']) ?>"><?= e((string) $line['expected_qty']) ?></td>
                         <td><span class="badge muted">Skipped</span></td>
                       </tr>
                     <?php endforeach; ?>
                   <?php endif; ?>
                 </tbody>
-              </table>
+                </table>
+              </div>
+              <div class="card-footer border-0 pt-2">
+                <div class="datatable-pagination" data-pagination role="navigation" aria-label="Skipped items pagination">
+                  <div class="datatable-status" data-pagination-status>Showing 0 of 0</div>
+                  <ul class="pagination mb-0 datatable-controls">
+                    <li class="page-item disabled"><button type="button" class="page-link" data-pagination-prev aria-label="Previous page">Previous</button></li>
+                    <li class="page-item disabled"><button type="button" class="page-link" data-pagination-next aria-label="Next page">Next</button></li>
+                  </ul>
+                </div>
+              </div>
             </div>
           <?php endif; ?>
         </div>

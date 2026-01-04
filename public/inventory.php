@@ -984,8 +984,11 @@ $inventoryStats = [
   <title><?= e($app['name']) ?> Inventory Manager</title>
   <script src="js/tabler-theme.js"></script>
   <link rel="stylesheet" href="css/tabler.min.css" />
+  <link rel="stylesheet" href="css/datatables.css" />
   <script src="js/tabler.min.js" defer></script>
+  <script src="js/datatables.js" defer></script>
   <script src="js/tabler-init.js" defer></script>
+  <script src="js/datatables-init.js" defer></script>
 </head>
 <body<?= $bodyAttributes ?>>
   <div class="page">
@@ -1782,7 +1785,6 @@ $inventoryStats = [
   </div>
 
   <script src="js/dashboard.js"></script>
-  <script src="js/inventory-table.js"></script>
   <script>
   (function () {
     const modal = document.getElementById('inventory-modal');

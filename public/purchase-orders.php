@@ -205,7 +205,11 @@ $bodyAttributes = ' class="page has-sidebar-toggle"';
   <title><?= e($app['name']) ?> Purchase Orders</title>
   <script src="js/tabler-theme.js"></script>
   <link rel="stylesheet" href="css/tabler.min.css" />
+  <link rel="stylesheet" href="css/datatables.css" />
   <script src="js/tabler.min.js" defer></script>
+  <script src="js/datatables.js" defer></script>
+  <script src="js/tabler-init.js" defer></script>
+  <script src="js/datatables-init.js" defer></script>
 </head>
 <body<?= $bodyAttributes ?>>
   <div class="page">
@@ -381,8 +385,12 @@ $bodyAttributes = ' class="page has-sidebar-toggle"';
                     <?php endif; ?>
                   </div>
                 </div>
-                <div class="table-responsive">
-                  <table class="data-table table" data-sortable-table>
+                <div class="table-responsive" data-datatable-wrapper>
+                  <table
+                    class="table table-vcenter card-table datatable"
+                    data-datatable="purchase-order-lines"
+                    data-default-page-size="25"
+                  >
                     <thead>
                       <tr>
                         <th scope="col" class="sortable" data-sort-key="sku" aria-sort="none">SKU</th>
@@ -395,14 +403,14 @@ $bodyAttributes = ' class="page has-sidebar-toggle"';
                         <th scope="col" class="sortable" data-sort-key="lineTotal" data-sort-type="number" aria-sort="none">Line Total</th>
                       </tr>
                       <tr class="filter-row">
-                        <th><input type="search" class="column-filter" data-key="sku" placeholder="Search SKU" aria-label="Filter by SKU"></th>
-                        <th><input type="search" class="column-filter" data-key="description" placeholder="Search description" aria-label="Filter by description"></th>
-                        <th><input type="search" class="column-filter" data-key="ordered" placeholder="Search ordered" aria-label="Filter by ordered" inputmode="decimal"></th>
-                        <th><input type="search" class="column-filter" data-key="received" placeholder="Search received" aria-label="Filter by received" inputmode="decimal"></th>
-                        <th><input type="search" class="column-filter" data-key="cancelled" placeholder="Search cancelled" aria-label="Filter by cancelled" inputmode="decimal"></th>
-                        <th><input type="search" class="column-filter" data-key="outstanding" placeholder="Search outstanding" aria-label="Filter by outstanding" inputmode="decimal"></th>
-                        <th><input type="search" class="column-filter" data-key="unitCost" placeholder="Search cost" aria-label="Filter by unit cost" inputmode="decimal"></th>
-                        <th><input type="search" class="column-filter" data-key="lineTotal" placeholder="Search total" aria-label="Filter by line total" inputmode="decimal"></th>
+                        <th><input type="search" class="column-filter form-control form-control-sm" data-key="sku" placeholder="Search SKU" aria-label="Filter by SKU"></th>
+                        <th><input type="search" class="column-filter form-control form-control-sm" data-key="description" placeholder="Search description" aria-label="Filter by description"></th>
+                        <th><input type="search" class="column-filter form-control form-control-sm" data-key="ordered" placeholder="Search ordered" aria-label="Filter by ordered" inputmode="decimal"></th>
+                        <th><input type="search" class="column-filter form-control form-control-sm" data-key="received" placeholder="Search received" aria-label="Filter by received" inputmode="decimal"></th>
+                        <th><input type="search" class="column-filter form-control form-control-sm" data-key="cancelled" placeholder="Search cancelled" aria-label="Filter by cancelled" inputmode="decimal"></th>
+                        <th><input type="search" class="column-filter form-control form-control-sm" data-key="outstanding" placeholder="Search outstanding" aria-label="Filter by outstanding" inputmode="decimal"></th>
+                        <th><input type="search" class="column-filter form-control form-control-sm" data-key="unitCost" placeholder="Search cost" aria-label="Filter by unit cost" inputmode="decimal"></th>
+                        <th><input type="search" class="column-filter form-control form-control-sm" data-key="lineTotal" placeholder="Search total" aria-label="Filter by line total" inputmode="decimal"></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -438,6 +446,15 @@ $bodyAttributes = ' class="page has-sidebar-toggle"';
                       <?php endforeach; ?>
                     </tbody>
                   </table>
+                  <div class="card-footer border-0 pt-2">
+                    <div class="datatable-pagination" data-pagination role="navigation" aria-label="Purchase order lines pagination">
+                      <div class="datatable-status" data-pagination-status>Showing 0 of 0</div>
+                      <ul class="pagination mb-0 datatable-controls">
+                        <li class="page-item disabled"><button type="button" class="page-link" data-pagination-prev aria-label="Previous page">Previous</button></li>
+                        <li class="page-item disabled"><button type="button" class="page-link" data-pagination-next aria-label="Next page">Next</button></li>
+                      </ul>
+                    </div>
+                  </div>
                 </div>
               </article>
             <?php endif; ?>
@@ -449,7 +466,6 @@ $bodyAttributes = ' class="page has-sidebar-toggle"';
       </div>
     </div>
   </div>
-  <script src="js/sortable-table.js" defer></script>
   <script src="js/dashboard.js"></script>
 </body>
 </html>

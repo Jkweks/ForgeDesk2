@@ -135,19 +135,23 @@ if (!function_exists('renderInventoryTable')) {
 
         echo '<div class="card-body p-0">';
         echo '<div class="table-responsive">';
-        echo '<table class="table table-vcenter card-table table-hover text-nowrap datatable" data-default-page-size="' . e((string) $pageSize) . '"' . ($tableId !== null ? ' id="' . e($tableId) . '"' : '') . '>';
+        echo '<table class="table table-vcenter card-table table-hover text-nowrap datatable"'
+            . ' data-datatable="inventory"'
+            . ' data-default-page-size="' . e((string) $pageSize) . '"'
+            . ($tableId !== null ? ' id="' . e($tableId) . '"' : '')
+            . '>';
         echo '<thead>';
         echo '<tr>';
-        echo '<th scope="col">Item</th>';
-        echo '<th scope="col">SKU</th>';
-        echo '<th scope="col">Location</th>';
-        echo '<th scope="col" class="text-end">Stock</th>';
-        echo '<th scope="col" class="text-end">Committed</th>';
-        echo '<th scope="col" class="text-end">Available</th>';
-        echo '<th scope="col" class="text-end">Lead Time (days)</th>';
-        echo '<th scope="col" class="text-end">Avg Daily Use</th>';
-        echo '<th scope="col">Status</th>';
-        echo '<th scope="col">Reservations</th>';
+        echo '<th scope="col" data-sort-key="item">Item</th>';
+        echo '<th scope="col" data-sort-key="sku">SKU</th>';
+        echo '<th scope="col" data-sort-key="location">Location</th>';
+        echo '<th scope="col" class="text-end" data-sort-key="stock">Stock</th>';
+        echo '<th scope="col" class="text-end" data-sort-key="committed">Committed</th>';
+        echo '<th scope="col" class="text-end" data-sort-key="available">Available</th>';
+        echo '<th scope="col" class="text-end" data-sort-key="leadTime">Lead Time (days)</th>';
+        echo '<th scope="col" class="text-end" data-sort-key="averageDailyUse">Avg Daily Use</th>';
+        echo '<th scope="col" data-sort-key="status">Status</th>';
+        echo '<th scope="col" data-sort-key="reservations">Reservations</th>';
         if ($showActions) {
             echo '<th scope="col" class="text-end">Actions</th>';
         }
