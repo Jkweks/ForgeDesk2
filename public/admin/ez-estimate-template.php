@@ -102,7 +102,11 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title><?= e($app['name']) ?> · EZ Estimate Template</title>
-  <link rel="stylesheet" href="/css/dashboard.css" />
+  <script src="/js/tabler-theme.js"></script>
+  <link rel="stylesheet" href="/css/tabler.min.css" />
+  <link rel="stylesheet" href="/css/admin-bridge.css" />
+  <script src="/js/tabler.min.js" defer></script>
+  <script src="/js/tabler-init.js" defer></script>
 </head>
 <body<?= $bodyAttributes ?>>
   <div class="layout">
