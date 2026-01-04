@@ -251,7 +251,7 @@
             filters: filters.map((input, index) => ({
               key: input.dataset.key || '',
               index,
-              value: input instanceof HTMLInputElement ? input.value : '',
+              value: input instanceof HTMLInputElement || input instanceof HTMLSelectElement ? input.value : '',
             })),
           };
 
@@ -292,7 +292,7 @@
             return false;
           });
 
-          if (target instanceof HTMLInputElement) {
+          if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement) {
             target.value = typeof saved.value === 'string' ? saved.value : '';
           }
         });
@@ -700,7 +700,7 @@
       function applyFilters(options) {
         filteredRows = allRows.filter(({ element }) => {
           return filters.every((input) => {
-            const rawValue = input instanceof HTMLInputElement ? input.value : '';
+            const rawValue = input instanceof HTMLInputElement || input instanceof HTMLSelectElement ? input.value : '';
             const value = rawValue.trim();
             if (value === '') {
               return true;
@@ -796,7 +796,8 @@
       });
 
       filters.forEach((input) => {
-        input.addEventListener('input', () => {
+        const eventName = input instanceof HTMLSelectElement ? 'change' : 'input';
+        input.addEventListener(eventName, () => {
           applyFilters();
         });
       });

@@ -26,6 +26,30 @@ if (!function_exists('renderInventoryTable')) {
         $showActions = $options['showActions'] ?? true;
         $locationHierarchy = $options['locationHierarchy'] ?? [];
 
+        $statusBadgeClasses = static function (string $status): string {
+            $normalized = strtolower(trim($status));
+
+            $map = [
+                'critical' => 'badge bg-red-lt text-red',
+                'out of stock' => 'badge bg-red-lt text-red',
+                'low' => 'badge bg-orange-lt text-orange',
+                'warning' => 'badge bg-orange-lt text-orange',
+                'delayed' => 'badge bg-orange-lt text-orange',
+                'healthy' => 'badge bg-green-lt text-green',
+                'available' => 'badge bg-green-lt text-green',
+                'balanced' => 'badge bg-green-lt text-green',
+                'on order' => 'badge bg-blue-lt text-blue',
+                'committed' => 'badge bg-indigo-lt text-indigo',
+                'reserved' => 'badge bg-indigo-lt text-indigo',
+            ];
+
+            if (isset($map[$normalized])) {
+                return $map[$normalized];
+            }
+
+            return 'badge badge-outline text-secondary';
+        };
+
         $containerAttributes = ['class' => 'inventory-table-container', 'data-inventory-table' => 'true'];
         $containerAttributes['data-page-size'] = (string) $pageSize;
 
@@ -48,12 +72,35 @@ if (!function_exists('renderInventoryTable')) {
         }
 
         echo '<div' . $attributesString . '>';
+        echo '<div class="card card-stacked inventory-table-card">';
 
         if ($includeFilters) {
             $locationToggleId = ($tableId !== null ? $tableId . '-' : '') . 'location-filter';
+            $statusSelectId = ($tableId !== null ? $tableId . '-' : '') . 'status-filter';
 
+            echo '<div class="card-body pb-0">';
+            echo '<div class="inventory-filters row g-2 align-items-end" role="search">';
+            echo '<div class="col-12 col-md-3">';
+            echo '<label class="form-label" for="' . e($tableId . '-filter-item') . '">Item</label>';
+            echo '<div class="input-icon">';
+            echo '<input type="search" class="form-control column-filter" id="' . e($tableId . '-filter-item') . '" data-key="item" placeholder="Search items" aria-label="Filter by item">';
+            echo '<span class="input-icon-addon" aria-hidden="true"><i class="ti ti-search"></i></span>';
+            echo '</div>';
+            echo '</div>';
+
+            echo '<div class="col-12 col-md-3">';
+            echo '<label class="form-label" for="' . e($tableId . '-filter-sku') . '">SKU / Part #</label>';
+            echo '<input type="search" class="form-control column-filter" id="' . e($tableId . '-filter-sku') . '" data-key="sku" data-alt-keys="partNumber" placeholder="Search SKU or part #" aria-label="Filter by SKU">';
+            echo '</div>';
+
+            echo '<div class="col-12 col-md-3">';
+            echo '<label class="form-label" for="' . e($locationToggleId) . '">Location</label>';
             echo '<div class="location-filter location-filter--detached" data-location-filter data-filter-target="locationIds" data-location-filter-id="' . e($locationToggleId) . '">';
             echo '<input type="hidden" class="column-filter" data-key="locationIds" data-filter-type="tokens" />';
+            echo '<button type="button" class="btn btn-outline-secondary w-100 d-flex justify-content-between align-items-center" id="' . e($locationToggleId) . '" data-location-filter-toggle data-location-filter-id="' . e($locationToggleId) . '" aria-expanded="false">';
+            echo '<span class="location-filter__label">All locations</span>';
+            echo '<span class="location-filter__chevron" aria-hidden="true">▾</span>';
+            echo '</button>';
             echo '<div class="location-filter__modal" data-location-filter-modal hidden>';
             echo '<div class="modal-backdrop" data-location-filter-backdrop></div>';
             echo '<div class="location-filter__dialog" role="dialog" aria-modal="true" aria-label="Select storage locations">';
@@ -75,49 +122,64 @@ if (!function_exists('renderInventoryTable')) {
             echo '</div>';
             echo '</div>';
             echo '</div>';
+            echo '</div>';
+
+            echo '<div class="col-12 col-md-3">';
+            echo '<label class="form-label" for="' . e($statusSelectId) . '">Status</label>';
+            echo '<select class="form-select column-filter" id="' . e($statusSelectId) . '" data-key="status" aria-label="Filter by status">';
+            echo '<option value="">All statuses</option>';
+            echo '<option value="Healthy">Healthy</option>';
+            echo '<option value="Low">Low</option>';
+            echo '<option value="Critical">Critical</option>';
+            echo '<option value="On order">On order</option>';
+            echo '<option value="Committed">Committed</option>';
+            echo '</select>';
+            echo '</div>';
+
+            echo '<div class="col-12 col-md-3">';
+            echo '<label class="form-label" for="' . e($tableId . '-filter-availability') . '">Availability</label>';
+            echo '<div class="input-group input-group-flat">';
+            echo '<input type="search" class="form-control column-filter" id="' . e($tableId . '-filter-availability') . '" data-key="available" placeholder="Search available" aria-label="Filter by available" inputmode="numeric">';
+            echo '<span class="input-group-text">Qty</span>';
+            echo '</div>';
+            echo '</div>';
+
+            echo '<div class="col-12 col-md-3">';
+            echo '<label class="form-label" for="' . e($tableId . '-filter-lead') . '">Lead time</label>';
+            echo '<input type="search" class="form-control column-filter" id="' . e($tableId . '-filter-lead') . '" data-key="leadTime" placeholder="Lead time (days)" aria-label="Filter by lead time" inputmode="numeric">';
+            echo '</div>';
+
+            echo '<div class="col-12 col-md-3">';
+            echo '<label class="form-label" for="' . e($tableId . '-filter-reservations') . '">Reservations</label>';
+            echo '<div class="input-group input-group-flat">';
+            echo '<input type="search" class="form-control column-filter" id="' . e($tableId . '-filter-reservations') . '" data-key="reservations" placeholder="Active jobs" aria-label="Filter by reservations" inputmode="numeric">';
+            echo '<span class="input-group-text">Jobs</span>';
+            echo '</div>';
+            echo '</div>';
+
+            echo '</div>';
+            echo '</div>';
         }
 
-        echo '<table class="table inventory-table"' . ($tableId !== null ? ' id="' . e($tableId) . '"' : '') . '>';
+        echo '<div class="card-body p-0">';
+        echo '<div class="table-responsive">';
+        echo '<table class="table table-vcenter table-hover text-nowrap inventory-table"' . ($tableId !== null ? ' id="' . e($tableId) . '"' : '') . '>';
         echo '<thead>';
         echo '<tr>';
         echo '<th scope="col" class="sortable" data-sort-key="item" aria-sort="none">Item</th>';
         echo '<th scope="col" class="sortable" data-sort-key="sku" aria-sort="none">SKU</th>';
         echo '<th scope="col" class="sortable" data-sort-key="location" aria-sort="none">Location</th>';
-        echo '<th scope="col" class="numeric sortable" data-sort-key="stock" data-sort-type="number" aria-sort="none">Stock</th>';
-        echo '<th scope="col" class="numeric sortable" data-sort-key="committed" data-sort-type="number" aria-sort="none">Committed</th>';
-        echo '<th scope="col" class="numeric sortable" data-sort-key="available" data-sort-type="number" aria-sort="none">Available</th>';
-        echo '<th scope="col" class="numeric sortable" data-sort-key="leadTime" data-sort-type="number" aria-sort="none">Lead Time (days)</th>';
-        echo '<th scope="col" class="numeric sortable" data-sort-key="averageDailyUse" data-sort-type="number" aria-sort="none">Avg Daily Use</th>';
+        echo '<th scope="col" class="text-end sortable" data-sort-key="stock" data-sort-type="number" aria-sort="none">Stock</th>';
+        echo '<th scope="col" class="text-end sortable" data-sort-key="committed" data-sort-type="number" aria-sort="none">Committed</th>';
+        echo '<th scope="col" class="text-end sortable" data-sort-key="available" data-sort-type="number" aria-sort="none">Available</th>';
+        echo '<th scope="col" class="text-end sortable" data-sort-key="leadTime" data-sort-type="number" aria-sort="none">Lead Time (days)</th>';
+        echo '<th scope="col" class="text-end sortable" data-sort-key="averageDailyUse" data-sort-type="number" aria-sort="none">Avg Daily Use</th>';
         echo '<th scope="col" class="sortable" data-sort-key="status" aria-sort="none">Status</th>';
         echo '<th scope="col" class="sortable" data-sort-key="reservations" data-sort-type="number" aria-sort="none">Reservations</th>';
         if ($showActions) {
-            echo '<th scope="col" class="actions">Actions</th>';
+            echo '<th scope="col" class="text-end">Actions</th>';
         }
         echo '</tr>';
-
-        if ($includeFilters) {
-            echo '<tr class="filter-row">';
-            echo '<th><input type="search" class="column-filter" data-key="item" placeholder="Search items" aria-label="Filter by item"></th>';
-            echo '<th><input type="search" class="column-filter" data-key="sku" data-alt-keys="partNumber" placeholder="Search SKU or part #" aria-label="Filter by SKU"></th>';
-            echo '<th>';
-            echo '<button type="button" class="location-filter__toggle location-filter__toggle--inline" id="' . e($locationToggleId) . '" data-location-filter-toggle data-location-filter-id="' . e($locationToggleId) . '" aria-expanded="false">';
-            echo '<span class="location-filter__label">All locations</span>';
-            echo '<span class="location-filter__chevron" aria-hidden="true">▾</span>';
-            echo '</button>';
-            echo '</th>';
-            echo '<th><input type="search" class="column-filter" data-key="stock" placeholder="Search stock" aria-label="Filter by stock" inputmode="numeric"></th>';
-            echo '<th><input type="search" class="column-filter" data-key="committed" placeholder="Search committed" aria-label="Filter by committed" inputmode="numeric"></th>';
-            echo '<th><input type="search" class="column-filter" data-key="available" placeholder="Search available" aria-label="Filter by available" inputmode="numeric"></th>';
-            echo '<th><input type="search" class="column-filter" data-key="leadTime" placeholder="Search lead time" aria-label="Filter by lead time" inputmode="numeric"></th>';
-            echo '<th><input type="search" class="column-filter" data-key="averageDailyUse" placeholder="Search avg/day" aria-label="Filter by average daily use" inputmode="decimal"></th>';
-            echo '<th><input type="search" class="column-filter" data-key="status" placeholder="Search status" aria-label="Filter by status"></th>';
-            echo '<th><input type="search" class="column-filter" data-key="reservations" placeholder="Search reservations" aria-label="Filter by reservations" inputmode="numeric"></th>';
-            if ($showActions) {
-                echo '<th aria-hidden="true"></th>';
-            }
-            echo '</tr>';
-        }
-
         echo '</thead>';
         echo '<tbody>';
 
@@ -131,9 +193,12 @@ if (!function_exists('renderInventoryTable')) {
                 $dailyUseRaw = isset($row['average_daily_use']) ? (float) $row['average_daily_use'] : 0.0;
                 $dailyUseAttr = number_format($dailyUseRaw, 4, '.', '');
                 $dailyUseDisplay = inventoryFormatDailyUse($dailyUseRaw);
-                $availableClass = ((int) $row['available_qty']) <= 0 ? 'danger' : 'success';
+                $availableClass = ((int) $row['available_qty']) <= 0 ? 'bg-red-lt text-red' : 'bg-green-lt text-green';
                 $reservationDetails = $row['reservation_details'] ?? [];
                 $reservationData = '[]';
+
+                $statusLabel = (string) $row['status'];
+                $statusBadgeClass = $statusBadgeClasses($statusLabel);
 
                 try {
                     $reservationData = json_encode($reservationDetails, JSON_THROW_ON_ERROR);
@@ -160,33 +225,33 @@ if (!function_exists('renderInventoryTable')) {
                     . ' data-item-id="' . e((string) $row['id']) . '"'
                     . '>';
 
-                echo '<td class="item">' . e((string) $row['item']) . '</td>';
-                echo '<td class="sku"><span class="sku-badge">' . e((string) $row['sku']) . '</span></td>';
+                echo '<td class="item fw-semibold">' . e((string) $row['item']) . '</td>';
+                echo '<td class="sku"><span class="badge bg-gray-lt text-uppercase letter-spacing-wide">' . e((string) $row['sku']) . '</span></td>';
                 echo '<td>' . e((string) $row['location']) . '</td>';
-                echo '<td class="numeric"><span class="quantity-pill">' . e(inventoryFormatQuantity((int) $row['stock'])) . '</span></td>';
-                echo '<td class="numeric">'
-                    . '<button type="button" class="quantity-pill brand" data-reservation-trigger="committed"'
+                echo '<td class="text-end"><span class="badge bg-gray-100 text-body">' . e(inventoryFormatQuantity((int) $row['stock'])) . '</span></td>';
+                echo '<td class="text-end">'
+                    . '<button type="button" class="btn btn-link px-0 text-decoration-none" data-reservation-trigger="committed"'
                     . ' aria-label="View committed jobs for ' . e((string) $row['item']) . '">' . e(inventoryFormatQuantity((int) $row['committed_qty'])) . '</button>'
                     . '</td>';
-                echo '<td class="numeric"><span class="quantity-pill ' . $availableClass . '">' . e(inventoryFormatQuantity((int) $row['available_qty'])) . '</span></td>';
-                echo '<td class="numeric">' . e((string) $row['lead_time_days']) . '</td>';
-                echo '<td class="numeric"><span class="quantity-pill">' . e($dailyUseDisplay) . '<span class="muted">/day</span></span></td>';
-                echo '<td><span class="status" data-level="' . e((string) $row['status']) . '">' . e((string) $row['status']) . '</span></td>';
+                echo '<td class="text-end"><span class="badge ' . $availableClass . '">' . e(inventoryFormatQuantity((int) $row['available_qty'])) . '</span></td>';
+                echo '<td class="text-end">' . e((string) $row['lead_time_days']) . '</td>';
+                echo '<td class="text-end"><span class="badge bg-gray-100 text-body">' . e($dailyUseDisplay) . '<span class="text-secondary">/day</span></span></td>';
+                echo '<td><span class="' . e($statusBadgeClass) . '" data-level="' . e($statusLabel) . '">' . e($statusLabel) . '</span></td>';
 
                 echo '<td class="reservations">';
                 if ((int) $row['active_reservations'] > 0) {
                     $reservationText = (int) $row['active_reservations'] === 1
                         ? '1 active job'
                         : $row['active_reservations'] . ' active jobs';
-                    echo '<button type="button" class="reservation-link" data-reservation-trigger="reservations"'
+                    echo '<button type="button" class="btn btn-link px-0 reservation-link" data-reservation-trigger="reservations"'
                         . ' aria-label="View active jobs for ' . e((string) $row['item']) . '">' . e((string) $reservationText) . '</button>';
                 } else {
-                    echo '<span class="reservation-link muted">None</span>';
+                    echo '<span class="reservation-link text-secondary">None</span>';
                 }
                 echo '</td>';
 
                 if ($showActions) {
-                    echo '<td class="actions"><a class="button ghost" href="inventory.php?id=' . e((string) $row['id']) . '">Edit</a></td>';
+                    echo '<td class="text-end"><a class="btn btn-outline-secondary" href="inventory.php?id=' . e((string) $row['id']) . '">Edit</a></td>';
                 }
 
                 echo '</tr>';
@@ -195,12 +260,15 @@ if (!function_exists('renderInventoryTable')) {
 
         echo '</tbody>';
         echo '</table>';
+        echo '</div>';
+        echo '</div>';
 
-        echo '<div class="table-pagination" data-pagination role="navigation" aria-label="Inventory table pagination">';
-        echo '<div class="pagination-controls">';
-        echo '<button type="button" class="button ghost" data-pagination-prev disabled>Previous</button>';
-        echo '<span class="pagination-status" data-pagination-status>Page 1 of 1</span>';
-        echo '<button type="button" class="button ghost" data-pagination-next disabled>Next</button>';
+        echo '<div class="card-footer d-flex align-items-center justify-content-between flex-wrap gap-2" data-pagination role="navigation" aria-label="Inventory table pagination">';
+        echo '<div class="text-secondary" data-pagination-status>Page 1 of 1</div>';
+        echo '<div class="btn-list">';
+        echo '<button type="button" class="btn btn-outline-secondary" data-pagination-prev disabled>Previous</button>';
+        echo '<button type="button" class="btn btn-outline-secondary" data-pagination-next disabled>Next</button>';
+        echo '</div>';
         echo '</div>';
         echo '</div>';
         echo '</div>';
