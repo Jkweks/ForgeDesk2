@@ -946,6 +946,35 @@ $modalRequested = isset($_GET['modal']) && $_GET['modal'] === 'open';
 $modalOpen = $modalRequested || $editingId !== null || ($errors !== [] && $_SERVER['REQUEST_METHOD'] === 'POST');
 $bodyClasses = ['page', 'has-sidebar-toggle'];
 $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
+$availableValue = (float) $inventorySummary['total_available'];
+$inventoryStats = [
+    [
+        'label' => 'Units on hand',
+        'value' => inventoryFormatQuantity($inventorySummary['total_stock']),
+        'icon' => 'box',
+        'tone' => 'primary',
+    ],
+    [
+        'label' => 'Committed to jobs',
+        'value' => inventoryFormatQuantity($inventorySummary['total_committed']),
+        'icon' => 'checklist',
+        'tone' => 'orange',
+    ],
+    [
+        'label' => 'Available to promise',
+        'value' => inventoryFormatQuantity($inventorySummary['total_available']),
+        'icon' => 'truck',
+        'tone' => $availableValue < 0 ? 'red' : 'teal',
+        'badge' => $availableValue < 0 ? ['tone' => 'red', 'label' => 'Shortfall'] : null,
+    ],
+    [
+        'label' => 'Active reservations',
+        'value' => (string) $inventorySummary['active_reservations'],
+        'icon' => 'users',
+        'tone' => 'indigo',
+        'url' => '/admin/job-reservations.php',
+    ],
+];
 ?>
 <!doctype html>
 <html lang="en">
@@ -971,65 +1000,73 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
 
       <div class="page-body">
         <div class="container-xl">
-          <main class="page-content content">
-      <section class="panel" aria-labelledby="inventory-manager-title">
-        <header class="panel-header">
-          <div>
-            <h1 id="inventory-manager-title">Inventory Manager</h1>
-            <p class="small">Review stock levels, update item details, and manage supplier information.</p>
+          <main class="page-content">
+      <div class="card card-stacked mb-4" aria-labelledby="inventory-manager-title">
+        <div class="card-header d-flex flex-column flex-md-row align-items-start gap-2 gap-md-3">
+          <div class="me-md-auto">
+            <h1 id="inventory-manager-title" class="card-title mb-1">Inventory Manager</h1>
+            <p class="card-subtitle">Review stock levels, update item details, and manage supplier information.</p>
           </div>
-          <div class="header-actions">
-            <a class="button secondary" href="inventory_export.php">Download CSV</a>
-            <a class="button secondary" href="cycle-count.php">Start cycle count</a>
-            <a class="button secondary" href="/admin/estimate-check.php">Analyze EZ Estimate</a>
-            <a class="button primary" href="inventory.php?modal=open">Add Inventory Item</a>
+          <div class="btn-list ms-md-auto">
+            <a class="btn btn-outline-secondary" href="inventory_export.php">Download CSV</a>
+            <a class="btn btn-outline-secondary" href="cycle-count.php">Start cycle count</a>
+            <a class="btn btn-outline-secondary" href="/admin/estimate-check.php">Analyze EZ Estimate</a>
+            <a class="btn btn-primary" href="inventory.php?modal=open">Add Inventory Item</a>
             <?php if ($editingId !== null): ?>
-              <a class="button secondary" href="inventory.php">Exit edit</a>
+              <a class="btn btn-outline-secondary" href="inventory.php">Exit edit</a>
             <?php endif; ?>
           </div>
-        </header>
+        </div>
 
-        <?php if ($dbError !== null): ?>
-          <div class="alert alert-danger alert-important" role="alert">
-            <div class="d-flex align-items-center">
-              <div class="me-2"><?= icon('alert-circle', 'icon') ?></div>
-              <div><strong>Database connection issue:</strong> <?= e($dbError) ?></div>
+        <div class="card-body">
+          <?php if ($dbError !== null): ?>
+            <div class="alert alert-danger alert-important" role="alert">
+              <div class="d-flex align-items-center">
+                <div class="me-2"><?= icon('alert-circle', 'icon') ?></div>
+                <div><strong>Database connection issue:</strong> <?= e($dbError) ?></div>
+              </div>
             </div>
-          </div>
-        <?php endif; ?>
+          <?php endif; ?>
 
-        <?php if ($successMessage !== null): ?>
-          <div class="alert alert-success" role="status">
-            <div class="d-flex align-items-center">
-              <div class="me-2"><?= icon('circle-check', 'icon') ?></div>
-              <div><?= e($successMessage) ?></div>
+          <?php if ($successMessage !== null): ?>
+            <div class="alert alert-success" role="status">
+              <div class="d-flex align-items-center">
+                <div class="me-2"><?= icon('circle-check', 'icon') ?></div>
+                <div><?= e($successMessage) ?></div>
+              </div>
             </div>
-          </div>
-        <?php endif; ?>
+          <?php endif; ?>
 
-        <div class="table-wrapper">
           <?php if ($dbError === null): ?>
-            <div class="inventory-metrics" role="list">
-              <div class="metric" role="listitem">
-                <span class="metric-label">Units on hand</span>
-                <span class="metric-value"><?= e(inventoryFormatQuantity($inventorySummary['total_stock'])) ?></span>
-              </div>
-              <div class="metric" role="listitem">
-                <span class="metric-label">Committed to jobs</span>
-                <span class="metric-value"><?= e(inventoryFormatQuantity($inventorySummary['total_committed'])) ?></span>
-              </div>
-              <div class="metric" role="listitem">
-                <span class="metric-label">Available to promise</span>
-                <span class="metric-value"><?= e(inventoryFormatQuantity($inventorySummary['total_available'])) ?></span>
-              </div>
-              <div class="metric" role="listitem">
-                <span class="metric-label">Active reservations</span>
-                <span class="metric-value">
-                  <a class="metric-link" href="/admin/job-reservations.php">
-                    <?= e((string) $inventorySummary['active_reservations']) ?>
-                  </a>
-                </span>
-              </div>
+            <div class="row row-cards mb-4" role="list">
+              <?php foreach ($inventoryStats as $stat): ?>
+                <div class="col-sm-6 col-lg-3" role="listitem">
+                  <div class="card card-sm card-stacked h-100">
+                    <div class="card-body">
+                      <div class="d-flex align-items-center gap-3">
+                        <span class="avatar avatar-sm bg-<?= e($stat['tone']) ?>-lt text-<?= e($stat['tone']) ?>" aria-hidden="true">
+                          <?= icon($stat['icon'], 'icon icon-sm') ?>
+                        </span>
+                        <div class="flex-fill">
+                          <div class="text-muted small mb-1"><?= e($stat['label']) ?></div>
+                          <div class="d-flex align-items-center gap-2">
+                            <?php if (!empty($stat['url'])): ?>
+                              <a class="fw-semibold" href="<?= e((string) $stat['url']) ?>"><?= e($stat['value']) ?></a>
+                            <?php else: ?>
+                              <div class="fw-semibold"><?= e($stat['value']) ?></div>
+                            <?php endif; ?>
+                            <?php if (!empty($stat['badge'])): ?>
+                              <span class="badge bg-<?= e($stat['badge']['tone']) ?>-lt text-<?= e($stat['badge']['tone']) ?>">
+                                <?= e($stat['badge']['label']) ?>
+                              </span>
+                            <?php endif; ?>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              <?php endforeach; ?>
             </div>
             <?php if ($locationDiscrepancies !== []): ?>
               <div class="alert alert-warning" role="alert">
@@ -1061,7 +1098,7 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
             ]); ?>
           <?php endif; ?>
         </div>
-      </section>
+      </div>
           </main>
         </div>
       </div>
