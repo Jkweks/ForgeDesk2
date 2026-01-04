@@ -153,19 +153,22 @@ unset($groupItems, $item);
   <link rel="stylesheet" href="css/dashboard.css" />
   <script src="js/tabler.min.js" defer></script>
 </head>
-<body class="has-sidebar-toggle">
-  <div class="layout">
+<body class="page has-sidebar-toggle">
+  <div class="page">
     <?php require __DIR__ . '/../app/views/partials/sidebar.php'; ?>
 
-    <?php
-    $topbarTitle = 'Database Health';
-    $topbarSubhead = 'Connection status, migrations, and storage diagnostics for ' . $databaseName . '.';
-    $topbarExtras = '<span class="badge ' . ($dbError === null ? 'success' : 'danger') . '">' . ($dbError === null ? 'Live' : 'Error') . '</span>';
-    require __DIR__ . '/../app/views/partials/topbar.php';
-    unset($topbarTitle, $topbarSubhead, $topbarExtras);
-    ?>
+    <div class="page-wrapper">
+      <?php
+      $topbarTitle = 'Database Health';
+      $topbarSubhead = 'Connection status, migrations, and storage diagnostics for ' . $databaseName . '.';
+      $topbarExtras = '<span class="badge ' . ($dbError === null ? 'success' : 'danger') . '">' . ($dbError === null ? 'Live' : 'Error') . '</span>';
+      require __DIR__ . '/../app/views/partials/topbar.php';
+      unset($topbarTitle, $topbarSubhead, $topbarExtras);
+      ?>
 
-    <main class="content">
+      <div class="page-body">
+        <div class="container-xl">
+          <main class="page-content content">
       <section class="metrics" aria-label="Database status metrics">
         <article class="metric<?= $dbError === null ? ' accent' : '' ?>">
           <div class="metric-header">
@@ -308,7 +311,10 @@ unset($groupItems, $item);
           </div>
         </div>
       </section>
-    </main>
+          </main>
+        </div>
+      </div>
+    </div>
   </div>
   <script src="js/dashboard.js"></script>
 </body>

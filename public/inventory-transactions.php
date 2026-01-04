@@ -217,17 +217,20 @@ if (isset($_GET['success']) && $_GET['success'] === 'recorded') {
   <link rel="stylesheet" href="css/dashboard.css" />
   <script src="js/tabler.min.js" defer></script>
 </head>
-<body class="has-sidebar-toggle">
-  <div class="layout">
+<body class="page has-sidebar-toggle">
+  <div class="page">
     <?php $sidebarAriaLabel = 'Primary navigation'; require __DIR__ . '/../app/views/partials/sidebar.php'; ?>
 
-    <?php
-    $topbarTitle = 'Inventory Transactions';
-    require __DIR__ . '/../app/views/partials/topbar.php';
-    unset($topbarTitle, $topbarSubhead, $topbarExtras);
-    ?>
+    <div class="page-wrapper">
+      <?php
+      $topbarTitle = 'Inventory Transactions';
+      require __DIR__ . '/../app/views/partials/topbar.php';
+      unset($topbarTitle, $topbarSubhead, $topbarExtras);
+      ?>
 
-    <main class="content">
+      <div class="page-body">
+        <div class="container-xl">
+          <main class="page-content content">
       <section class="panel" aria-labelledby="transaction-form-title">
         <header>
           <div>
@@ -487,10 +490,10 @@ if (isset($_GET['success']) && $_GET['success'] === 'recorded') {
           </div>
         <?php endif; ?>
       </section>
-    </main>
-  </div>
+          </main>
+        </div>
 
-  <template id="transaction-line-template">
+        <template id="transaction-line-template">
     <tr data-line="__INDEX__">
       <td>
         <div class="field">
@@ -549,6 +552,10 @@ if (isset($_GET['success']) && $_GET['success'] === 'recorded') {
     </tr>
   </template>
 
+        </div>
+      </div>
+    </div>
+  
   <script src="js/dashboard.js"></script>
   <script>
     (function () {

@@ -839,7 +839,7 @@ if ($machineModal !== null && $machineEditForm === null) {
     ];
 }
 
-$bodyClasses = ['has-sidebar-toggle'];
+$bodyClasses = ['page', 'has-sidebar-toggle'];
 
 if ($machineModalOpen || $machineFormOpen || $taskFormOpen || $recordFormOpen || $assetFormOpen) {
     $bodyClasses[] = 'modal-open';
@@ -860,16 +860,19 @@ $bodyClassString = implode(' ', $bodyClasses);
   <script src="js/tabler.min.js" defer></script>
 </head>
 <body class="<?= e($bodyClassString) ?>">
-  <div class="layout">
+  <div class="page">
     <?php require __DIR__ . '/../app/views/partials/sidebar.php'; ?>
 
-    <?php
-    $topbarTitle = 'Maintenance Hub';
-    require __DIR__ . '/../app/views/partials/topbar.php';
-    unset($topbarTitle, $topbarSubhead, $topbarExtras);
-    ?>
+    <div class="page-wrapper">
+      <?php
+      $topbarTitle = 'Maintenance Hub';
+      require __DIR__ . '/../app/views/partials/topbar.php';
+      unset($topbarTitle, $topbarSubhead, $topbarExtras);
+      ?>
 
-    <main class="content">
+      <div class="page-body">
+        <div class="container-xl">
+          <main class="page-content content">
       <section class="metrics maintenance-metrics" aria-label="Maintenance summary">
         <article class="metric">
           <div class="metric-header">
@@ -1322,17 +1325,17 @@ $bodyClassString = implode(' ', $bodyClasses);
           </section>
         </div>
       </section>
-    </main>
-  </div>
+          </main>
+        </div>
 
-  <?php
-    $machineFormClasses = 'modal' . ($machineFormOpen ? ' open' : '');
-    $assetFormClasses = 'modal' . ($assetFormOpen ? ' open' : '');
-    $taskFormClasses = 'modal' . ($taskFormOpen ? ' open' : '');
-    $recordFormClasses = 'modal' . ($recordFormOpen ? ' open' : '');
-  ?>
+      <?php
+        $machineFormClasses = 'modal' . ($machineFormOpen ? ' open' : '');
+        $assetFormClasses = 'modal' . ($assetFormOpen ? ' open' : '');
+        $taskFormClasses = 'modal' . ($taskFormOpen ? ' open' : '');
+        $recordFormClasses = 'modal' . ($recordFormOpen ? ' open' : '');
+      ?>
 
-  <div
+      <div
     id="machine-form-modal"
     class="<?= e($machineFormClasses) ?>"
     data-maintenance-modal
@@ -2106,6 +2109,10 @@ $bodyClassString = implode(' ', $bodyClasses);
       </div>
     </div>
   <?php endif; ?>
+
+      </div>
+    </div>
+  </div>
 
   <script>
     (function () {

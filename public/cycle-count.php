@@ -249,7 +249,7 @@ $reportModalOpen = $reportSession !== null;
   <script src="js/tabler.min.js" defer></script>
 </head>
 <?php
-$bodyClasses = ['has-sidebar-toggle'];
+$bodyClasses = ['page', 'has-sidebar-toggle'];
 if ($modalOpen || $reportModalOpen) {
     $bodyClasses[] = 'modal-open';
 }
@@ -259,16 +259,19 @@ if ($reportModalOpen) {
 $bodyClassAttribute = ' class="' . implode(' ', $bodyClasses) . '"';
 ?>
 <body<?= $bodyClassAttribute ?>>
-  <div class="layout">
+  <div class="page">
     <?php require __DIR__ . '/../app/views/partials/sidebar.php'; ?>
 
-    <?php
-    $topbarTitle = 'Cycle Counts';
-    require __DIR__ . '/../app/views/partials/topbar.php';
-    unset($topbarTitle, $topbarSubhead, $topbarExtras);
-    ?>
+    <div class="page-wrapper">
+      <?php
+      $topbarTitle = 'Cycle Counts';
+      require __DIR__ . '/../app/views/partials/topbar.php';
+      unset($topbarTitle, $topbarSubhead, $topbarExtras);
+      ?>
 
-    <main class="content">
+      <div class="page-body">
+        <div class="container-xl">
+          <main class="page-content content">
       <section class="panel" aria-labelledby="cycle-count-title">
         <header class="panel-header">
           <div>
@@ -429,25 +432,27 @@ $bodyClassAttribute = ' class="' . implode(' ', $bodyClasses) . '"';
           <p>Your selected session has been completed. Review the history above or start a new cycle count.</p>
         </section>
       <?php endif; ?>
-    </main>
-    <?php if ($reportModalOpen): ?>
-      <div class="modal open" id="session-report-modal" role="dialog" aria-modal="true" aria-labelledby="session-report-title">
-        <div class="modal-dialog">
-          <header>
-            <div>
-              <h2 id="session-report-title">Session report · <?= e($reportSession['name']) ?></h2>
-              <p class="small">Counted items are listed first, followed by any skipped locations for this cycle count.</p>
-            </div>
-            <div class="modal-header-actions">
-              <a
-                class="button secondary"
-                href="cycle-count.php?review=<?= e((string) $reportSession['id']) ?>&download_pdf=1"
-              >
-                Download PDF
-              </a>
-              <a class="modal-close" href="cycle-count.php" aria-label="Close session report">&times;</a>
-            </div>
-          </header>
+          </main>
+        </div>
+
+        <?php if ($reportModalOpen): ?>
+          <div class="modal open" id="session-report-modal" role="dialog" aria-modal="true" aria-labelledby="session-report-title">
+            <div class="modal-dialog">
+              <header>
+                <div>
+                  <h2 id="session-report-title">Session report · <?= e($reportSession['name']) ?></h2>
+                  <p class="small">Counted items are listed first, followed by any skipped locations for this cycle count.</p>
+                </div>
+                <div class="modal-header-actions">
+                  <a
+                    class="button secondary"
+                    href="cycle-count.php?review=<?= e((string) $reportSession['id']) ?>&download_pdf=1"
+                  >
+                    Download PDF
+                  </a>
+                  <a class="modal-close" href="cycle-count.php" aria-label="Close session report">&times;</a>
+                </div>
+              </header>
 
           <dl class="session-meta">
             <div>
@@ -615,9 +620,11 @@ $bodyClassAttribute = ' class="' . implode(' ', $bodyClasses) . '"';
           </form>
         </div>
       </div>
-    <?php else: ?>
-      <div class="modal" id="count-modal" hidden></div>
-    <?php endif; ?>
+        <?php else: ?>
+          <div class="modal" id="count-modal" hidden></div>
+        <?php endif; ?>
+      </div>
+    </div>
   </div>
   <script>
   (function () {
