@@ -195,7 +195,7 @@ if (isset($db)) {
 $orderStatuses = purchaseOrderStatusList();
 $filterOptions = array_merge(['open', 'all'], $orderStatuses);
 
-$bodyAttributes = ' class="has-sidebar-toggle"';
+$bodyAttributes = ' class="page has-sidebar-toggle"';
 ?>
 <!doctype html>
 <html lang="en">
@@ -203,19 +203,25 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title><?= e($app['name']) ?> Purchase Orders</title>
+  <link rel="stylesheet" href="css/tabler.min.css" />
+  <link rel="stylesheet" href="css/tabler-overrides.css" />
   <link rel="stylesheet" href="css/dashboard.css" />
+  <script src="js/tabler.min.js" defer></script>
 </head>
 <body<?= $bodyAttributes ?>>
-  <div class="layout">
+  <div class="page">
     <?php require __DIR__ . '/../app/views/partials/sidebar.php'; ?>
 
-    <?php
-    $topbarTitle = 'Purchase Orders';
-    require __DIR__ . '/../app/views/partials/topbar.php';
-    unset($topbarTitle, $topbarSubhead, $topbarExtras);
-    ?>
+    <div class="page-wrapper">
+      <?php
+      $topbarTitle = 'Purchase Orders';
+      require __DIR__ . '/../app/views/partials/topbar.php';
+      unset($topbarTitle, $topbarSubhead, $topbarExtras);
+      ?>
 
-    <main class="content">
+      <div class="page-body">
+        <div class="container-xl">
+          <main class="page-content content">
       <section class="panel" aria-labelledby="purchase-orders-title">
         <header class="panel-header">
           <div>
@@ -439,7 +445,10 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
           </div>
         </div>
       </section>
-    </main>
+          </main>
+        </div>
+      </div>
+    </div>
   </div>
   <script src="js/sortable-table.js" defer></script>
   <script src="js/dashboard.js"></script>

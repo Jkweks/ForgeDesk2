@@ -944,7 +944,7 @@ if (isset($_GET['tab']) && in_array($_GET['tab'], ['details', 'categories', 'con
 
 $modalRequested = isset($_GET['modal']) && $_GET['modal'] === 'open';
 $modalOpen = $modalRequested || $editingId !== null || ($errors !== [] && $_SERVER['REQUEST_METHOD'] === 'POST');
-$bodyClasses = ['has-sidebar-toggle'];
+$bodyClasses = ['page', 'has-sidebar-toggle'];
 if ($modalOpen) {
     $bodyClasses[] = 'modal-open';
 }
@@ -956,19 +956,25 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title><?= e($app['name']) ?> Inventory Manager</title>
+  <link rel="stylesheet" href="css/tabler.min.css" />
+  <link rel="stylesheet" href="css/tabler-overrides.css" />
   <link rel="stylesheet" href="css/dashboard.css" />
+  <script src="js/tabler.min.js" defer></script>
 </head>
 <body<?= $bodyAttributes ?>>
-  <div class="layout">
+  <div class="page">
     <?php require __DIR__ . '/../app/views/partials/sidebar.php'; ?>
 
-    <?php
-    $topbarTitle = 'Inventory Manager';
-    require __DIR__ . '/../app/views/partials/topbar.php';
-    unset($topbarTitle, $topbarSubhead, $topbarExtras);
-    ?>
+    <div class="page-wrapper">
+      <?php
+      $topbarTitle = 'Inventory Manager';
+      require __DIR__ . '/../app/views/partials/topbar.php';
+      unset($topbarTitle, $topbarSubhead, $topbarExtras);
+      ?>
 
-    <main class="content">
+      <div class="page-body">
+        <div class="container-xl">
+          <main class="page-content content">
       <section class="panel" aria-labelledby="inventory-manager-title">
         <header class="panel-header">
           <div>
@@ -1048,7 +1054,10 @@ $bodyAttributes = ' class="' . implode(' ', $bodyClasses) . '"';
           <?php endif; ?>
         </div>
       </section>
-    </main>
+          </main>
+        </div>
+      </div>
+    </div>
   </div>
 
   <?php

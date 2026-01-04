@@ -1,18 +1,18 @@
 :root{
-  --bg:#0f1216;
+  --bg:var(--tblr-body-bg);
   --panel:#171b21;
   --panel-2:#1e232b;
   --panel-3:#252b35;
-  --text:#e8edf2;
-  --muted:#a5afbd;
-  --brand:#ff9f43;
-  --accent:#5ac8a6;
-  --danger:#ff6b6b;
-  --warning:#ffb347;
+  --text:var(--tblr-body-color);
+  --muted:var(--tblr-muted,#a5afbd);
+  --brand:var(--tblr-primary,#ff9f43);
+  --accent:var(--tblr-success,#5ac8a6);
+  --danger:var(--tblr-danger,#ff6b6b);
+  --warning:var(--tblr-warning,#ffb347);
   --shadow:0 10px 20px rgba(0,0,0,.35);
   --radius:14px;
   --gap:18px;
-  --font:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,"Helvetica Neue",Arial,"Apple Color Emoji","Segoe UI Emoji";
+  --font:var(--tblr-font-sans-serif,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,"Helvetica Neue",Arial,"Apple Color Emoji","Segoe UI Emoji");
 }
 
 *{box-sizing:border-box}
@@ -39,13 +39,30 @@ a{color:inherit;text-decoration:none}
   border:0;
 }
 
+.page{
+  display:grid;
+  grid-template-columns:280px 1fr;
+  grid-template-rows:auto 1fr;
+  grid-template-areas:
+    "sidebar page-wrapper"
+    "sidebar page-wrapper";
+  min-height:100vh;
+}
+
 .layout{
   display:grid;
   grid-template-columns:280px 1fr;
-  grid-template-rows:64px 1fr;
+  grid-template-rows:auto 1fr;
   grid-template-areas:
     "sidebar topbar"
     "sidebar content";
+  min-height:100vh;
+}
+
+.page-wrapper{
+  grid-area:page-wrapper;
+  display:flex;
+  flex-direction:column;
   min-height:100vh;
 }
 
@@ -130,7 +147,6 @@ body.sidebar-open{overflow:hidden}
 }
 
 .topbar{
-  grid-area:topbar;
   display:flex;
   align-items:center;
   gap:12px;
@@ -229,12 +245,15 @@ body.sidebar-open{overflow:hidden}
 
 .user-email{font-size:.85rem;color:var(--muted)}
 
-.content{
-  grid-area:content;
-  padding:24px;
-  display:grid;
-  gap:var(--gap);
-}
+.page-body{padding:24px}
+
+.page-body>.container-xl{width:100%}
+
+.page-content{display:grid;gap:var(--gap);align-content:start}
+
+.layout .topbar{grid-area:topbar;}
+
+.layout .content{grid-area:content;padding:24px;display:grid;gap:var(--gap);}
 
 .metrics{
   display:grid;
@@ -1901,12 +1920,11 @@ body.reservation-modal-open{overflow:hidden}
 .optional{color:var(--muted);font-weight:400;font-size:.8rem}
 
 @media (max-width:960px){
+  .page,
   .layout{
     grid-template-columns:1fr;
-    grid-template-rows:auto 1fr;
     grid-template-areas:
-      "topbar"
-      "content";
+      "page-wrapper";
   }
   .topbar{
     position:sticky;

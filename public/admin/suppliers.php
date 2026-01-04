@@ -101,7 +101,10 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title><?= e($app['name']) ?> · Suppliers</title>
+  <link rel="stylesheet" href="/css/tabler.min.css" />
+  <link rel="stylesheet" href="/css/tabler-overrides.css" />
   <link rel="stylesheet" href="/css/dashboard.css" />
+  <script src="/js/tabler.min.js" defer></script>
 </head>
 <body<?= $bodyAttributes ?>>
   <div class="layout">
