@@ -469,8 +469,6 @@ function materialReplenishmentRoundUpQuantity(float $value): int
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title><?= e($app['name']) ?> · Material Replenishment</title>
   <link rel="stylesheet" href="css/tabler.min.css" />
-  <link rel="stylesheet" href="css/tabler-overrides.css" />
-  <link rel="stylesheet" href="css/dashboard.css" />
   <script src="js/tabler.min.js" defer></script>
 </head>
 <body class="page has-sidebar-toggle">
