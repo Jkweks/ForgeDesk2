@@ -75,130 +75,148 @@ foreach ($nav as &$groupItems) {
 unset($groupItems, $item);
 
 ?>
-<!doctype html>
-<html lang="en">
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark" data-bs-theme-primary="red">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta http-equiv="X-UA-Compatible" content="ie=edge" />
   <title><?= e($app['name']) ?> Inventory Dashboard</title>
-  <link rel="stylesheet" href="css/dashboard.css" />
+  <link href="tabler/tabler_files/jsvectormap.css" rel="stylesheet" />
+  <link href="tabler/tabler_files/tabler.css" rel="stylesheet" />
+  <link href="tabler/tabler_files/tabler-flags.css" rel="stylesheet" />
+  <link href="tabler/tabler_files/tabler-socials.css" rel="stylesheet" />
+  <link href="tabler/tabler_files/tabler-payments.css" rel="stylesheet" />
+  <link href="tabler/tabler_files/tabler-vendors.css" rel="stylesheet" />
+  <link href="tabler/tabler_files/tabler-marketing.css" rel="stylesheet" />
+  <link href="tabler/tabler_files/tabler-themes.css" rel="stylesheet" />
+  <link rel="preload" href="css/dashboard.css" as="style" onload="this.rel='stylesheet'" />
+  <noscript><link rel="stylesheet" href="css/dashboard.css" /></noscript>
 </head>
-<body class="has-sidebar-toggle">
-  <div class="layout">
+<body>
+  <div class="page">
     <?php require __DIR__ . '/../app/views/partials/sidebar.php'; ?>
 
-    <?php
-    $topbarTitle = 'Dashboard';
-    require __DIR__ . '/../app/views/partials/topbar.php';
-    unset($topbarTitle, $topbarSubhead, $topbarExtras);
-    ?>
+    <div class="page-wrapper">
+      <?php
+      $topbarTitle = 'Dashboard';
+      require __DIR__ . '/../app/views/partials/topbar.php';
+      unset($topbarTitle, $topbarSubhead, $topbarExtras);
+      ?>
 
-    <main class="content">
-      <section class="metrics" aria-label="Inventory health metrics">
-        <article class="metric">
-          <div class="metric-header">
-            <span>SKUs tracked</span>
-          </div>
-          <p class="metric-value"><?= e(inventoryFormatQuantity($inventoryStats['sku_count'])) ?></p>
-          <p class="metric-delta small">Live parts currently in the system.</p>
-        </article>
-        <article class="metric">
-          <div class="metric-header">
-            <span>Units on hand</span>
-          </div>
-          <p class="metric-value"><?= e(inventoryFormatQuantity($inventoryStats['units_on_hand'])) ?></p>
-          <p class="metric-delta small">Quantities available across all SKUs.</p>
-        </article>
-        <?php foreach ($metrics as $metric): ?>
-          <article class="metric<?= !empty($metric['accent']) ? ' accent' : '' ?>">
-            <div class="metric-header">
-              <span><?= e($metric['label']) ?></span>
-              <?php if (!empty($metric['time'])): ?>
-                <span class="metric-time"><?= e($metric['time']) ?></span>
-              <?php endif; ?>
-            </div>
-            <p class="metric-value"><?= e((string) $metric['value']) ?></p>
-            <?php if (!empty($metric['delta'])): ?>
-              <p class="metric-delta"><?= e($metric['delta']) ?></p>
-            <?php endif; ?>
-          </article>
-        <?php endforeach; ?>
-      </section>
+      <div class="page-body">
+        <div class="container-xl">
+          <main class="content">
+            <section class="metrics" aria-label="Inventory health metrics">
+              <article class="metric">
+                <div class="metric-header">
+                  <span>SKUs tracked</span>
+                </div>
+                <p class="metric-value"><?= e(inventoryFormatQuantity($inventoryStats['sku_count'])) ?></p>
+                <p class="metric-delta small">Live parts currently in the system.</p>
+              </article>
+              <article class="metric">
+                <div class="metric-header">
+                  <span>Units on hand</span>
+                </div>
+                <p class="metric-value"><?= e(inventoryFormatQuantity($inventoryStats['units_on_hand'])) ?></p>
+                <p class="metric-delta small">Quantities available across all SKUs.</p>
+              </article>
+              <?php foreach ($metrics as $metric): ?>
+                <article class="metric<?= !empty($metric['accent']) ? ' accent' : '' ?>">
+                  <div class="metric-header">
+                    <span><?= e($metric['label']) ?></span>
+                    <?php if (!empty($metric['time'])): ?>
+                      <span class="metric-time"><?= e($metric['time']) ?></span>
+                    <?php endif; ?>
+                  </div>
+                  <p class="metric-value"><?= e((string) $metric['value']) ?></p>
+                  <?php if (!empty($metric['delta'])): ?>
+                    <p class="metric-delta"><?= e($metric['delta']) ?></p>
+                  <?php endif; ?>
+                </article>
+              <?php endforeach; ?>
+            </section>
 
-      <section class="panel" id="stock-levels" aria-labelledby="inventory-title">
-        <header>
-          <h2 id="inventory-title">Inventory Snapshot</h2>
-          <span class="small">Updated <?= date('M j, Y') ?></span>
-        </header>
-        <div class="table-wrapper">
-          <div class="report-tabs" data-report-tabs>
-            <div class="report-tabs__list" role="tablist">
-              <button type="button" role="tab" id="report-tab-all" aria-controls="report-panel-all" aria-selected="true" tabindex="0" data-report-tab="all">
-                All Inventory <span class="report-tabs__count"><?= e((string) $allInventoryCount) ?></span>
-              </button>
-              <button type="button" role="tab" id="report-tab-low" aria-controls="report-panel-low" aria-selected="false" tabindex="-1" data-report-tab="low">
-                Low &amp; Critical <span class="report-tabs__count"><?= e((string) $lowCriticalCount) ?></span>
-              </button>
-              <button type="button" role="tab" id="report-tab-committed" aria-controls="report-panel-committed" aria-selected="false" tabindex="-1" data-report-tab="committed">
-                Committed Parts <span class="report-tabs__count"><?= e((string) $committedCount) ?></span>
-              </button>
-            </div>
-            <div class="report-tabs__panels">
-              <section id="report-panel-all" class="report-tabs__panel" role="tabpanel" aria-labelledby="report-tab-all" data-report-panel="all">
-                <?php renderInventoryTable($inventory, [
-                    'includeFilters' => true,
-                    'emptyMessage' => 'No inventory items found. Add rows to the inventory system to populate this dashboard.',
-                    'id' => 'dashboard-inventory-all',
-                    'pageSize' => 15,
-                    'showActions' => false,
-                    'locationHierarchy' => $locationHierarchy,
-                ]); ?>
-              </section>
-              <section id="report-panel-low" class="report-tabs__panel" role="tabpanel" aria-labelledby="report-tab-low" data-report-panel="low" hidden>
-                <?php renderInventoryTable($lowCriticalInventory, [
-                    'includeFilters' => false,
-                    'emptyMessage' => 'No low or critical parts right now.',
-                    'id' => 'dashboard-inventory-low',
-                    'pageSize' => 15,
-                    'showActions' => false,
-                ]); ?>
-              </section>
-              <section id="report-panel-committed" class="report-tabs__panel" role="tabpanel" aria-labelledby="report-tab-committed" data-report-panel="committed" hidden>
-                <?php renderInventoryTable($committedInventory, [
-                    'includeFilters' => false,
-                    'emptyMessage' => 'No parts are currently committed to jobs.',
-                    'id' => 'dashboard-inventory-committed',
-                    'pageSize' => 15,
-                    'showActions' => false,
-                ]); ?>
-              </section>
-            </div>
-          </div>
+            <section class="panel" id="stock-levels" aria-labelledby="inventory-title">
+              <header>
+                <h2 id="inventory-title">Inventory Snapshot</h2>
+                <span class="small">Updated <?= date('M j, Y') ?></span>
+              </header>
+              <div class="table-wrapper">
+                <div class="report-tabs" data-report-tabs>
+                  <div class="report-tabs__list" role="tablist">
+                    <button type="button" role="tab" id="report-tab-all" aria-controls="report-panel-all" aria-selected="true" tabindex="0" data-report-tab="all">
+                      All Inventory <span class="report-tabs__count"><?= e((string) $allInventoryCount) ?></span>
+                    </button>
+                    <button type="button" role="tab" id="report-tab-low" aria-controls="report-panel-low" aria-selected="false" tabindex="-1" data-report-tab="low">
+                      Low &amp; Critical <span class="report-tabs__count"><?= e((string) $lowCriticalCount) ?></span>
+                    </button>
+                    <button type="button" role="tab" id="report-tab-committed" aria-controls="report-panel-committed" aria-selected="false" tabindex="-1" data-report-tab="committed">
+                      Committed Parts <span class="report-tabs__count"><?= e((string) $committedCount) ?></span>
+                    </button>
+                  </div>
+                  <div class="report-tabs__panels">
+                    <section id="report-panel-all" class="report-tabs__panel" role="tabpanel" aria-labelledby="report-tab-all" data-report-panel="all">
+                      <?php renderInventoryTable($inventory, [
+                          'includeFilters' => true,
+                          'emptyMessage' => 'No inventory items found. Add rows to the inventory system to populate this dashboard.',
+                          'id' => 'dashboard-inventory-all',
+                          'pageSize' => 15,
+                          'showActions' => false,
+                          'locationHierarchy' => $locationHierarchy,
+                      ]); ?>
+                    </section>
+                    <section id="report-panel-low" class="report-tabs__panel" role="tabpanel" aria-labelledby="report-tab-low" data-report-panel="low" hidden>
+                      <?php renderInventoryTable($lowCriticalInventory, [
+                          'includeFilters' => false,
+                          'emptyMessage' => 'No low or critical parts right now.',
+                          'id' => 'dashboard-inventory-low',
+                          'pageSize' => 15,
+                          'showActions' => false,
+                      ]); ?>
+                    </section>
+                    <section id="report-panel-committed" class="report-tabs__panel" role="tabpanel" aria-labelledby="report-tab-committed" data-report-panel="committed" hidden>
+                      <?php renderInventoryTable($committedInventory, [
+                          'includeFilters' => false,
+                          'emptyMessage' => 'No parts are currently committed to jobs.',
+                          'id' => 'dashboard-inventory-committed',
+                          'pageSize' => 15,
+                          'showActions' => false,
+                      ]); ?>
+                    </section>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel" id="roadmap" aria-labelledby="roadmap-title">
+              <header>
+                <h2 id="roadmap-title">Next Modules</h2>
+                <span class="small">Work orders &amp; assemblies on the horizon</span>
+              </header>
+              <div class="roadmap">
+                <article class="roadmap-card">
+                  <h3>Work Order Management</h3>
+                  <p>Plan, assign, and track fabrication orders from intake to install. Includes scheduling, capacity, and document handoff.</p>
+                </article>
+                <article class="roadmap-card">
+                  <h3>Aluminum Door Assembly</h3>
+                  <p>Configure stile dimensions, hardware packages, and finish schedules with automatic BOM roll-ups.</p>
+                </article>
+                <article class="roadmap-card">
+                  <h3>Supplier Collaboration</h3>
+                  <p>Share forecasts, confirm lead times, and log delivery variances to keep inventory responsive.</p>
+                </article>
+              </div>
+            </section>
+          </main>
         </div>
-      </section>
-
-      <section class="panel" id="roadmap" aria-labelledby="roadmap-title">
-        <header>
-          <h2 id="roadmap-title">Next Modules</h2>
-          <span class="small">Work orders &amp; assemblies on the horizon</span>
-        </header>
-        <div class="roadmap">
-          <article class="roadmap-card">
-            <h3>Work Order Management</h3>
-            <p>Plan, assign, and track fabrication orders from intake to install. Includes scheduling, capacity, and document handoff.</p>
-          </article>
-          <article class="roadmap-card">
-            <h3>Aluminum Door Assembly</h3>
-            <p>Configure stile dimensions, hardware packages, and finish schedules with automatic BOM roll-ups.</p>
-          </article>
-          <article class="roadmap-card">
-            <h3>Supplier Collaboration</h3>
-            <p>Share forecasts, confirm lead times, and log delivery variances to keep inventory responsive.</p>
-          </article>
-        </div>
-      </section>
-    </main>
+      </div>
+    </div>
   </div>
+  <script src="tabler/tabler_files/tabler-theme.min.js.download" defer></script>
+  <script src="tabler/tabler_files/tabler.min.js.download" defer></script>
   <script src="js/dashboard.js"></script>
   <script src="js/inventory-table.js"></script>
   <script>
