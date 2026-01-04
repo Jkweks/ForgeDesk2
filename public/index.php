@@ -99,7 +99,7 @@ unset($groupItems, $item);
 
       <div class="page-body">
         <div class="container-xl">
-          <main class="page-content content">
+          <main class="page-content">
       <section class="metrics" aria-label="Inventory health metrics">
         <article class="metric">
           <div class="metric-header">
