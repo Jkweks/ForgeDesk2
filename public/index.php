@@ -118,6 +118,7 @@ foreach ($metrics as $metric) {
   <link rel="stylesheet" href="css/tabler-overrides.css" />
   <link rel="stylesheet" href="css/dashboard.css" />
   <script src="js/tabler.min.js" defer></script>
+  <script src="js/tabler-init.js" defer></script>
 </head>
 <body class="page has-sidebar-toggle">
   <div class="page">
