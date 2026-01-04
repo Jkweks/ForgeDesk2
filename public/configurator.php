@@ -1562,6 +1562,7 @@ $bodyAttributes = ' class="page has-sidebar-toggle"';
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title><?= e($app['name']) ?> Door Configurator</title>
+  <script src="js/tabler-theme.js"></script>
   <link rel="stylesheet" href="css/tabler.min.css" />
   <script src="js/tabler.min.js" defer></script>
 </head>

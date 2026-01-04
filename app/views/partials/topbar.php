@@ -105,6 +105,16 @@ $useLegacyTopbar = $forceLegacyTopbar || $isAdminRoute;
               <?= icon('user', 'icon me-2') ?>
               <?= e($app['user']['name']) ?>
             </span>
+            <a
+              class="dropdown-item d-flex align-items-center"
+              href="#"
+              data-bs-toggle="offcanvas"
+              data-bs-target="#theme-switcher"
+              aria-controls="theme-switcher"
+            >
+              <?= icon('settings', 'icon me-2') ?>
+              Appearance
+            </a>
             <div class="dropdown-divider"></div>
             <a class="dropdown-item d-flex align-items-center" href="#logout" aria-label="Sign out">
               <?= icon('logout', 'icon me-2') ?>
@@ -131,4 +141,62 @@ $useLegacyTopbar = $forceLegacyTopbar || $isAdminRoute;
       </div>
     </div>
   </header>
+  <div
+    class="offcanvas offcanvas-end"
+    tabindex="-1"
+    id="theme-switcher"
+    aria-labelledby="theme-switcher-title"
+  >
+    <div class="offcanvas-header">
+      <h2 class="offcanvas-title" id="theme-switcher-title">Appearance</h2>
+      <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    </div>
+    <div class="offcanvas-body">
+      <p class="text-muted">Choose a theme. Your preference is saved for future visits.</p>
+      <div class="list-group list-group-flush">
+        <label class="list-group-item d-flex align-items-center">
+          <span class="me-auto">
+            <span class="fw-semibold">Auto</span>
+            <small class="d-block text-secondary">Match system setting</small>
+          </span>
+          <input
+            class="form-check-input m-0"
+            type="radio"
+            name="theme-switcher-mode"
+            value="auto"
+            data-tabler-theme-value="auto"
+            aria-label="Use system theme"
+          />
+        </label>
+        <label class="list-group-item d-flex align-items-center">
+          <span class="me-auto">
+            <span class="fw-semibold">Light</span>
+            <small class="d-block text-secondary">Bright appearance</small>
+          </span>
+          <input
+            class="form-check-input m-0"
+            type="radio"
+            name="theme-switcher-mode"
+            value="light"
+            data-tabler-theme-value="light"
+            aria-label="Use light theme"
+          />
+        </label>
+        <label class="list-group-item d-flex align-items-center">
+          <span class="me-auto">
+            <span class="fw-semibold">Dark</span>
+            <small class="d-block text-secondary">Dimmed surfaces</small>
+          </span>
+          <input
+            class="form-check-input m-0"
+            type="radio"
+            name="theme-switcher-mode"
+            value="dark"
+            data-tabler-theme-value="dark"
+            aria-label="Use dark theme"
+          />
+        </label>
+      </div>
+    </div>
+  </div>
 <?php endif; ?>
