@@ -129,7 +129,7 @@ $printedOn = date('M j, Y');
                 <thead>
                 <tr>
                     <th scope="col">SKU</th>
-                    <th scope="col" class="numeric">Quantity Committed</th>
+                    <th scope="col" class="numeric quantity-committed">Quantity Committed</th>
                     <th scope="col">Parts Used</th>
                 </tr>
                 </thead>
@@ -142,7 +142,7 @@ $printedOn = date('M j, Y');
                     <?php foreach ($committedItems as $item): ?>
                         <tr>
                             <td><?= e($item['sku'] !== null && $item['sku'] !== '' ? $item['sku'] : '—') ?></td>
-                            <td class="numeric"><?= e(inventoryFormatQuantity((int) $item['committed_qty'])) ?></td>
+                            <td class="numeric quantity-committed"><?= e(inventoryFormatQuantity((int) $item['committed_qty'])) ?></td>
                             <td><div class="print-form__line" aria-hidden="true"></div></td>
                         </tr>
                     <?php endforeach; ?>

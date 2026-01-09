@@ -1975,19 +1975,21 @@ body.reservation-modal-open{overflow:hidden}
 .replenishment-table tr.is-invalid{background:rgba(217,70,70,.12)}
 .replenishment-table input[aria-invalid="true"]{border-color:#d94646;box-shadow:0 0 0 1px rgba(217,70,70,.35)}
 
-.print-form{background:#f8f9fb}
-.print-form__page{max-width:960px;margin:32px auto;padding:24px;background:#fff;border:1px solid #e5e7eb;border-radius:16px;box-shadow:0 20px 40px rgba(15,23,42,.08)}
+.print-form{background:#f8f9fb;color:#000}
+.print-form__page{max-width:960px;margin:32px auto;padding:24px;background:#fff;border:1px solid #e5e7eb;border-radius:16px;box-shadow:0 20px 40px rgba(15,23,42,.08);color:#000}
 .print-form__header{display:flex;justify-content:space-between;gap:24px;align-items:flex-start;margin-bottom:24px}
 .print-form__header h1{margin:0 0 6px;font-size:1.6rem}
-.print-form__meta{display:flex;flex-direction:column;gap:6px;text-align:right;font-size:.9rem;color:#4b5563}
+.print-form__meta{display:flex;flex-direction:column;gap:6px;text-align:right;font-size:.9rem;color:#000}
 .print-form__details{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:24px;padding:16px;border:1px solid #e5e7eb;border-radius:12px;background:#f9fafb}
-.print-form__details strong{display:block;font-size:.75rem;text-transform:uppercase;letter-spacing:.04em;color:#6b7280;margin-bottom:4px}
-.print-form__details span{font-weight:600;color:#111827}
+.print-form__details strong{display:block;font-size:.75rem;text-transform:uppercase;letter-spacing:.04em;color:#000;margin-bottom:4px}
+.print-form__details span{font-weight:600;color:#000}
 .print-form__table-wrapper{margin-bottom:24px}
 .print-form__table th.numeric,.print-form__table td.numeric{text-align:right}
+.print-form__table .quantity-committed{text-align:center}
 .print-form__line{border-bottom:2px solid #111827;height:24px;width:100%}
 .print-form__footer{display:flex;justify-content:space-between;align-items:center;gap:16px}
 .print-form__actions{display:flex;gap:12px}
+.print-form .muted,.print-form .small{color:#000}
 
 @media print{
   body.print-form{background:#fff}
