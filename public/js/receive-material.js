@@ -179,7 +179,7 @@
         const backorder = backorderInput ? parseQuantity(backorderInput.value) : 0;
         const receiveNow = Math.max(outstanding - backorder, 0);
 
-        if (receiveNow > 0) {
+        if (outstanding > 0) {
           hasChanges = true;
         }
 
@@ -188,7 +188,7 @@
 
       if (!hasChanges) {
         event.preventDefault();
-        window.alert('Enter backordered quantities that leave received material before submitting.');
+        window.alert('Select lines with outstanding quantities before submitting.');
       }
     });
   }
