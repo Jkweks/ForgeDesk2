@@ -66,8 +66,7 @@ if (isset($db) && $db instanceof \PDO) {
         if (is_array($submittedLines)) {
             foreach ($submittedLines as $lineId => $values) {
                 $formValues['lines'][(string) $lineId] = [
-                    'receive' => isset($values['receive']) ? trim((string) $values['receive']) : '',
-                    'cancel' => isset($values['cancel']) ? trim((string) $values['cancel']) : '',
+                    'backorder' => isset($values['backorder']) ? trim((string) $values['backorder']) : '',
                 ];
             }
         }
@@ -78,19 +77,19 @@ if (isset($db) && $db instanceof \PDO) {
         foreach ($selectedPurchaseOrder['lines'] as $line) {
             $lineId = $line['id'];
             $key = (string) $lineId;
-            $values = $formValues['lines'][$key] ?? ['receive' => '', 'cancel' => ''];
-            $receiveRaw = $values['receive'];
-            $cancelRaw = $values['cancel'];
+            $values = $formValues['lines'][$key] ?? ['backorder' => ''];
+            $backorderRaw = $values['backorder'];
             $errors = [];
+            $outstanding = $line['outstanding_quantity'];
 
-            $receive = $receiveRaw !== '' ? filter_var($receiveRaw, FILTER_VALIDATE_FLOAT) : 0.0;
-            $cancel = $cancelRaw !== '' ? filter_var($cancelRaw, FILTER_VALIDATE_FLOAT) : 0.0;
+            $backorder = $backorderRaw !== '' ? filter_var($backorderRaw, FILTER_VALIDATE_FLOAT) : 0.0;
 
-            if ($receive === false || $receive < 0) {
-                $errors['receive'] = 'Enter a non-negative quantity to receive.';
+            if ($backorder === false || $backorder < 0) {
+                $errors['backorder'] = 'Enter a non-negative backordered quantity.';
             }
-            if ($cancel === false || $cancel < 0) {
-                $errors['cancel'] = 'Enter a non-negative quantity to cancel.';
+
+            if ($backorder !== false && $backorder > $outstanding + 0.0005) {
+                $errors['backorder'] = 'Backordered quantity cannot exceed the outstanding amount.';
             }
 
             if ($errors !== []) {
@@ -98,19 +97,19 @@ if (isset($db) && $db instanceof \PDO) {
                 continue;
             }
 
-            $receive = $receive !== false ? (float) $receive : 0.0;
-            $cancel = $cancel !== false ? (float) $cancel : 0.0;
+            $backorder = $backorder !== false ? (float) $backorder : 0.0;
+            $receive = max($outstanding - $backorder, 0.0);
 
-            if ($receive <= 0 && $cancel <= 0) {
+            if ($receive <= 0.0) {
                 continue;
             }
 
             $hasChange = true;
-            $changes[$lineId] = ['receive' => $receive, 'cancel' => $cancel];
+            $changes[$lineId] = ['receive' => $receive];
         }
 
         if (!$hasChange) {
-            $generalErrors[] = 'Enter a quantity to receive or cancel before submitting.';
+            $generalErrors[] = 'Enter backordered quantities that leave received material before submitting.';
         }
 
         if ($generalErrors === [] && $lineErrors === []) {
@@ -129,7 +128,7 @@ if (isset($db) && $db instanceof \PDO) {
                 );
 
                 if ($result['lines'] === []) {
-                    $generalErrors[] = 'No receipt or cancellation quantities were processed.';
+                    $generalErrors[] = 'No receipt quantities were processed.';
                 } else {
                     $redirectUrl = '/receive-material.php?po_id=' . $selectedPurchaseOrder['id']
                         . '&success=recorded';
@@ -183,7 +182,7 @@ if (isset($db) && $db instanceof \PDO) {
             $lineId = $line['id'];
             $key = (string) $lineId;
             if (!isset($formValues['lines'][$key])) {
-                $formValues['lines'][$key] = ['receive' => '', 'cancel' => ''];
+                $formValues['lines'][$key] = ['backorder' => ''];
             }
         }
 
@@ -224,7 +223,7 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
         <header class="panel-header">
           <div>
             <h1 id="receive-material-title">Receive Material</h1>
-            <p class="small">Match supplier deliveries to purchase orders, update stock, and keep audit trails synced.</p>
+            <p class="small">Log supplier deliveries and note backordered quantities to keep inventory in sync.</p>
           </div>
         </header>
 
@@ -346,10 +345,9 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                           <th scope="col" class="sortable" data-sort-key="description" aria-sort="none">Description</th>
                           <th scope="col" class="sortable" data-sort-key="ordered" data-sort-type="number" aria-sort="none">Ordered</th>
                           <th scope="col" class="sortable" data-sort-key="received" data-sort-type="number" aria-sort="none">Received</th>
-                          <th scope="col" class="sortable" data-sort-key="cancelled" data-sort-type="number" aria-sort="none">Cancelled</th>
                           <th scope="col" class="sortable" data-sort-key="outstanding" data-sort-type="number" aria-sort="none">Outstanding</th>
-                          <th scope="col">Receive now</th>
-                          <th scope="col">Cancel</th>
+                          <th scope="col" class="sortable" data-sort-key="receive_now" data-sort-type="number" aria-sort="none">Receive now</th>
+                          <th scope="col">Backordered</th>
                         </tr>
                         <tr class="filter-row">
                           <th aria-hidden="true"></th>
@@ -357,7 +355,6 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                           <th><input type="search" class="column-filter" data-key="description" placeholder="Search description" aria-label="Filter by description"></th>
                           <th><input type="search" class="column-filter" data-key="ordered" placeholder="Search ordered" aria-label="Filter by ordered" inputmode="decimal"></th>
                           <th><input type="search" class="column-filter" data-key="received" placeholder="Search received" aria-label="Filter by received" inputmode="decimal"></th>
-                          <th><input type="search" class="column-filter" data-key="cancelled" placeholder="Search cancelled" aria-label="Filter by cancelled" inputmode="decimal"></th>
                           <th><input type="search" class="column-filter" data-key="outstanding" placeholder="Search outstanding" aria-label="Filter by outstanding" inputmode="decimal"></th>
                           <th aria-hidden="true"></th>
                           <th aria-hidden="true"></th>
@@ -378,8 +375,11 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                             $outstandingAttribute = number_format($outstanding, 3, '.', '');
                             $orderedLabel = purchaseOrderFormatLineQuantity($line);
                             $receivedLabel = purchaseOrderFormatQuantityForLine($line, (float) $line['quantity_received']);
-                            $cancelledLabel = purchaseOrderFormatQuantityForLine($line, (float) $line['quantity_cancelled']);
                             $outstandingLabel = purchaseOrderFormatQuantityForLine($line, (float) $outstanding);
+                            $backorderRaw = $values['backorder'] ?? '';
+                            $backorderValue = $backorderRaw !== '' ? (float) $backorderRaw : 0.0;
+                            $receiveNow = max($outstanding - $backorderValue, 0.0);
+                            $receiveNowLabel = purchaseOrderFormatQuantityForLine($line, $receiveNow);
                         ?>
                           <tr
                             data-line-id="<?= $lineId ?>"
@@ -390,8 +390,8 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                             data-description="<?= e($line['description'] ?? ($line['item'] ?? '')) ?>"
                             data-ordered="<?= e((string) $line['quantity_ordered']) ?>"
                             data-received="<?= e((string) $line['quantity_received']) ?>"
-                            data-cancelled="<?= e((string) $line['quantity_cancelled']) ?>"
                             data-outstanding="<?= e((string) $outstanding) ?>"
+                            data-receive-now="<?= e((string) $receiveNow) ?>"
                           >
                             <td class="select-col">
                               <label class="sr-only" for="select-line-<?= $lineId ?>">Select line <?= $lineId ?></label>
@@ -409,44 +409,28 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                             </td>
                             <td><?= e($orderedLabel) ?></td>
                             <td><?= e($receivedLabel) ?></td>
-                            <td><?= e($cancelledLabel) ?></td>
                             <td>
                               <span data-outstanding><?= e($outstandingLabel) ?></span>
                             </td>
                             <td class="input-cell">
-                              <label class="sr-only" for="receive-<?= $lineId ?>">Receive quantity</label>
-                              <input
-                                type="number"
-                                step="0.001"
-                                min="0"
-                                max="<?= e($outstandingAttribute) ?>"
-                                name="lines[<?= $lineId ?>][receive]"
-                                id="receive-<?= $lineId ?>"
-                                value="<?= e($values['receive']) ?>"
-                                data-receive
-                                data-base-disabled="<?= $outstanding <= 0.00001 ? '1' : '0' ?>"
-                                <?= $outstanding <= 0.00001 ? 'disabled' : '' ?>
-                              />
-                              <?php if (isset($lineError['receive'])): ?>
-                                <p class="field-error"><?= e($lineError['receive']) ?></p>
-                              <?php endif; ?>
+                              <span data-receive-now><?= e($receiveNowLabel) ?></span>
                             </td>
                             <td class="input-cell">
-                              <label class="sr-only" for="cancel-<?= $lineId ?>">Cancel quantity</label>
+                              <label class="sr-only" for="backorder-<?= $lineId ?>">Backordered quantity</label>
                               <input
                                 type="number"
                                 step="0.001"
                                 min="0"
                                 max="<?= e($outstandingAttribute) ?>"
-                                name="lines[<?= $lineId ?>][cancel]"
-                                id="cancel-<?= $lineId ?>"
-                                value="<?= e($values['cancel']) ?>"
-                                data-cancel
+                                name="lines[<?= $lineId ?>][backorder]"
+                                id="backorder-<?= $lineId ?>"
+                                value="<?= e($values['backorder']) ?>"
+                                data-backorder
                                 data-base-disabled="<?= $outstanding <= 0.00001 ? '1' : '0' ?>"
                                 <?= $outstanding <= 0.00001 ? 'disabled' : '' ?>
                               />
-                              <?php if (isset($lineError['cancel'])): ?>
-                                <p class="field-error"><?= e($lineError['cancel']) ?></p>
+                              <?php if (isset($lineError['backorder'])): ?>
+                                <p class="field-error"><?= e($lineError['backorder']) ?></p>
                               <?php endif; ?>
                             </td>
                           </tr>
@@ -456,7 +440,7 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                   </div>
 
                   <?php if (!$hasOutstanding): ?>
-                    <p class="muted">All lines on this purchase order have been received or cancelled.</p>
+                    <p class="muted">All lines on this purchase order have been received or fully accounted for.</p>
                   <?php endif; ?>
 
                   <div class="form-actions">

@@ -143,7 +143,7 @@ class InventorySystem(models.Model):
     default_glazing = models.DecimalField(max_digits=10, decimal_places=4, blank=True, null=True)
     default_frame_parts = models.JSONField(default=list)
     default_door_parts = models.JSONField(default=list)
-    system_type = models.TextField(blank=True, null=True)
+    system_type = models.TextField(default="framing")
     created_at = models.DateTimeField()
 
     class Meta:
@@ -160,6 +160,7 @@ class InventorySystem(models.Model):
 class InventoryItemSystem(models.Model):
     """Join table linking inventory items to supported systems."""
 
+    id = models.BigAutoField(primary_key=True)
     inventory_item = models.ForeignKey(
         InventoryItem,
         on_delete=models.CASCADE,
@@ -354,6 +355,7 @@ class InventoryTransactionLine(models.Model):
 class InventoryDailyUsage(models.Model):
     """Usage history for calculating demand trends."""
 
+    id = models.BigAutoField(primary_key=True)
     inventory_item = models.ForeignKey(
         InventoryItem,
         on_delete=models.CASCADE,
@@ -377,7 +379,7 @@ class InventoryDailyUsage(models.Model):
 class Supplier(models.Model):
     """Supplier metadata available in the admin."""
 
-    id = models.AutoField(primary_key=True)
+    id = models.BigAutoField(primary_key=True)
     name = models.CharField(max_length=255)
     contact_name = models.CharField(max_length=255, blank=True, null=True)
     contact_email = models.EmailField(max_length=255, blank=True, null=True)
@@ -401,7 +403,7 @@ class Supplier(models.Model):
 class PurchaseOrder(models.Model):
     """Purchase order header record."""
 
-    id = models.AutoField(primary_key=True)
+    id = models.BigAutoField(primary_key=True)
     order_number = models.CharField(max_length=255, blank=True, null=True)
     supplier = models.ForeignKey(
         Supplier,
@@ -435,7 +437,7 @@ class PurchaseOrder(models.Model):
 class PurchaseOrderLine(models.Model):
     """Line item belonging to a purchase order."""
 
-    id = models.AutoField(primary_key=True)
+    id = models.BigAutoField(primary_key=True)
     purchase_order = models.ForeignKey(
         PurchaseOrder,
         on_delete=models.CASCADE,
@@ -452,10 +454,10 @@ class PurchaseOrderLine(models.Model):
     )
     supplier_sku = models.CharField(max_length=255, blank=True, null=True)
     description = models.TextField(blank=True, null=True)
-    quantity_ordered = models.DecimalField(max_digits=18, decimal_places=6)
-    quantity_received = models.DecimalField(max_digits=18, decimal_places=6)
-    quantity_cancelled = models.DecimalField(max_digits=18, decimal_places=6)
-    unit_cost = models.DecimalField(max_digits=18, decimal_places=6)
+    quantity_ordered = models.DecimalField(max_digits=18, decimal_places=6, default=0)
+    quantity_received = models.DecimalField(max_digits=18, decimal_places=6, default=0)
+    quantity_cancelled = models.DecimalField(max_digits=18, decimal_places=6, default=0)
+    unit_cost = models.DecimalField(max_digits=18, decimal_places=6, default=0)
     packs_ordered = models.DecimalField(max_digits=18, decimal_places=6, default=0)
     pack_size = models.DecimalField(max_digits=18, decimal_places=6, default=0)
     purchase_uom = models.CharField(max_length=255, blank=True, null=True)
@@ -478,7 +480,7 @@ class PurchaseOrderLine(models.Model):
 class PurchaseOrderReceipt(models.Model):
     """Receipt event for a purchase order."""
 
-    id = models.AutoField(primary_key=True)
+    id = models.BigAutoField(primary_key=True)
     purchase_order = models.ForeignKey(
         PurchaseOrder,
         on_delete=models.CASCADE,
@@ -519,7 +521,7 @@ class PurchaseOrderReceipt(models.Model):
 class PurchaseOrderReceiptLine(models.Model):
     """Line within a purchase order receipt."""
 
-    id = models.AutoField(primary_key=True)
+    id = models.BigAutoField(primary_key=True)
     receipt = models.ForeignKey(
         PurchaseOrderReceipt,
         on_delete=models.CASCADE,
@@ -624,6 +626,7 @@ class MaintenanceAsset(models.Model):
 class MaintenanceAssetMachine(models.Model):
     """Join table connecting maintenance assets to machines."""
 
+    id = models.BigAutoField(primary_key=True)
     asset = models.ForeignKey(
         MaintenanceAsset,
         on_delete=models.CASCADE,

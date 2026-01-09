@@ -868,12 +868,6 @@ if (!function_exists('purchaseOrderEnsureSchema')) {
                     'notes' => $notes,
                     'lines' => $inventoryLines,
                 ]);
-
-                foreach ($inventoryLines as $line) {
-                    $itemId = (int) $line['item_id'];
-                    $quantityChange = (int) $line['quantity_change'];
-                    inventoryApplyLocationDelta($db, $itemId, $quantityChange);
-                }
             }
 
             $receiptReference = $reference ?? sprintf('PO %d receipt', $purchaseOrderId);
