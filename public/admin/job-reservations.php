@@ -590,6 +590,10 @@ $statusLabels = reservationStatusLabels();
                                                 <?php $hasAction = true; ?>
                                                 <a class="button ghost" href="?edit=<?= e((string) $reservation['id']) ?>">View &amp; Edit</a>
                                             <?php endif; ?>
+                                            <?php if ((int) $reservation['committed_qty'] > 0): ?>
+                                                <?php $hasAction = true; ?>
+                                                <a class="button ghost" href="/admin/job-reservation-print.php?id=<?= e((string) $reservation['id']) ?>" target="_blank" rel="noopener">Print Form</a>
+                                            <?php endif; ?>
                                             <?php if ($statusKey === 'active'): ?>
                                                 <?php $hasAction = true; ?>
                                                 <form method="post" class="inline-form">

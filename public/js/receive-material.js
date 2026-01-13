@@ -6,7 +6,7 @@
 
   function setRowEnabled(row, enabled) {
     const hasOutstanding = row.getAttribute('data-has-outstanding') === '1';
-    const inputs = Array.from(row.querySelectorAll('[data-receive], [data-cancel]'));
+    const inputs = Array.from(row.querySelectorAll('[data-backorder]'));
 
     inputs.forEach((input) => {
       const baseDisabled = input.getAttribute('data-base-disabled') === '1';
@@ -61,8 +61,8 @@
 
     function updateRow(row, changedInput) {
       const outstanding = parseQuantity(row.getAttribute('data-outstanding-value') || '0');
-      const receiveInput = row.querySelector('[data-receive]');
-      const cancelInput = row.querySelector('[data-cancel]');
+      const backorderInput = row.querySelector('[data-backorder]');
+      const receiveNowField = row.querySelector('[data-receive-now]');
       const checkbox = row.querySelector('[data-row-checkbox]');
       const isActive = !(checkbox instanceof HTMLInputElement) || checkbox.checked;
 
@@ -71,28 +71,25 @@
         return;
       }
 
-      const receive = receiveInput ? parseQuantity(receiveInput.value) : 0;
-      const cancel = cancelInput ? parseQuantity(cancelInput.value) : 0;
-      const total = receive + cancel;
+      const backorder = backorderInput ? parseQuantity(backorderInput.value) : 0;
+      const receiveNow = Math.max(outstanding - backorder, 0);
       const limit = outstanding + 0.0005;
-      const message = total > limit ? 'Quantities exceed outstanding amount.' : '';
+      const message = backorder > limit ? 'Backordered quantity exceeds outstanding amount.' : '';
 
-      if (receiveInput) {
-        receiveInput.setCustomValidity(message);
-        if (changedInput === receiveInput && message !== '') {
-          receiveInput.classList.add('is-invalid');
+      if (backorderInput) {
+        backorderInput.setCustomValidity(message);
+        if (changedInput === backorderInput && message !== '') {
+          backorderInput.classList.add('is-invalid');
         } else {
-          receiveInput.classList.remove('is-invalid');
+          backorderInput.classList.remove('is-invalid');
         }
       }
-      if (cancelInput) {
-        cancelInput.setCustomValidity(message);
-        if (changedInput === cancelInput && message !== '') {
-          cancelInput.classList.add('is-invalid');
-        } else {
-          cancelInput.classList.remove('is-invalid');
-        }
+
+      if (receiveNowField) {
+        receiveNowField.textContent = receiveNow.toFixed(3).replace(/\.?0+$/, '');
       }
+
+      row.setAttribute('data-receive-now', receiveNow.toString());
 
       if (message !== '') {
         row.classList.add('over-allocated');
@@ -122,8 +119,7 @@
     }
 
     rows.forEach((row) => {
-      const receiveInput = row.querySelector('[data-receive]');
-      const cancelInput = row.querySelector('[data-cancel]');
+      const backorderInput = row.querySelector('[data-backorder]');
       const checkbox = row.querySelector('[data-row-checkbox]');
       const outstanding = parseQuantity(row.getAttribute('data-outstanding-value') || '0');
 
@@ -137,18 +133,14 @@
         });
       }
 
-      if (receiveInput) {
-        receiveInput.addEventListener('focus', () => {
-          if (receiveInput.value.trim() === '' && outstanding > 0) {
-            receiveInput.value = outstanding.toString();
-            updateRow(row, receiveInput);
+      if (backorderInput) {
+        backorderInput.addEventListener('focus', () => {
+          if (backorderInput.value.trim() === '' && outstanding > 0) {
+            backorderInput.value = '0';
+            updateRow(row, backorderInput);
           }
         });
-        receiveInput.addEventListener('input', () => updateRow(row, receiveInput));
-      }
-
-      if (cancelInput) {
-        cancelInput.addEventListener('input', () => updateRow(row, cancelInput));
+        backorderInput.addEventListener('input', () => updateRow(row, backorderInput));
       }
 
       updateRow(row, null);
@@ -175,8 +167,7 @@
     form.addEventListener('submit', (event) => {
       let hasChanges = false;
       rows.forEach((row) => {
-        const receiveInput = row.querySelector('[data-receive]');
-        const cancelInput = row.querySelector('[data-cancel]');
+        const backorderInput = row.querySelector('[data-backorder]');
         const checkbox = row.querySelector('[data-row-checkbox]');
 
         if (checkbox instanceof HTMLInputElement && !checkbox.checked) {
@@ -184,10 +175,11 @@
           return;
         }
 
-        const receive = receiveInput ? parseQuantity(receiveInput.value) : 0;
-        const cancel = cancelInput ? parseQuantity(cancelInput.value) : 0;
+        const outstanding = parseQuantity(row.getAttribute('data-outstanding-value') || '0');
+        const backorder = backorderInput ? parseQuantity(backorderInput.value) : 0;
+        const receiveNow = Math.max(outstanding - backorder, 0);
 
-        if (receive > 0 || cancel > 0) {
+        if (outstanding > 0) {
           hasChanges = true;
         }
 
@@ -196,7 +188,7 @@
 
       if (!hasChanges) {
         event.preventDefault();
-        window.alert('Enter a quantity to receive or cancel before submitting.');
+        window.alert('Select lines with outstanding quantities before submitting.');
       }
     });
   }
