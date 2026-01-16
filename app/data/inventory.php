@@ -1183,7 +1183,7 @@ if (!function_exists('loadInventory')) {
                     'sku' => (string) $row['sku'],
                     'part_number' => (string) $row['part_number'],
                     'stock' => $stock,
-                    'available_qty' => $stock - $committed + $onOrder,
+                    'available_qty' => $stock - $committed,
                 ];
             },
             $rows
@@ -1818,7 +1818,7 @@ if (!function_exists('loadInventory')) {
             $committedSelect = $supportsReservations ? 'COALESCE(commitments.committed_qty, 0)' : '0';
             $activeSelect = $supportsReservations ? 'COALESCE(res.active_reservations, 0)' : '0';
             $locationSelect = 'COALESCE(loc.location_stock, 0)';
-            $availableExpr = $locationSelect . ' + COALESCE(i.on_order_qty, 0) - ' . $committedSelect;
+            $availableExpr = $locationSelect . ' - ' . $committedSelect;
 
             $joinCommitments = $supportsReservations
                 ? 'LEFT JOIN inventory_item_commitments commitments ON commitments.inventory_item_id = i.id '
@@ -1832,7 +1832,7 @@ if (!function_exists('loadInventory')) {
                 'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, '
                 . $locationSelect . ' AS location_stock, '
                 . $committedSelect . ' AS committed_qty, '
-                . $availableExpr . ' AS available_qty, i.status, i.supplier, i.supplier_contact, '
+                . $availableExpr . ' AS available_qty, i.on_order_qty, i.status, i.supplier, i.supplier_contact, '
                 . 'i.supplier_id, i.supplier_sku, '
                 . 'i.reorder_point, i.lead_time_days, i.average_daily_use, '
                 . $activeSelect . ' AS active_reservations, '
@@ -1888,6 +1888,7 @@ if (!function_exists('loadInventory')) {
                         'stock' => (int) $row['location_stock'],
                         'committed_qty' => (int) $row['committed_qty'],
                         'available_qty' => $available,
+                        'on_order_qty' => inventoryNormalizeNumericValue($row['on_order_qty'] ?? 0.0),
                         'status' => inventoryResolveStatus($available, $reorderPoint, $storedStatus),
                         'supplier_id' => $row['supplier_id'] !== null ? (int) $row['supplier_id'] : null,
                         'supplier' => $supplierDisplay,
@@ -1934,7 +1935,7 @@ if (!function_exists('loadInventory')) {
                 'SELECT '
                 . 'COALESCE(SUM(COALESCE(loc.location_stock, 0)), 0) AS total_stock, '
                 . 'COALESCE(SUM(' . $committedSelect . '), 0) AS total_committed, '
-                . 'COALESCE(SUM(COALESCE(loc.location_stock, 0) + COALESCE(i.on_order_qty, 0) - ' . $committedSelect . '), 0) AS total_available '
+                . 'COALESCE(SUM(COALESCE(loc.location_stock, 0) - ' . $committedSelect . '), 0) AS total_available '
                 . 'FROM inventory_items i '
                 . 'LEFT JOIN (SELECT inventory_item_id, SUM(quantity) AS location_stock FROM inventory_item_locations GROUP BY inventory_item_id) loc '
                 . 'ON loc.inventory_item_id = i.id '
@@ -2019,7 +2020,7 @@ if (!function_exists('loadInventory')) {
             'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, '
             . 'COALESCE(loc.location_stock, 0) AS location_stock, i.on_order_qty, '
             . $committedSelect . ' AS committed_qty, '
-            . '(COALESCE(loc.location_stock, 0) + COALESCE(i.on_order_qty, 0) - ' . $committedSelect . ') AS available_qty, i.status, i.supplier, i.supplier_contact, '
+            . '(COALESCE(loc.location_stock, 0) - ' . $committedSelect . ') AS available_qty, i.status, i.supplier, i.supplier_contact, '
             . 'i.supplier_id, i.supplier_sku, '
             . 'i.reorder_point, i.lead_time_days, i.average_daily_use, '
             . 'i.pack_size, i.purchase_uom, i.stock_uom, '
@@ -2137,7 +2138,7 @@ if (!function_exists('loadInventory')) {
             'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, '
             . 'COALESCE(loc.location_stock, 0) AS location_stock, i.on_order_qty, '
             . $committedSelect . ' AS committed_qty, '
-            . '(COALESCE(loc.location_stock, 0) + COALESCE(i.on_order_qty, 0) - ' . $committedSelect . ') AS available_qty, i.status, i.supplier, i.supplier_contact, '
+            . '(COALESCE(loc.location_stock, 0) - ' . $committedSelect . ') AS available_qty, i.status, i.supplier, i.supplier_contact, '
             . 'i.supplier_id, i.supplier_sku, '
             . 'i.reorder_point, i.lead_time_days, i.average_daily_use, '
             . 'i.pack_size, i.purchase_uom, i.stock_uom, '
