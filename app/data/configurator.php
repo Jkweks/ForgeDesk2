@@ -164,6 +164,86 @@ if (!function_exists('configuratorEnsureSchema')) {
                 ON configurator_part_requirements(required_inventory_item_id)'
         );
 
+        // Context-aware requirements columns
+        $db->exec(
+            "ALTER TABLE configurator_part_requirements
+                ADD COLUMN IF NOT EXISTS applies_when_opening_type TEXT NULL"
+        );
+        $db->exec(
+            "ALTER TABLE configurator_part_requirements
+                ADD COLUMN IF NOT EXISTS applies_when_hand TEXT NULL"
+        );
+        $db->exec(
+            "ALTER TABLE configurator_part_requirements
+                ADD COLUMN IF NOT EXISTS applies_when_hinging TEXT NULL"
+        );
+        $db->exec(
+            "ALTER TABLE configurator_part_requirements
+                ADD COLUMN IF NOT EXISTS applies_when_job_scope TEXT NULL"
+        );
+        $db->exec(
+            "ALTER TABLE configurator_part_requirements
+                ADD COLUMN IF NOT EXISTS target_component TEXT NOT NULL DEFAULT 'parent'"
+        );
+        $db->exec(
+            "ALTER TABLE configurator_part_requirements
+                ADD COLUMN IF NOT EXISTS auto_add BOOLEAN NOT NULL DEFAULT TRUE"
+        );
+        $db->exec(
+            "ALTER TABLE configurator_part_requirements
+                ADD COLUMN IF NOT EXISTS allow_removal BOOLEAN NOT NULL DEFAULT FALSE"
+        );
+        $db->exec(
+            "ALTER TABLE configurator_part_requirements
+                ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0"
+        );
+        $db->exec(
+            "ALTER TABLE configurator_part_requirements
+                ADD COLUMN IF NOT EXISTS fallback_item_id BIGINT NULL"
+        );
+
+        // Add constraints for context-aware requirements
+        $db->exec(
+            "DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint WHERE conname = 'configurator_part_requirements_opening_type_check'
+                ) THEN
+                    ALTER TABLE configurator_part_requirements
+                        ADD CONSTRAINT configurator_part_requirements_opening_type_check
+                        CHECK (applies_when_opening_type IS NULL OR applies_when_opening_type IN ('single', 'pair'));
+                END IF;
+            END$$;"
+        );
+
+        $db->exec(
+            "DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint WHERE conname = 'configurator_part_requirements_target_check'
+                ) THEN
+                    ALTER TABLE configurator_part_requirements
+                        ADD CONSTRAINT configurator_part_requirements_target_check
+                        CHECK (target_component IN ('parent', 'active_door', 'inactive_door', 'lock_jamb',
+                                                    'hinge_jamb', 'door_head', 'frame', 'door', 'transom'));
+                END IF;
+            END$$;"
+        );
+
+        // Add foreign key constraint for fallback_item_id
+        $db->exec(
+            "DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint WHERE conname = 'configurator_part_requirements_fallback_fkey'
+                ) THEN
+                    ALTER TABLE configurator_part_requirements
+                        ADD CONSTRAINT configurator_part_requirements_fallback_fkey
+                        FOREIGN KEY (fallback_item_id) REFERENCES inventory_items(id) ON DELETE SET NULL;
+                END IF;
+            END$$;"
+        );
+
         $db->exec(
             'CREATE TABLE IF NOT EXISTS configurator_jobs (
                 id BIGSERIAL PRIMARY KEY,
@@ -1186,5 +1266,465 @@ if (!function_exists('configuratorEnsureSchema')) {
             'status' => (string) $row['status'],
             'notes' => $row['notes'] !== null ? (string) $row['notes'] : null,
         ];
+    }
+
+    /**
+     * Get all applicable requirements for a part given the current configuration context.
+     * Handles conditional matching and multi-level dependencies.
+     *
+     * @param array<string,mixed> $context Context with keys: opening_type, hand, hinging, job_scope, frame_finish, door_finish
+     * @param int $depth Current recursion depth for preventing infinite loops
+     * @param list<int> $visited Already visited part IDs to prevent cycles
+     * @return list<array{required_item_id:int,required_item_name:string,quantity:int,target_component:string,auto_add:bool,allow_removal:bool,source_part_id:int,finish_applied:?string}>
+     */
+    function configuratorGetApplicableRequirements(
+        \PDO $db,
+        int $partId,
+        array $context,
+        int $depth = 0,
+        array $visited = []
+    ): array {
+        // Prevent infinite loops
+        if ($depth > 10 || in_array($partId, $visited, true)) {
+            return [];
+        }
+        $visited[] = $partId;
+
+        $stmt = $db->prepare('
+            SELECT
+                r.required_inventory_item_id,
+                r.quantity,
+                r.finish_policy,
+                r.fixed_finish,
+                r.fallback_item_id,
+                r.target_component,
+                r.auto_add,
+                r.allow_removal,
+                r.priority,
+                i.name as required_part_name
+            FROM configurator_part_requirements r
+            JOIN inventory_items i ON i.id = r.required_inventory_item_id
+            WHERE r.inventory_item_id = :part_id
+              AND (r.applies_when_opening_type IS NULL OR r.applies_when_opening_type = :opening_type)
+              AND (r.applies_when_hand IS NULL OR r.applies_when_hand = :hand)
+              AND (r.applies_when_hinging IS NULL OR r.applies_when_hinging = :hinging)
+              AND (r.applies_when_job_scope IS NULL OR r.applies_when_job_scope = :job_scope)
+            ORDER BY r.priority ASC
+        ');
+
+        $stmt->execute([
+            'part_id' => $partId,
+            'opening_type' => $context['opening_type'] ?? null,
+            'hand' => $context['hand'] ?? null,
+            'hinging' => $context['hinging'] ?? null,
+            'job_scope' => $context['job_scope'] ?? null,
+        ]);
+
+        $requirements = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $req) {
+            // Resolve finish policy
+            $resolvedItem = configuratorResolveFinishPolicy($db, $req, $context);
+
+            if ($resolvedItem) {
+                $requirements[] = [
+                    'required_item_id' => $resolvedItem['item_id'],
+                    'required_item_name' => $resolvedItem['item_name'],
+                    'quantity' => (int)$req['quantity'],
+                    'target_component' => $req['target_component'],
+                    'auto_add' => (bool)$req['auto_add'],
+                    'allow_removal' => (bool)$req['allow_removal'],
+                    'source_part_id' => $partId,
+                    'finish_applied' => $resolvedItem['finish'],
+                ];
+
+                // Multi-level: get requirements of this required part
+                $nestedReqs = configuratorGetApplicableRequirements(
+                    $db,
+                    $resolvedItem['item_id'],
+                    $context,
+                    $depth + 1,
+                    $visited
+                );
+                $requirements = array_merge($requirements, $nestedReqs);
+            }
+        }
+
+        return $requirements;
+    }
+
+    /**
+     * Resolve which specific item to use based on finish policy.
+     * Handles finish mismatches with fallbacks.
+     *
+     * @param array<string,mixed> $requirement
+     * @param array<string,mixed> $context
+     * @return array{item_id:int,item_name:string,finish:?string}|null
+     */
+    function configuratorResolveFinishPolicy(
+        \PDO $db,
+        array $requirement,
+        array $context
+    ): ?array {
+        $itemId = (int)$requirement['required_inventory_item_id'];
+        $policy = $requirement['finish_policy'];
+        $fixedFinish = $requirement['fixed_finish'];
+        $fallbackId = $requirement['fallback_item_id'] ? (int)$requirement['fallback_item_id'] : null;
+
+        $targetFinish = null;
+
+        // Determine target finish based on policy
+        switch ($policy) {
+            case 'fixed':
+                $targetFinish = $fixedFinish;
+                break;
+            case 'match_frame':
+                $targetFinish = $context['frame_finish'] ?? null;
+                break;
+            case 'match_door':
+                $targetFinish = $context['door_finish'] ?? null;
+                break;
+            case 'any_available':
+                // Don't filter by finish - use whatever is available
+                $targetFinish = null;
+                break;
+        }
+
+        // Check if item is available in target finish
+        if ($targetFinish !== null) {
+            $available = configuratorCheckItemFinishAvailability($db, $itemId, $targetFinish);
+
+            if ($available) {
+                return [
+                    'item_id' => $itemId,
+                    'item_name' => $available['name'],
+                    'finish' => $targetFinish,
+                ];
+            }
+
+            // Finish not available - try fallback
+            if ($fallbackId) {
+                $fallbackAvailable = configuratorCheckItemFinishAvailability($db, $fallbackId, $targetFinish);
+                if ($fallbackAvailable) {
+                    return [
+                        'item_id' => $fallbackId,
+                        'item_name' => $fallbackAvailable['name'],
+                        'finish' => $targetFinish,
+                    ];
+                }
+            }
+
+            // No match found - log warning but continue
+            error_log("Warning: Required part $itemId not available in finish $targetFinish");
+            return null;
+        }
+
+        // No finish constraint - use item as-is
+        $stmt = $db->prepare('SELECT name FROM inventory_items WHERE id = :id');
+        $stmt->execute(['id' => $itemId]);
+        $item = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return $item ? [
+            'item_id' => $itemId,
+            'item_name' => $item['name'],
+            'finish' => null,
+        ] : null;
+    }
+
+    /**
+     * Check if an inventory item is available in a specific finish.
+     *
+     * @return array{id:int,name:string}|null
+     */
+    function configuratorCheckItemFinishAvailability(
+        \PDO $db,
+        int $itemId,
+        string $finish
+    ): ?array {
+        // Check if the item exists and matches the finish
+        // This assumes inventory items have a finish field - adjust based on your schema
+        $stmt = $db->prepare('
+            SELECT id, name
+            FROM inventory_items
+            WHERE id = :id
+              AND (finish = :finish OR finish IS NULL)
+            LIMIT 1
+        ');
+        $stmt->execute(['id' => $itemId, 'finish' => $finish]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        if ($row) {
+            return [
+                'id' => (int)$row['id'],
+                'name' => (string)$row['name'],
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * Extract all currently selected parts from a config array.
+     *
+     * @param array<string,mixed> $config
+     * @return list<int>
+     */
+    function configuratorExtractAllSelectedParts(array $config): array
+    {
+        $parts = [];
+
+        // Frame parts
+        if (isset($config['frame']['parts']) && is_array($config['frame']['parts'])) {
+            foreach ($config['frame']['parts'] as $part) {
+                if (is_numeric($part)) {
+                    $parts[] = (int)$part;
+                }
+            }
+        }
+
+        // Door parts (active)
+        if (isset($config['door']['active']['parts']) && is_array($config['door']['active']['parts'])) {
+            foreach ($config['door']['active']['parts'] as $part) {
+                if (is_numeric($part)) {
+                    $parts[] = (int)$part;
+                }
+            }
+        }
+
+        // Door parts (inactive)
+        if (isset($config['door']['inactive']['parts']) && is_array($config['door']['inactive']['parts'])) {
+            foreach ($config['door']['inactive']['parts'] as $part) {
+                if (is_numeric($part)) {
+                    $parts[] = (int)$part;
+                }
+            }
+        }
+
+        return array_values(array_unique($parts));
+    }
+
+    /**
+     * Add a required part to the appropriate component in config.
+     * Returns true if the part was added, false if it was already present.
+     *
+     * @param array<string,mixed> $config
+     */
+    function configuratorAddPartToComponent(
+        array &$config,
+        string $targetComponent,
+        int $partId,
+        int $quantity
+    ): bool {
+        // Map target component to config structure
+        switch ($targetComponent) {
+            case 'active_door':
+                if (!isset($config['door']['active']['parts'])) {
+                    $config['door']['active']['parts'] = [];
+                }
+                if (!in_array($partId, $config['door']['active']['parts'], true)) {
+                    $config['door']['active']['parts'][] = $partId;
+                    return true;
+                }
+                break;
+
+            case 'inactive_door':
+                if (!isset($config['door']['inactive']['parts'])) {
+                    $config['door']['inactive']['parts'] = [];
+                }
+                if (!in_array($partId, $config['door']['inactive']['parts'], true)) {
+                    $config['door']['inactive']['parts'][] = $partId;
+                    return true;
+                }
+                break;
+
+            case 'lock_jamb':
+                if (($config['frame']['parts']['lock_jamb'] ?? null) !== $partId) {
+                    $config['frame']['parts']['lock_jamb'] = $partId;
+                    return true;
+                }
+                break;
+
+            case 'hinge_jamb':
+                if (($config['frame']['parts']['hinge_jamb'] ?? null) !== $partId) {
+                    $config['frame']['parts']['hinge_jamb'] = $partId;
+                    return true;
+                }
+                break;
+
+            case 'door_head':
+                if (($config['frame']['parts']['door_head'] ?? null) !== $partId) {
+                    $config['frame']['parts']['door_head'] = $partId;
+                    return true;
+                }
+                break;
+
+            case 'frame':
+                // Add to general frame parts array
+                if (!isset($config['frame']['parts'])) {
+                    $config['frame']['parts'] = [];
+                }
+                if (is_array($config['frame']['parts']) && !in_array($partId, $config['frame']['parts'], true)) {
+                    $config['frame']['parts'][] = $partId;
+                    return true;
+                }
+                break;
+
+            case 'door':
+                // Add to active door by default
+                if (!isset($config['door']['active']['parts'])) {
+                    $config['door']['active']['parts'] = [];
+                }
+                if (!in_array($partId, $config['door']['active']['parts'], true)) {
+                    $config['door']['active']['parts'][] = $partId;
+                    return true;
+                }
+                break;
+        }
+
+        return false; // Already present or invalid component
+    }
+
+    /**
+     * Apply all requirements to a configuration (auto-add parts).
+     * Returns modified config with list of what was added.
+     *
+     * @param array<string,mixed> $config
+     * @return array{config:array<string,mixed>,added_parts:list<array{part_id:int,part_name:string,target:string,source:int,quantity:int,allow_removal:bool}>}
+     */
+    function configuratorApplyAllRequirements(
+        \PDO $db,
+        array $config
+    ): array {
+        $context = [
+            'opening_type' => $config['entry']['opening_type'] ?? null,
+            'hand' => $config['entry']['hand'] ?? null,
+            'hinging' => $config['entry']['hinging'] ?? null,
+            'job_scope' => $config['config']['job_scope'] ?? null,
+            'frame_finish' => $config['entry']['finish'] ?? null,
+            'door_finish' => $config['entry']['finish'] ?? null,
+        ];
+
+        $addedParts = [];
+        $allSelectedParts = configuratorExtractAllSelectedParts($config);
+
+        foreach ($allSelectedParts as $partId) {
+            $requirements = configuratorGetApplicableRequirements($db, $partId, $context);
+
+            foreach ($requirements as $req) {
+                if (!$req['auto_add']) {
+                    continue; // Skip validation-only requirements
+                }
+
+                // Add to appropriate component
+                $added = configuratorAddPartToComponent(
+                    $config,
+                    $req['target_component'],
+                    $req['required_item_id'],
+                    $req['quantity']
+                );
+
+                if ($added) {
+                    $addedParts[] = [
+                        'part_id' => $req['required_item_id'],
+                        'part_name' => $req['required_item_name'],
+                        'target' => $req['target_component'],
+                        'source' => $partId,
+                        'quantity' => $req['quantity'],
+                        'allow_removal' => $req['allow_removal'],
+                    ];
+                }
+            }
+        }
+
+        // Store auto-added parts in config for UI tracking
+        $config['_auto_added_parts'] = $addedParts;
+
+        return [
+            'config' => $config,
+            'added_parts' => $addedParts,
+        ];
+    }
+
+    /**
+     * Check if a part is present in a specific component of the config.
+     */
+    function configuratorCheckPartPresent(
+        array $config,
+        string $targetComponent,
+        int $partId
+    ): bool {
+        switch ($targetComponent) {
+            case 'active_door':
+                return in_array($partId, $config['door']['active']['parts'] ?? [], true);
+
+            case 'inactive_door':
+                return in_array($partId, $config['door']['inactive']['parts'] ?? [], true);
+
+            case 'lock_jamb':
+                return ($config['frame']['parts']['lock_jamb'] ?? null) === $partId;
+
+            case 'hinge_jamb':
+                return ($config['frame']['parts']['hinge_jamb'] ?? null) === $partId;
+
+            case 'door_head':
+                return ($config['frame']['parts']['door_head'] ?? null) === $partId;
+
+            case 'frame':
+                $frameParts = $config['frame']['parts'] ?? [];
+                return is_array($frameParts) ? in_array($partId, $frameParts, true) : false;
+
+            case 'door':
+                return in_array($partId, $config['door']['active']['parts'] ?? [], true);
+        }
+
+        return false;
+    }
+
+    /**
+     * Validate configuration against requirements.
+     * Returns list of missing required parts.
+     *
+     * @param array<string,mixed> $config
+     * @return list<array{source_part_id:int,required_part_id:int,required_part_name:string,target_component:string,message:string}>
+     */
+    function configuratorValidateRequirements(
+        \PDO $db,
+        array $config
+    ): array {
+        $context = [
+            'opening_type' => $config['entry']['opening_type'] ?? null,
+            'hand' => $config['entry']['hand'] ?? null,
+            'hinging' => $config['entry']['hinging'] ?? null,
+            'job_scope' => $config['config']['job_scope'] ?? null,
+            'frame_finish' => $config['entry']['finish'] ?? null,
+            'door_finish' => $config['entry']['finish'] ?? null,
+        ];
+
+        $errors = [];
+        $allSelectedParts = configuratorExtractAllSelectedParts($config);
+
+        foreach ($allSelectedParts as $partId) {
+            $requirements = configuratorGetApplicableRequirements($db, $partId, $context);
+
+            foreach ($requirements as $req) {
+                $present = configuratorCheckPartPresent(
+                    $config,
+                    $req['target_component'],
+                    $req['required_item_id']
+                );
+
+                if (!$present) {
+                    $errors[] = [
+                        'source_part_id' => $partId,
+                        'required_part_id' => $req['required_item_id'],
+                        'required_part_name' => $req['required_item_name'],
+                        'target_component' => $req['target_component'],
+                        'message' => "Missing required part: {$req['required_item_name']} " .
+                                    "for {$req['target_component']}",
+                    ];
+                }
+            }
+        }
+
+        return $errors;
     }
 }

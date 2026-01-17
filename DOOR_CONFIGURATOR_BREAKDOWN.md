@@ -431,6 +431,137 @@ $doorFormData = [system_id, active[stile, glazing, parts], inactive[stile, glazi
 
 ---
 
+## Context-Aware Requirements System
+
+**Status:** ✅ **IMPLEMENTED** (2026-01-17)
+
+The configurator now includes a sophisticated requirements system that automatically adds dependent parts based on configuration context.
+
+### Features
+
+**1. Conditional Requirements**
+- Parts can require other parts based on:
+  - Opening type (single/pair)
+  - Hand orientation
+  - Hinging type
+  - Job scope
+  - Finish selection
+
+**2. Multi-Level Dependencies**
+- Supports chained requirements (Part A → Part B → Part C)
+- Automatic recursion with cycle detection
+- Priority-based ordering
+
+**3. Finish Policy with Fallbacks**
+- **Fixed:** Specific finish required
+- **Match Frame:** Match selected frame finish
+- **Match Door:** Match selected door finish
+- **Any Available:** No finish constraint
+- **Fallback Support:** Alternative part if primary not available in required finish
+
+**4. Silent Auto-Addition**
+- Parts automatically added when dependencies detected
+- No popups or interruptions
+- Visual "AUTO" badge on auto-added parts
+- Console logging for debugging
+
+**5. Removal Warnings**
+- Users can remove auto-added parts with confirmation
+- Warning shows why part was added
+- Configurable: some parts can be locked (non-removable)
+
+### Database Schema
+
+**New Columns in `configurator_part_requirements`:**
+
+```sql
+-- Context conditions (NULL means "applies to all")
+applies_when_opening_type TEXT NULL,      -- 'single', 'pair'
+applies_when_hand TEXT NULL,              -- specific hand
+applies_when_hinging TEXT NULL,           -- 'continuous', 'butt', etc.
+applies_when_job_scope TEXT NULL,         -- 'door_and_frame', etc.
+
+-- Target component
+target_component TEXT NOT NULL DEFAULT 'parent',
+  -- 'parent', 'active_door', 'inactive_door', 'lock_jamb',
+  -- 'hinge_jamb', 'door_head', 'frame', 'door', 'transom'
+
+-- Behavior flags
+auto_add BOOLEAN NOT NULL DEFAULT TRUE,       -- Auto-add or just validate?
+allow_removal BOOLEAN NOT NULL DEFAULT FALSE, -- Can user remove this?
+priority INTEGER NOT NULL DEFAULT 0,          -- For ordering
+
+-- Enhanced finish policy
+fallback_item_id BIGINT NULL REFERENCES inventory_items(id),
+  -- Alternative part if primary finish not available
+```
+
+### Backend Functions
+
+**New functions in `app/data/configurator.php`:**
+
+1. `configuratorGetApplicableRequirements()` - Get all matching requirements for a part given context
+2. `configuratorResolveFinishPolicy()` - Resolve which item to use based on finish policy
+3. `configuratorCheckItemFinishAvailability()` - Check if item available in specific finish
+4. `configuratorExtractAllSelectedParts()` - Extract currently selected parts from config
+5. `configuratorAddPartToComponent()` - Add required part to correct component
+6. `configuratorApplyAllRequirements()` - Apply all requirements (auto-add parts)
+7. `configuratorCheckPartPresent()` - Check if part present in component
+8. `configuratorValidateRequirements()` - Validate config against requirements
+
+### Frontend Integration
+
+**API Endpoint:** `/public/api/configurator_requirements.php`
+
+**JavaScript Functions (in `public/configurator.php`):**
+- `getConfigurationContext()` - Get current context (opening type, hand, finish, etc.)
+- `extractSelectedParts()` - Get all selected parts from form
+- `buildConfigObject()` - Build config object from form state
+- `applyRequirementsSilently()` - Call API to apply requirements
+- `updateUIWithAddedParts()` - Update form with auto-added parts
+- `markAsAutoAdded()` - Add visual "AUTO" badge
+- `handlePartRemoval()` - Show warning when removing auto-added parts
+
+**Event Listeners:**
+- Attached to all door part checkboxes
+- Attached to all frame part dropdowns
+- Triggers requirements check on part selection/deselection
+
+### Example Use Case
+
+**Scenario:** Lock X on pair doors requires strike plate on inactive door
+
+**Setup:**
+```sql
+INSERT INTO configurator_part_requirements (
+  inventory_item_id,              -- Lock X (ID: 123)
+  required_inventory_item_id,     -- Strike Plate Y (ID: 456)
+  quantity,                       -- 1
+  finish_policy,                  -- 'match_frame'
+  target_component,               -- 'inactive_door'
+  applies_when_opening_type,      -- 'pair'
+  auto_add,                       -- TRUE
+  allow_removal                   -- FALSE
+) VALUES (123, 456, 1, 'match_frame', 'inactive_door', 'pair', TRUE, FALSE);
+```
+
+**What Happens:**
+1. User selects Lock X on active door in pair configuration
+2. System detects opening_type = 'pair'
+3. Finds requirement: Lock X → Strike Plate Y (inactive door)
+4. Checks if Strike Plate Y available in frame finish
+5. Silently adds Strike Plate Y to inactive door parts
+6. Shows "AUTO" badge next to Strike Plate Y
+7. If user tries to remove it, shows warning dialog
+
+### File Locations
+
+- **API Endpoint:** `/home/user/ForgeDesk2/public/api/configurator_requirements.php`
+- **Backend Functions:** `/home/user/ForgeDesk2/app/data/configurator.php` (lines 1271-1729)
+- **Frontend Integration:** `/home/user/ForgeDesk2/public/configurator.php` (lines 3226-3470)
+
+---
+
 ## Current Issues / Gaps
 
 ### Missing Functionality
@@ -513,7 +644,7 @@ $doorFormData = [system_id, active[stile, glazing, parts], inactive[stile, glazi
 4. ☐ Enable door tag template copying
 5. ☐ Add dimension validation to Entry step
 6. ☐ Implement frame parts length calculations
-7. ☐ Surface part requirements and dependencies
+7. ✅ **Surface part requirements and dependencies** ← COMPLETED (Context-Aware Requirements System)
 8. ☐ Build material list/BOM export
 9. ☐ Add quantity multiplier for bulk orders
 10. ☐ Integrate hardware requirements

@@ -3222,6 +3222,252 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
         applyActiveRecord(activeRecord);
       }
       renderConfigs();
+
+      // ========================================
+      // Context-Aware Requirements System
+      // ========================================
+
+      // Store auto-added parts metadata
+      window.autoAddedParts = new Map();
+
+      /**
+       * Get current configuration context
+       */
+      function getConfigurationContext() {
+        const entryOpeningType = document.querySelector('[data-opening-type]');
+        const entryHandSingle = document.getElementById('entry_hand_single');
+        const entryHandPair = document.getElementById('entry_hand_pair');
+        const entryFinish = document.getElementById('entry_finish');
+        const entryHinging = document.getElementById('entry_hinging');
+        const configJobScope = document.getElementById('config_job_scope');
+
+        const openingType = entryOpeningType instanceof HTMLSelectElement ? entryOpeningType.value : 'single';
+        const hand = openingType === 'pair'
+          ? (entryHandPair instanceof HTMLSelectElement ? entryHandPair.value : 'RHR Active')
+          : (entryHandSingle instanceof HTMLSelectElement ? entryHandSingle.value : 'LH - Inswing');
+
+        return {
+          opening_type: openingType,
+          hand: hand,
+          hinging: entryHinging instanceof HTMLSelectElement ? entryHinging.value : 'continuous',
+          job_scope: configJobScope instanceof HTMLSelectElement ? configJobScope.value : 'door_and_frame',
+          frame_finish: entryFinish instanceof HTMLSelectElement ? entryFinish.value : 'C2',
+          door_finish: entryFinish instanceof HTMLSelectElement ? entryFinish.value : 'C2',
+        };
+      }
+
+      /**
+       * Extract all currently selected parts from the form
+       */
+      function extractSelectedParts() {
+        const parts = [];
+
+        // Frame parts
+        document.querySelectorAll('[data-frame-parts] select').forEach((select) => {
+          if (select.value && select.value !== '') {
+            parts.push(parseInt(select.value, 10));
+          }
+        });
+
+        // Door parts (active and inactive)
+        document.querySelectorAll('[data-door-parts] input[type="checkbox"]:checked').forEach((checkbox) => {
+          const value = parseInt(checkbox.value, 10);
+          if (!isNaN(value)) {
+            parts.push(value);
+          }
+        });
+
+        return [...new Set(parts)]; // Remove duplicates
+      }
+
+      /**
+       * Build configuration object from current form state
+       */
+      function buildConfigObject() {
+        return {
+          config: {
+            job_scope: document.getElementById('config_job_scope')?.value || 'door_and_frame',
+          },
+          entry: {
+            opening_type: document.querySelector('[data-opening-type]')?.value || 'single',
+            hand: getConfigurationContext().hand,
+            hinging: document.getElementById('entry_hinging')?.value || 'continuous',
+            finish: document.getElementById('entry_finish')?.value || 'C2',
+          },
+          frame: {
+            parts: {}, // Frame parts structure
+          },
+          door: {
+            active: {
+              parts: [], // Door parts arrays
+            },
+            inactive: {
+              parts: [],
+            },
+          },
+        };
+      }
+
+      /**
+       * Apply requirements silently (called after part selection)
+       */
+      async function applyRequirementsSilently() {
+        try {
+          const config = buildConfigObject();
+          const context = getConfigurationContext();
+
+          const response = await fetch('/api/configurator_requirements.php', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              action: 'apply_requirements',
+              config: config,
+            }),
+          });
+
+          if (!response.ok) {
+            console.error('Requirements API error:', response.status);
+            return;
+          }
+
+          const result = await response.json();
+
+          if (result.success && result.added_parts && result.added_parts.length > 0) {
+            // Store auto-added parts for removal warnings
+            result.added_parts.forEach((part) => {
+              window.autoAddedParts.set(part.part_id, {
+                name: part.part_name,
+                target: part.target,
+                source: part.source,
+                allow_removal: part.allow_removal,
+              });
+            });
+
+            // Update UI to reflect auto-added parts (without page reload)
+            updateUIWithAddedParts(result.added_parts);
+
+            console.info('Auto-added parts:', result.added_parts);
+          }
+        } catch (error) {
+          console.error('Error applying requirements:', error);
+        }
+      }
+
+      /**
+       * Update UI to show auto-added parts
+       */
+      function updateUIWithAddedParts(addedParts) {
+        addedParts.forEach((part) => {
+          const target = part.target;
+          const partId = part.part_id;
+
+          // Find the appropriate checkbox or dropdown and check/select it
+          if (target === 'active_door' || target === 'door') {
+            const checkbox = document.querySelector(
+              `[data-door-parts="active"] input[value="${partId}"]`
+            );
+            if (checkbox && !checkbox.checked) {
+              checkbox.checked = true;
+              markAsAutoAdded(checkbox, part.part_name);
+            }
+          } else if (target === 'inactive_door') {
+            const checkbox = document.querySelector(
+              `[data-door-parts="inactive"] input[value="${partId}"]`
+            );
+            if (checkbox && !checkbox.checked) {
+              checkbox.checked = true;
+              markAsAutoAdded(checkbox, part.part_name);
+            }
+          } else if (target.includes('jamb') || target.includes('head')) {
+            // Frame parts - handle dropdowns
+            const select = document.querySelector(`#frame_part_${target}`);
+            if (select && select.value !== partId.toString()) {
+              select.value = partId.toString();
+              markAsAutoAdded(select, part.part_name);
+            }
+          }
+        });
+      }
+
+      /**
+       * Mark an element as auto-added with visual indicator
+       */
+      function markAsAutoAdded(element, partName) {
+        const label = element.closest('label') || element.closest('.form-row');
+        if (label && !label.querySelector('.auto-badge')) {
+          const badge = document.createElement('span');
+          badge.className = 'auto-badge';
+          badge.textContent = 'AUTO';
+          badge.title = `Auto-added based on other selections`;
+          badge.style.cssText = 'margin-left: 8px; padding: 2px 6px; background: #4CAF50; color: white; border-radius: 3px; font-size: 10px; font-weight: bold;';
+          label.appendChild(badge);
+        }
+      }
+
+      /**
+       * Handle part removal with warning if needed
+       */
+      function handlePartRemoval(element, partId) {
+        const autoAddedInfo = window.autoAddedParts.get(parseInt(partId, 10));
+
+        if (autoAddedInfo && !autoAddedInfo.allow_removal) {
+          const confirmed = confirm(
+            `Warning: "${autoAddedInfo.name}" was automatically added based on other selections.\n\n` +
+            `Removing it may cause validation errors when saving.\n\n` +
+            `Are you sure you want to remove it?`
+          );
+
+          if (!confirmed) {
+            // Re-check the checkbox if user cancels
+            if (element.type === 'checkbox') {
+              element.checked = true;
+            }
+            return false;
+          }
+
+          // Remove from auto-added tracking
+          window.autoAddedParts.delete(parseInt(partId, 10));
+
+          // Remove auto badge
+          const label = element.closest('label');
+          if (label) {
+            const badge = label.querySelector('.auto-badge');
+            if (badge) {
+              badge.remove();
+            }
+          }
+        }
+
+        return true;
+      }
+
+      // Attach listeners to part selection elements
+      document.querySelectorAll('[data-door-parts] input[type="checkbox"]').forEach((checkbox) => {
+        checkbox.addEventListener('change', (e) => {
+          if (e.target.checked) {
+            // Part selected - apply requirements
+            applyRequirementsSilently();
+          } else {
+            // Part deselected - check if it's auto-added
+            handlePartRemoval(e.target, e.target.value);
+          }
+        });
+      });
+
+      // Attach listeners to frame part dropdowns
+      document.querySelectorAll('[data-frame-parts] select').forEach((select) => {
+        select.addEventListener('change', () => {
+          applyRequirementsSilently();
+        });
+      });
+
+      // Apply requirements on page load if parts are already selected
+      if (extractSelectedParts().length > 0) {
+        applyRequirementsSilently();
+      }
+
     })();
   </script>
 
