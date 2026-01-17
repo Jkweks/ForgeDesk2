@@ -22,7 +22,8 @@ if (!function_exists('estimate_upload_sanitize_id')) {
 if (!function_exists('estimate_upload_storage_dir')) {
     function estimate_upload_storage_dir(): string
     {
-        $base = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'estimate-uploads';
+        // Use project storage directory instead of system temp
+        $base = __DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'estimate-uploads';
 
         if (!is_dir($base)) {
             $previousUmask = umask(0);
