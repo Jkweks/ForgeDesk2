@@ -558,7 +558,71 @@ INSERT INTO configurator_part_requirements (
 
 - **API Endpoint:** `/home/user/ForgeDesk2/public/api/configurator_requirements.php`
 - **Backend Functions:** `/home/user/ForgeDesk2/app/data/configurator.php` (lines 1271-1729)
-- **Frontend Integration:** `/home/user/ForgeDesk2/public/configurator.php` (lines 3226-3470)
+- **Frontend Integration:** `/home/user/ForgeDesk2/public/configurator.php` (lines 3226-3570)
+- **Admin UI:** `/home/user/ForgeDesk2/public/admin_requirements.php`
+
+### Management & Administration
+
+**✅ Admin UI** - Full-featured management interface at `/admin_requirements.php`:
+
+**Features:**
+- **View All Requirements** - Paginated table with detailed view
+- **Filter by Source Part** - Dropdown to filter requirements by source part
+- **Add New Requirements** - Modal form with all fields
+- **Delete Requirements** - One-click deletion with confirmation
+- **Export Data** - Download as CSV or JSON
+
+**Table Columns:**
+- Source part (with part number)
+- Required part (with part number and fallback)
+- Quantity
+- Target component
+- Conditions (opening type, hand, hinging, job scope)
+- Finish policy (with fixed finish if applicable)
+- Flags (auto-add, removable/locked)
+- Priority
+- Actions (delete button)
+
+**Add Requirement Form Fields:**
+1. Source Part (dropdown)
+2. Required Part (dropdown)
+3. Quantity (number input)
+4. Target Component (dropdown: parent, active_door, inactive_door, lock_jamb, etc.)
+5. Finish Policy (fixed, match_frame, match_door, any_available)
+6. Fixed Finish (text input, conditional)
+7. Priority (number, default 0)
+8. Fallback Part (dropdown, optional)
+9. Context Conditions:
+   - Opening Type (any, single, pair)
+   - Hand (text input)
+   - Hinging (dropdown)
+   - Job Scope (dropdown)
+10. Behavior Flags:
+    - Auto-add checkbox (default checked)
+    - Allow removal checkbox (default unchecked)
+
+**Export Options:**
+- **CSV Format** - For spreadsheets/Excel (includes all fields with part names)
+- **JSON Format** - For API/code integration (full data structure)
+
+**✅ Summary Display** - Auto-added parts shown in summary step:
+
+**Features:**
+- Grouped by target component
+- Lock icon indicator (🔒 locked, 🔓 removable)
+- Green "AUTO" badge on each part
+- Location indicator (📍 Active Door, Lock Jamb, etc.)
+- Informational callout explaining auto-added parts
+
+**Display Format:**
+```
+📍 Active Door
+  🔒 Strike Plate Y [AUTO]
+  🔓 Mounting Hardware [AUTO]
+
+📍 Inactive Door
+  🔒 Secondary Strike [AUTO]
+```
 
 ---
 

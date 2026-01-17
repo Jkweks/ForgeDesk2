@@ -2199,6 +2199,19 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
                       </div>
                     <?php endif; ?>
                   </div>
+                  <div class="card">
+                    <h3>Auto-Added Parts <span class="badge success" style="font-size: 10px; vertical-align: middle;">AUTO</span></h3>
+                    <div id="auto-added-parts-summary">
+                      <p class="small muted">Loading auto-added parts...</p>
+                    </div>
+                    <div class="callout info" style="margin-top: 1rem;">
+                      <p class="small">
+                        <strong>ℹ️ About auto-added parts</strong><br>
+                        These parts were automatically added based on your selections and configuration context (opening type, hand, finish, etc.).
+                        They are required for the selected components to function properly.
+                      </p>
+                    </div>
+                  </div>
                 </div>
                 <div class="form-actions">
                   <button type="submit" class="button secondary" name="navigate_to" value="door">Back to door</button>
@@ -3466,6 +3479,92 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
       // Apply requirements on page load if parts are already selected
       if (extractSelectedParts().length > 0) {
         applyRequirementsSilently();
+      }
+
+      // ========================================
+      // Summary Page: Display Auto-Added Parts
+      // ========================================
+
+      /**
+       * Populate auto-added parts summary on the summary page
+       */
+      function populateAutoAddedPartsSummary() {
+        const summaryContainer = document.getElementById('auto-added-parts-summary');
+
+        if (!summaryContainer) {
+          return; // Not on summary page
+        }
+
+        if (!window.autoAddedParts || window.autoAddedParts.size === 0) {
+          summaryContainer.innerHTML = '<p class="small muted">No auto-added parts for this configuration.</p>';
+          return;
+        }
+
+        // Group parts by target component
+        const partsByTarget = {};
+        window.autoAddedParts.forEach((info, partId) => {
+          const target = info.target || 'unknown';
+          if (!partsByTarget[target]) {
+            partsByTarget[target] = [];
+          }
+          partsByTarget[target].push({
+            id: partId,
+            name: info.name,
+            source: info.source,
+            allow_removal: info.allow_removal,
+          });
+        });
+
+        // Build HTML
+        let html = '<div class="stacked gap-sm">';
+
+        const targetLabels = {
+          'active_door': 'Active Door',
+          'inactive_door': 'Inactive Door',
+          'door': 'Door',
+          'lock_jamb': 'Lock Jamb',
+          'hinge_jamb': 'Hinge Jamb',
+          'door_head': 'Door Head',
+          'frame': 'Frame',
+          'transom': 'Transom',
+        };
+
+        Object.keys(partsByTarget).sort().forEach((target) => {
+          const targetLabel = targetLabels[target] || target;
+          const parts = partsByTarget[target];
+
+          html += `<div>`;
+          html += `<p class="small" style="font-weight: 600; margin-bottom: 0.25rem; color: #4CAF50;">📍 ${targetLabel}</p>`;
+          html += `<ul class="stacked gap-xxs">`;
+
+          parts.forEach((part) => {
+            const lockIcon = part.allow_removal ? '🔓' : '🔒';
+            const lockTitle = part.allow_removal ? 'Can be removed' : 'Locked (required)';
+            html += `<li style="display: flex; align-items: center; gap: 0.5rem;">`;
+            html += `<span style="font-size: 14px;" title="${lockTitle}">${lockIcon}</span>`;
+            html += `<span>${part.name}</span>`;
+            html += `<span class="auto-badge" style="margin-left: auto; padding: 2px 6px; background: #4CAF50; color: white; border-radius: 3px; font-size: 10px; font-weight: bold;">AUTO</span>`;
+            html += `</li>`;
+          });
+
+          html += `</ul>`;
+          html += `</div>`;
+        });
+
+        html += '</div>';
+
+        summaryContainer.innerHTML = html;
+      }
+
+      // Call on page load
+      populateAutoAddedPartsSummary();
+
+      // Re-populate when navigating to summary (in case of dynamic updates)
+      const summaryStepLink = document.querySelector('button[value="summary"], a[href*="step=summary"]');
+      if (summaryStepLink) {
+        summaryStepLink.addEventListener('click', () => {
+          setTimeout(populateAutoAddedPartsSummary, 100);
+        });
       }
 
     })();
