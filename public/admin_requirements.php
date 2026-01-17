@@ -21,7 +21,7 @@ $inventoryItems = [];
 $filterPartId = null;
 
 try {
-    $db = dbConnect($databaseConfig);
+    $db = db($databaseConfig);
     configuratorEnsureSchema($db);
 } catch (\Throwable $e) {
     $errors[] = 'Database connection failed: ' . $e->getMessage();
@@ -202,7 +202,7 @@ if ($db) {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Requirements Manager - <?= e($app['app_name']) ?></title>
-  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="stylesheet" href="css/dashboard.css" />
   <style>
     .requirements-table {
       width: 100%;
