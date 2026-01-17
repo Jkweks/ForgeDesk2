@@ -25,3 +25,9 @@ WORKDIR /var/www/html
 COPY . /var/www/html
 
 RUN composer install --no-dev --optimize-autoloader
+
+# Copy and set executable permissions for entrypoint script
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
