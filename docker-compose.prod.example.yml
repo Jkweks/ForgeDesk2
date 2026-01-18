@@ -1,0 +1,106 @@
+# Production Docker Compose Configuration for ForgeDesk2
+# This example shows how to configure storage volumes for production deployment
+#
+# Usage:
+# 1. Copy this file: cp docker-compose.prod.example.yml docker-compose.prod.yml
+# 2. Update environment variables and secrets
+# 3. Run setup script: ./docker-storage-setup.sh
+# 4. Start services: docker-compose -f docker-compose.prod.yml up -d
+
+services:
+  web:
+    image: ghcr.io/jkweks/forgedesk-web:v0.4.3
+    ports:
+      - "8046:80"
+    env_file:
+      - .env.prod
+
+    # Storage volumes for persistent data
+    volumes:
+      # EZ Estimate template storage (uploaded Excel templates)
+      - ./storage/ez-estimate:/var/www/html/storage/ez-estimate
+
+      # Estimate upload processing (temporary files during import)
+      - ./storage/estimate-uploads:/var/www/html/storage/estimate-uploads
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    restart: unless-stopped
+
+    # Optional: Healthcheck for web service
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  admin:
+    image: ghcr.io/jkweks/forgedesk-admin:v0.4.3
+    ports:
+      - "8002:8000"
+
+    environment:
+      DJANGO_SETTINGS_MODULE: forge_admin.settings
+      SECRET_KEY: "django-insecure-admin-service"  # CHANGE THIS IN PRODUCTION
+      DEBUG: "1"  # Set to "0" in production
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: forge_desk
+      DB_USERNAME: forge
+      DB_PASSWORD: forgepass  # CHANGE THIS IN PRODUCTION
+      ALLOWED_HOSTS: "fab.kweks.co,localhost,127.0.0.1"
+      CSRF_TRUSTED_ORIGINS: "https://fab.kweks.co,https://fab.vosdb.kweks.co"
+      SECURE_PROXY_SSL_HEADER: "HTTP_X_FORWARDED_PROTO,https"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD-SHELL", "python - <<'PY'\nimport socket,sys\ns=socket.socket();\nsys.exit(0) if not s.connect_ex(('127.0.0.1',8000)) else sys.exit(1)\nPY"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+    command: ["/app/entrypoint.sh"]
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: forgedesk-postgres
+
+    environment:
+      POSTGRES_DB: forge_desk
+      POSTGRES_USER: forge
+      POSTGRES_PASSWORD: forgepass  # CHANGE THIS IN PRODUCTION
+
+    volumes:
+      # Database persistent storage
+      - ./postgres:/var/lib/postgresql/data
+
+      # Optional: Database initialization scripts
+      - ./database/migrations:/migrations:ro
+
+    ports:
+      - "5432:5432"
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+# Optional: Named volumes can be used instead of bind mounts
+# Uncomment if you prefer Docker-managed volumes
+# volumes:
+#   postgres_data:
+#   ez_estimate_storage:
+#   estimate_uploads:

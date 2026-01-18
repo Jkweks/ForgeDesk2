@@ -49,6 +49,25 @@ Key variables:
 - `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD`
 - `APP_NAME`, `APP_TAGLINE`, `APP_USER_EMAIL`, `APP_USER_AVATAR`, `APP_USER_NAME`
 
+## Docker storage configuration
+
+When deploying ForgeDesk2 in production or on a separate server, you need to configure storage directories with proper permissions for file uploads and templates.
+
+ForgeDesk2 uses storage directories for:
+- **EZ Estimate Templates**: Uploaded Excel templates
+- **Estimate Uploads**: Temporary processing of uploaded estimates
+
+### Quick setup
+
+1. Run the storage setup script:
+   ```bash
+   ./docker-storage-setup.sh
+   ```
+
+2. Add volume mounts to your docker-compose.yml (see `docker-compose.prod.example.yml`)
+
+For detailed instructions, troubleshooting, and security considerations, see [DOCKER_STORAGE.md](DOCKER_STORAGE.md).
+
 ## Next steps
 
 * Expand the schema with work order and assembly tables to power the roadmap modules.
