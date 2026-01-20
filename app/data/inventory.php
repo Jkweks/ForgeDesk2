@@ -1818,7 +1818,7 @@ if (!function_exists('loadInventory')) {
             $committedSelect = $supportsReservations ? 'COALESCE(commitments.committed_qty, 0)' : '0';
             $activeSelect = $supportsReservations ? 'COALESCE(res.active_reservations, 0)' : '0';
             $locationSelect = 'COALESCE(loc.location_stock, 0)';
-            $availableExpr = $locationSelect . ' + COALESCE(i.on_order_qty, 0) - ' . $committedSelect;
+            $availableExpr = $locationSelect . ' - ' . $committedSelect;
 
             $joinCommitments = $supportsReservations
                 ? 'LEFT JOIN inventory_item_commitments commitments ON commitments.inventory_item_id = i.id '
@@ -1833,7 +1833,7 @@ if (!function_exists('loadInventory')) {
                 . $locationSelect . ' AS location_stock, '
                 . $committedSelect . ' AS committed_qty, '
                 . $availableExpr . ' AS available_qty, i.status, i.supplier, i.supplier_contact, '
-                . 'i.supplier_id, i.supplier_sku, '
+                . 'i.supplier_id, i.supplier_sku, i.on_order_qty, '
                 . 'i.reorder_point, i.lead_time_days, i.average_daily_use, '
                 . $activeSelect . ' AS active_reservations, '
                 . 's.name AS supplier_name, s.contact_email AS supplier_contact_email, s.contact_phone AS supplier_contact_phone, '
@@ -1888,6 +1888,7 @@ if (!function_exists('loadInventory')) {
                         'stock' => (int) $row['location_stock'],
                         'committed_qty' => (int) $row['committed_qty'],
                         'available_qty' => $available,
+                        'on_order_qty' => inventoryNormalizeNumericValue($row['on_order_qty'] ?? 0.0),
                         'status' => inventoryResolveStatus($available, $reorderPoint, $storedStatus),
                         'supplier_id' => $row['supplier_id'] !== null ? (int) $row['supplier_id'] : null,
                         'supplier' => $supplierDisplay,

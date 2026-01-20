@@ -151,6 +151,7 @@ if (!function_exists('renderInventoryTable')) {
                     . ' data-stock="' . e((string) $row['stock']) . '"'
                     . ' data-committed="' . e((string) $row['committed_qty']) . '"'
                     . ' data-available="' . e((string) $row['available_qty']) . '"'
+                    . ' data-on-order="' . e((string) $row['on_order_qty']) . '"'
                     . ' data-lead-time="' . e((string) $row['lead_time_days']) . '"'
                     . ' data-average-daily-use="' . e($dailyUseAttr) . '"'
                     . ' data-status="' . e((string) $row['status']) . '"'
@@ -171,7 +172,13 @@ if (!function_exists('renderInventoryTable')) {
                 echo '<td class="numeric"><span class="quantity-pill ' . $availableClass . '">' . e(inventoryFormatQuantity((int) $row['available_qty'])) . '</span></td>';
                 echo '<td class="numeric">' . e((string) $row['lead_time_days']) . '</td>';
                 echo '<td class="numeric"><span class="quantity-pill">' . e($dailyUseDisplay) . '<span class="muted">/day</span></span></td>';
-                echo '<td><span class="status" data-level="' . e((string) $row['status']) . '">' . e((string) $row['status']) . '</span></td>';
+
+                $statusText = (string) $row['status'];
+                $onOrderQty = inventoryNormalizeNumericValue($row['on_order_qty'] ?? 0.0);
+                if ($onOrderQty > 0) {
+                    $statusText .= ' - on order';
+                }
+                echo '<td><span class="status" data-level="' . e((string) $row['status']) . '">' . e($statusText) . '</span></td>';
 
                 echo '<td class="reservations">';
                 if ((int) $row['active_reservations'] > 0) {
