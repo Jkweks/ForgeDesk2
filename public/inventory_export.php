@@ -38,13 +38,17 @@ header('Content-Disposition: attachment; filename="' . $filename . '"');
 header('Pragma: no-cache');
 header('Expires: 0');
 
-fputcsv($output, ['Part name', 'Color/Finish', 'On Hand']);
+fputcsv($output, ['Part Number', 'SKU', 'Finish', 'Description', 'On Hand', 'Committed', 'On Order']);
 
 foreach ($inventory as $row) {
     fputcsv($output, [
-        $row['item'],
+        $row['part_number'],
+        $row['sku'],
         $row['finish'] ?? '',
+        $row['item'],
         $row['stock'],
+        $row['committed_qty'],
+        $row['on_order_qty'],
     ]);
 }
 

@@ -86,7 +86,7 @@ if (!function_exists('renderInventoryTable')) {
         echo '<th scope="col" class="numeric sortable" data-sort-key="stock" data-sort-type="number" aria-sort="none">Stock</th>';
         echo '<th scope="col" class="numeric sortable" data-sort-key="committed" data-sort-type="number" aria-sort="none">Committed</th>';
         echo '<th scope="col" class="numeric sortable" data-sort-key="available" data-sort-type="number" aria-sort="none">Available</th>';
-        echo '<th scope="col" class="numeric sortable" data-sort-key="leadTime" data-sort-type="number" aria-sort="none">Lead Time (days)</th>';
+        echo '<th scope="col" class="numeric sortable" data-sort-key="inbound" data-sort-type="number" aria-sort="none">Inbound</th>';
         echo '<th scope="col" class="numeric sortable" data-sort-key="averageDailyUse" data-sort-type="number" aria-sort="none">Avg Daily Use</th>';
         echo '<th scope="col" class="sortable" data-sort-key="status" aria-sort="none">Status</th>';
         echo '<th scope="col" class="sortable" data-sort-key="reservations" data-sort-type="number" aria-sort="none">Reservations</th>';
@@ -108,7 +108,7 @@ if (!function_exists('renderInventoryTable')) {
             echo '<th><input type="search" class="column-filter" data-key="stock" placeholder="Search stock" aria-label="Filter by stock" inputmode="numeric"></th>';
             echo '<th><input type="search" class="column-filter" data-key="committed" placeholder="Search committed" aria-label="Filter by committed" inputmode="numeric"></th>';
             echo '<th><input type="search" class="column-filter" data-key="available" placeholder="Search available" aria-label="Filter by available" inputmode="numeric"></th>';
-            echo '<th><input type="search" class="column-filter" data-key="leadTime" placeholder="Search lead time" aria-label="Filter by lead time" inputmode="numeric"></th>';
+            echo '<th><input type="search" class="column-filter" data-key="inbound" placeholder="Search inbound" aria-label="Filter by inbound" inputmode="numeric"></th>';
             echo '<th><input type="search" class="column-filter" data-key="averageDailyUse" placeholder="Search avg/day" aria-label="Filter by average daily use" inputmode="decimal"></th>';
             echo '<th><input type="search" class="column-filter" data-key="status" placeholder="Search status" aria-label="Filter by status"></th>';
             echo '<th><input type="search" class="column-filter" data-key="reservations" placeholder="Search reservations" aria-label="Filter by reservations" inputmode="numeric"></th>';
@@ -151,7 +151,7 @@ if (!function_exists('renderInventoryTable')) {
                     . ' data-stock="' . e((string) $row['stock']) . '"'
                     . ' data-committed="' . e((string) $row['committed_qty']) . '"'
                     . ' data-available="' . e((string) $row['available_qty']) . '"'
-                    . ' data-lead-time="' . e((string) $row['lead_time_days']) . '"'
+                    . ' data-inbound="' . e((string) $row['on_order_qty']) . '"'
                     . ' data-average-daily-use="' . e($dailyUseAttr) . '"'
                     . ' data-status="' . e((string) $row['status']) . '"'
                     . ' data-reservations="' . e((string) $row['active_reservations']) . '"'
@@ -169,9 +169,15 @@ if (!function_exists('renderInventoryTable')) {
                     . ' aria-label="View committed jobs for ' . e((string) $row['item']) . '">' . e(inventoryFormatQuantity((int) $row['committed_qty'])) . '</button>'
                     . '</td>';
                 echo '<td class="numeric"><span class="quantity-pill ' . $availableClass . '">' . e(inventoryFormatQuantity((int) $row['available_qty'])) . '</span></td>';
-                echo '<td class="numeric">' . e((string) $row['lead_time_days']) . '</td>';
+                echo '<td class="numeric"><span class="quantity-pill">' . e(inventoryFormatQuantity((int) $row['on_order_qty'])) . '</span></td>';
                 echo '<td class="numeric"><span class="quantity-pill">' . e($dailyUseDisplay) . '<span class="muted">/day</span></span></td>';
-                echo '<td><span class="status" data-level="' . e((string) $row['status']) . '">' . e((string) $row['status']) . '</span></td>';
+
+                $statusText = (string) $row['status'];
+                $onOrderQty = inventoryNormalizeNumericValue($row['on_order_qty'] ?? 0.0);
+                if ($onOrderQty > 0) {
+                    $statusText .= ' - on order';
+                }
+                echo '<td><span class="status" data-level="' . e((string) $row['status']) . '">' . e($statusText) . '</span></td>';
 
                 echo '<td class="reservations">';
                 if ((int) $row['active_reservations'] > 0) {
