@@ -43,7 +43,6 @@ fputcsv($output, ['Part Number', 'SKU', 'Finish', 'Description', 'On Hand', 'Com
 foreach ($inventory as $row) {
     fputcsv($output, [
         $row['part_number'],
-        $row['sku'],
         $row['finish'] ?? '',
         $row['item'],
         $row['stock'],
