@@ -317,10 +317,15 @@ if (!function_exists('purchaseOrderTubeliteCategory')) {
             $category = purchaseOrderTubeliteCategory($sku);
 
             if ($category === null) {
+                // Use pack quantities if available, otherwise use eaches
+                $packSize = isset($line['pack_size']) ? (float) $line['pack_size'] : 0.0;
+                $packsOrdered = isset($line['packs_ordered']) ? (float) $line['packs_ordered'] : 0.0;
+                $unmappedQuantity = ($packSize > 0 && $packsOrdered > 0) ? $packsOrdered : (float) $line['quantity_ordered'];
+
                 $unmapped[] = [
                     'sku' => $sku !== '' ? $sku : null,
                     'description' => $line['description'] ?? $line['item'] ?? null,
-                    'quantity' => $line['quantity_ordered'],
+                    'quantity' => $unmappedQuantity,
                 ];
                 continue;
             }
@@ -329,7 +334,11 @@ if (!function_exists('purchaseOrderTubeliteCategory')) {
             $parsed = inventoryParseSku($line['sku'] ?? $sku);
             $partNumber = $parsed['part_number'] !== '' ? $parsed['part_number'] : ($line['supplier_sku'] ?? $line['sku'] ?? '');
             $finish = $parsed['finish'] ?? '';
-            $quantity = (float) $line['quantity_ordered'];
+
+            // Use pack quantities if available, otherwise use eaches
+            $packSize = isset($line['pack_size']) ? (float) $line['pack_size'] : 0.0;
+            $packsOrdered = isset($line['packs_ordered']) ? (float) $line['packs_ordered'] : 0.0;
+            $quantity = ($packSize > 0 && $packsOrdered > 0) ? $packsOrdered : (float) $line['quantity_ordered'];
 
             $sheetRows[$sheetName][] = [
                 'quantity' => $quantity,
