@@ -739,25 +739,25 @@ if (!function_exists('ezEstimateCalculatePartCostFromCache')) {
         // Get pricing group multiplier
         $groupMultiplier = $pricingGroupMultipliers[$pricingGroup] ?? 1.0;
 
-        // Debug logging for T15141-BL specifically
+        // Debug logging for T15141-BL specifically - write to file
         if ($partNumber === 'T15141' && $finish === 'BL') {
-            error_log("===== Cost Calculation Debug for T15141-BL =====");
-            error_log("Base Price: $basePrice");
-            error_log("Pricing Group: $pricingGroup");
-            error_log("Finish Multiplier (BL): $finishMultiplier");
-            error_log("Group Multiplier ($pricingGroup): $groupMultiplier");
-            error_log("Calculation: $basePrice × $finishMultiplier × $groupMultiplier");
+            $debugFile = __DIR__ . '/../../storage/T15141-BL-debug.txt';
+            $debugContent = "===== Cost Calculation Debug for T15141-BL =====\n";
+            $debugContent .= "Timestamp: " . date('Y-m-d H:i:s') . "\n";
+            $debugContent .= "Base Price: $basePrice\n";
+            $debugContent .= "Pricing Group: $pricingGroup\n";
+            $debugContent .= "Finish Multiplier (BL): $finishMultiplier\n";
+            $debugContent .= "Group Multiplier ($pricingGroup): $groupMultiplier\n";
+            $debugContent .= "Calculation: $basePrice × $finishMultiplier × $groupMultiplier\n";
+            $cost = $basePrice * $finishMultiplier * $groupMultiplier;
+            $debugContent .= "Final Cost: $cost\n";
+            $debugContent .= "Formatted: " . number_format($cost, 2, '.', '') . "\n";
+            $debugContent .= "==============================================\n\n";
+            @file_put_contents($debugFile, $debugContent, FILE_APPEND);
         }
 
         // Calculate final cost: base price * finish multiplier * pricing group multiplier
         $cost = $basePrice * $finishMultiplier * $groupMultiplier;
-
-        // Debug logging for T15141-BL result
-        if ($partNumber === 'T15141' && $finish === 'BL') {
-            error_log("Final Cost: $cost");
-            error_log("Formatted: " . number_format($cost, 2, '.', ''));
-            error_log("==============================================");
-        }
 
         return $cost;
     }
