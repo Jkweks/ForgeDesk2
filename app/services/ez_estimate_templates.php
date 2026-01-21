@@ -739,8 +739,25 @@ if (!function_exists('ezEstimateCalculatePartCostFromCache')) {
         // Get pricing group multiplier
         $groupMultiplier = $pricingGroupMultipliers[$pricingGroup] ?? 1.0;
 
+        // Debug logging for T15141-BL specifically
+        if ($partNumber === 'T15141' && $finish === 'BL') {
+            error_log("===== Cost Calculation Debug for T15141-BL =====");
+            error_log("Base Price: $basePrice");
+            error_log("Pricing Group: $pricingGroup");
+            error_log("Finish Multiplier (BL): $finishMultiplier");
+            error_log("Group Multiplier ($pricingGroup): $groupMultiplier");
+            error_log("Calculation: $basePrice × $finishMultiplier × $groupMultiplier");
+        }
+
         // Calculate final cost: base price * finish multiplier * pricing group multiplier
         $cost = $basePrice * $finishMultiplier * $groupMultiplier;
+
+        // Debug logging for T15141-BL result
+        if ($partNumber === 'T15141' && $finish === 'BL') {
+            error_log("Final Cost: $cost");
+            error_log("Formatted: " . number_format($cost, 2, '.', ''));
+            error_log("==============================================");
+        }
 
         return $cost;
     }
