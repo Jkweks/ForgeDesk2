@@ -589,7 +589,7 @@ if (!function_exists('ezEstimateCalculatePartCost')) {
     function ezEstimateCalculatePartCost(string $partNumber, string $finish, ?string $supplier = null, ?string $templatePath = null): ?float
     {
         // Only calculate for Tubelite supplier parts
-        if ($supplier !== null && strcasecmp($supplier, 'Tubelite') !== 0) {
+        if ($supplier === null || strcasecmp($supplier, 'Tubelite') !== 0) {
             return null;
         }
 
@@ -683,7 +683,7 @@ if (!function_exists('ezEstimateCalculatePartCostFromCache')) {
         array $pricingGroupMultipliers
     ): ?float {
         // Only calculate for Tubelite supplier parts
-        if ($supplier !== null && strcasecmp($supplier, 'Tubelite') !== 0) {
+        if ($supplier === null || strcasecmp($supplier, 'Tubelite') !== 0) {
             return null;
         }
 
