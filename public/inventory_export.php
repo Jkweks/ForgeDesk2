@@ -21,6 +21,19 @@ try {
     return;
 }
 
+// Load pricing data once for efficiency
+$pricingData = [];
+$finishMultipliers = [];
+$pricingGroupMultipliers = [];
+
+try {
+    $pricingData = ezEstimateLoadPricingData();
+    $finishMultipliers = ezEstimateLoadFinishMultipliers();
+    $pricingGroupMultipliers = ezEstimateLoadPricingGroupMultipliers();
+} catch (\Throwable $e) {
+    // If EZ Estimate template is not available, costs will be empty
+}
+
 $output = fopen('php://output', 'w');
 
 if ($output === false) {
@@ -42,18 +55,15 @@ header('Expires: 0');
 fputcsv($output, ['Part Number', 'SKU', 'Finish', 'Description', 'On Hand', 'Committed', 'On Order', 'Cost']);
 
 foreach ($inventory as $row) {
-    // Calculate cost for Tubelite parts
-    $cost = null;
-    try {
-        $cost = ezEstimateCalculatePartCost(
-            $row['part_number'],
-            $row['finish'] ?? '',
-            $row['supplier_name'] ?? null
-        );
-    } catch (\Throwable $e) {
-        // If cost calculation fails, leave it empty
-        $cost = null;
-    }
+    // Calculate cost for Tubelite parts using cached data
+    $cost = ezEstimateCalculatePartCostFromCache(
+        $row['part_number'],
+        $row['finish'] ?? '',
+        $row['supplier_name'] ?? null,
+        $pricingData,
+        $finishMultipliers,
+        $pricingGroupMultipliers
+    );
 
     // Format cost for CSV (empty if null, otherwise formatted to 2 decimal places)
     $costFormatted = $cost !== null ? number_format($cost, 2, '.', '') : '';

@@ -652,3 +652,88 @@ if (!function_exists('ezEstimateCalculatePartCost')) {
         }
     }
 }
+
+if (!function_exists('ezEstimateCalculatePartCostFromCache')) {
+    /**
+     * Calculate the cost for a given part number and finish using pre-loaded data.
+     * This is much more efficient when calculating costs for multiple parts.
+     *
+     * @param string $partNumber The part number
+     * @param string $finish The finish code
+     * @param string|null $supplier The supplier name (only calculates for 'Tubelite' parts)
+     * @param array<string, array{pricing_group:string,price:float,sheet:string}> $pricingData Pre-loaded pricing data
+     * @param array<string, float> $finishMultipliers Pre-loaded finish multipliers
+     * @param array<string, float> $pricingGroupMultipliers Pre-loaded pricing group multipliers
+     * @return float|null The calculated cost, or null if not applicable/not found
+     */
+    function ezEstimateCalculatePartCostFromCache(
+        string $partNumber,
+        string $finish,
+        ?string $supplier,
+        array $pricingData,
+        array $finishMultipliers,
+        array $pricingGroupMultipliers
+    ): ?float {
+        // Only calculate for Tubelite supplier parts
+        if ($supplier !== null && strcasecmp($supplier, 'Tubelite') !== 0) {
+            return null;
+        }
+
+        $partNumber = trim($partNumber);
+        $finish = strtoupper(trim($finish));
+
+        if ($partNumber === '') {
+            return null;
+        }
+
+        // Check if part number starts with the correct prefixes
+        $prefix = '';
+        foreach (['PTB', 'TU', 'E', 'T', 'A', 'P', 'S'] as $testPrefix) {
+            if (stripos($partNumber, $testPrefix) === 0) {
+                $prefix = strtoupper($testPrefix);
+                break;
+            }
+        }
+
+        if ($prefix === '') {
+            return null;
+        }
+
+        // Determine which sheet to use based on prefix
+        $validSheet = null;
+        if (in_array($prefix, ['E', 'T', 'A', 'TU'], true)) {
+            $validSheet = 'SL Formulas';
+        } elseif (in_array($prefix, ['P', 'PTB', 'S'], true)) {
+            $validSheet = 'P Formulas';
+        }
+
+        if ($validSheet === null) {
+            return null;
+        }
+
+        if (!isset($pricingData[$partNumber])) {
+            return null;
+        }
+
+        $partData = $pricingData[$partNumber];
+
+        // Verify the part is from the correct sheet
+        if ($partData['sheet'] !== $validSheet) {
+            return null;
+        }
+
+        $basePrice = $partData['price'];
+        $pricingGroup = $partData['pricing_group'];
+
+        // Get finish multiplier
+        $finishMultiplier = $finishMultipliers[$finish] ?? 1.0;
+
+        // Get pricing group multiplier
+        $groupMultiplier = $pricingGroupMultipliers[$pricingGroup] ?? 1.0;
+
+        // Calculate final cost: base price * finish multiplier * pricing group multiplier
+        $cost = $basePrice * $finishMultiplier * $groupMultiplier;
+
+        return $cost;
+    }
+}
