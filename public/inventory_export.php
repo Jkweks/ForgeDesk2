@@ -6,6 +6,7 @@ $app = require __DIR__ . '/../app/config/app.php';
 
 require_once __DIR__ . '/../app/helpers/database.php';
 require_once __DIR__ . '/../app/data/inventory.php';
+require_once __DIR__ . '/../app/services/ez_estimate_templates.php';
 
 $databaseConfig = $app['database'];
 
@@ -38,16 +39,34 @@ header('Content-Disposition: attachment; filename="' . $filename . '"');
 header('Pragma: no-cache');
 header('Expires: 0');
 
-fputcsv($output, ['Part Number', 'SKU', 'Finish', 'Description', 'On Hand', 'Committed', 'On Order']);
+fputcsv($output, ['Part Number', 'SKU', 'Finish', 'Description', 'On Hand', 'Committed', 'On Order', 'Cost']);
 
 foreach ($inventory as $row) {
+    // Calculate cost for Tubelite parts
+    $cost = null;
+    try {
+        $cost = ezEstimateCalculatePartCost(
+            $row['part_number'],
+            $row['finish'] ?? '',
+            $row['supplier_name'] ?? null
+        );
+    } catch (\Throwable $e) {
+        // If cost calculation fails, leave it empty
+        $cost = null;
+    }
+
+    // Format cost for CSV (empty if null, otherwise formatted to 2 decimal places)
+    $costFormatted = $cost !== null ? number_format($cost, 2, '.', '') : '';
+
     fputcsv($output, [
         $row['part_number'],
+        $row['sku'],
         $row['finish'] ?? '',
         $row['item'],
         $row['stock'],
         $row['committed_qty'],
         $row['on_order_qty'],
+        $costFormatted,
     ]);
 }
 
