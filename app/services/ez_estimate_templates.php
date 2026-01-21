@@ -417,11 +417,17 @@ if (!function_exists('ezEstimateLoadPricingData')) {
                 // Convert price to float
                 $priceFloat = is_numeric($price) ? (float) $price : 0.0;
 
-                $pricingData[$partNumber] = [
-                    'pricing_group' => $pricingGroup,
-                    'price' => $priceFloat,
-                    'sheet' => 'SL Formulas',
-                ];
+                // Only store if:
+                // 1. Part doesn't exist yet, OR
+                // 2. New price is non-zero and existing price is zero (prefer non-zero prices)
+                if (!isset($pricingData[$partNumber]) ||
+                    ($priceFloat > 0 && $pricingData[$partNumber]['price'] == 0)) {
+                    $pricingData[$partNumber] = [
+                        'pricing_group' => $pricingGroup,
+                        'price' => $priceFloat,
+                        'sheet' => 'SL Formulas',
+                    ];
+                }
             }
         } catch (\Throwable $e) {
             // Sheet might not exist, continue
@@ -449,11 +455,17 @@ if (!function_exists('ezEstimateLoadPricingData')) {
                 // Convert cost to float
                 $costFloat = is_numeric($cost) ? (float) $cost : 0.0;
 
-                $pricingData[$partNumber] = [
-                    'pricing_group' => $pricingGroup,
-                    'price' => $costFloat,
-                    'sheet' => 'P Formulas',
-                ];
+                // Only store if:
+                // 1. Part doesn't exist yet, OR
+                // 2. New cost is non-zero and existing cost is zero (prefer non-zero costs)
+                if (!isset($pricingData[$partNumber]) ||
+                    ($costFloat > 0 && $pricingData[$partNumber]['price'] == 0)) {
+                    $pricingData[$partNumber] = [
+                        'pricing_group' => $pricingGroup,
+                        'price' => $costFloat,
+                        'sheet' => 'P Formulas',
+                    ];
+                }
             }
         } catch (\Throwable $e) {
             // Sheet might not exist, continue
