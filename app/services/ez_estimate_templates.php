@@ -550,12 +550,13 @@ if (!function_exists('ezEstimateLoadPricingGroupMultipliers')) {
                 // Convert multiplier to float
                 $multiplierFloat = is_numeric($multiplier) ? (float) $multiplier : 1.0;
 
-                // Column B can contain multiple values per cell, split by comma or other delimiters
-                $groupList = preg_split('/[,;\s]+/', $pricingGroups, -1, PREG_SPLIT_NO_EMPTY);
+                // Column B can contain multiple values per cell, split by comma, slash, semicolon, or whitespace
+                // Example: "A / B" should create entries for both "A" and "B"
+                $groupList = preg_split('/[,;\/\s]+/', $pricingGroups, -1, PREG_SPLIT_NO_EMPTY);
 
                 foreach ($groupList as $group) {
                     $group = trim($group);
-                    if ($group !== '') {
+                    if ($group !== '' && $group !== '/') {
                         $pricingGroupMultipliers[$group] = $multiplierFloat;
                     }
                 }
