@@ -481,28 +481,23 @@ if (!function_exists('ezEstimateLoadFinishMultipliers')) {
         $finishMultipliers = [];
 
         try {
-            // Read specific cells from Finish Codes sheet
-            // C2 finish -> H3, BL -> H8, DB -> H6, 0R -> 1.0
+            // The Finish Codes sheet has finish codes in column F and multipliers in column H
+            // Read columns F and H, rows 1-20 to capture all finish codes
+            $data = xlsxReadRange($path, 'Finish Codes', 'F1', 'H20');
 
-            $finishCodes = xlsxReadRange($path, 'Finish Codes', 'H1', 'H10');
+            foreach ($data as $row) {
+                $finishCode = isset($row[0]) ? strtoupper(trim((string) $row[0])) : '';
+                $multiplier = isset($row[2]) ? $row[2] : ''; // Column H is index 2 (F=0, G=1, H=2)
 
-            // C2 finish is in H3 (row 3)
-            if (isset($finishCodes[2][0]) && is_numeric($finishCodes[2][0])) {
-                $finishMultipliers['C2'] = (float) $finishCodes[2][0];
+                if ($finishCode !== '' && is_numeric($multiplier)) {
+                    $finishMultipliers[$finishCode] = (float) $multiplier;
+                }
             }
 
-            // BL finish is in H8 (row 8)
-            if (isset($finishCodes[7][0]) && is_numeric($finishCodes[7][0])) {
-                $finishMultipliers['BL'] = (float) $finishCodes[7][0];
+            // Ensure 0R has a multiplier (use existing value or default to 1.0)
+            if (!isset($finishMultipliers['0R'])) {
+                $finishMultipliers['0R'] = 1.0;
             }
-
-            // DB finish is in H6 (row 6)
-            if (isset($finishCodes[5][0]) && is_numeric($finishCodes[5][0])) {
-                $finishMultipliers['DB'] = (float) $finishCodes[5][0];
-            }
-
-            // 0R finish has a multiplier of 1
-            $finishMultipliers['0R'] = 1.0;
         } catch (\Throwable $e) {
             // Sheet might not exist or structure is different
             // Return defaults
