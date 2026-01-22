@@ -377,3 +377,440 @@ if (!function_exists('ezEstimateResetCalcChain')) {
         }
     }
 }
+
+if (!function_exists('ezEstimateLoadPricingData')) {
+    /**
+     * Load pricing data from SL Formulas and P Formulas sheets.
+     * Returns an associative array: [part_number => ['pricing_group' => string, 'price' => float, 'sheet' => string]]
+     *
+     * @return array<string, array{pricing_group:string,price:float,sheet:string}>
+     */
+    function ezEstimateLoadPricingData(?string $templatePath = null): array
+    {
+        $path = $templatePath ?? ezEstimateActiveTemplatePath();
+
+        if (!is_file($path)) {
+            throw new \RuntimeException('No EZ Estimate template is available.');
+        }
+
+        $pricingData = [];
+
+        // Load SL Formulas sheet (for parts starting with E, T, A, TU)
+        // Pricing group in A, part number in C, base list price in G
+        try {
+            $slRows = xlsxReadRows($path, 'SL Formulas');
+
+            foreach ($slRows as $index => $row) {
+                // Skip header row (assuming first row is header)
+                if ($index === 0) {
+                    continue;
+                }
+
+                $pricingGroup = isset($row[0]) ? trim((string) $row[0]) : '';
+                $partNumber = isset($row[2]) ? trim((string) $row[2]) : '';
+                $price = isset($row[6]) ? $row[6] : ''; // Column G = index 6
+
+                if ($partNumber === '' || $pricingGroup === '') {
+                    continue;
+                }
+
+                // Convert price to float
+                $priceFloat = is_numeric($price) ? (float) $price : 0.0;
+
+                // Only store if:
+                // 1. Part doesn't exist yet, OR
+                // 2. New price is non-zero and existing price is zero (prefer non-zero prices)
+                if (!isset($pricingData[$partNumber]) ||
+                    ($priceFloat > 0 && $pricingData[$partNumber]['price'] == 0)) {
+                    $pricingData[$partNumber] = [
+                        'pricing_group' => $pricingGroup,
+                        'price' => $priceFloat,
+                        'sheet' => 'SL Formulas',
+                    ];
+                }
+            }
+        } catch (\Throwable $e) {
+            // Sheet might not exist, continue
+        }
+
+        // Load P Formulas sheet (for parts starting with P, PTB, S)
+        // Pricing group in A, part number in C, base list price in G
+        try {
+            $pRows = xlsxReadRows($path, 'P Formulas');
+
+            foreach ($pRows as $index => $row) {
+                // Skip header row
+                if ($index === 0) {
+                    continue;
+                }
+
+                $pricingGroup = isset($row[0]) ? trim((string) $row[0]) : '';
+                $partNumber = isset($row[2]) ? trim((string) $row[2]) : '';
+                $cost = isset($row[6]) ? $row[6] : ''; // Column G = index 6
+
+                if ($partNumber === '' || $pricingGroup === '') {
+                    continue;
+                }
+
+                // Convert cost to float
+                $costFloat = is_numeric($cost) ? (float) $cost : 0.0;
+
+                // Only store if:
+                // 1. Part doesn't exist yet, OR
+                // 2. New cost is non-zero and existing cost is zero (prefer non-zero costs)
+                if (!isset($pricingData[$partNumber]) ||
+                    ($costFloat > 0 && $pricingData[$partNumber]['price'] == 0)) {
+                    $pricingData[$partNumber] = [
+                        'pricing_group' => $pricingGroup,
+                        'price' => $costFloat,
+                        'sheet' => 'P Formulas',
+                    ];
+                }
+            }
+        } catch (\Throwable $e) {
+            // Sheet might not exist, continue
+        }
+
+        return $pricingData;
+    }
+}
+
+if (!function_exists('abhLoadPricingData')) {
+    /**
+     * Load ABH Hardware pricing data from abhpricing.xlsx.
+     * Returns an associative array: [sku => cost]
+     *
+     * @return array<string, float>
+     */
+    function abhLoadPricingData(): array
+    {
+        $path = __DIR__ . '/../../storage/abhpricing.xlsx';
+
+        if (!is_file($path)) {
+            return []; // File doesn't exist, return empty array
+        }
+
+        $pricingData = [];
+
+        try {
+            $rows = xlsxReadRows($path);
+
+            foreach ($rows as $index => $row) {
+                // Skip header row
+                if ($index === 0) {
+                    continue;
+                }
+
+                // Column F = index 5 (SKU in format: "PART-FINISH" like "P3692C-36-BL")
+                // Column D = index 3 (Unit Price/Cost)
+                $sku = isset($row[5]) ? trim((string) $row[5]) : '';
+                $cost = isset($row[3]) ? $row[3] : '';
+
+                if ($sku === '') {
+                    continue;
+                }
+
+                // Convert cost to float
+                $costFloat = is_numeric($cost) ? (float) $cost : 0.0;
+
+                // Only store non-zero costs
+                if ($costFloat > 0) {
+                    $pricingData[$sku] = $costFloat;
+                }
+            }
+        } catch (\Throwable $e) {
+            // File might not exist or be readable
+            return [];
+        }
+
+        return $pricingData;
+    }
+}
+
+if (!function_exists('ezEstimateLoadFinishMultipliers')) {
+    /**
+     * Load finish multipliers from Finish Codes sheet.
+     * Returns an associative array: [finish_code => multiplier]
+     *
+     * @return array<string, float>
+     */
+    function ezEstimateLoadFinishMultipliers(?string $templatePath = null): array
+    {
+        $path = $templatePath ?? ezEstimateActiveTemplatePath();
+
+        if (!is_file($path)) {
+            throw new \RuntimeException('No EZ Estimate template is available.');
+        }
+
+        $finishMultipliers = [];
+
+        try {
+            // The Finish Codes sheet has finish codes in column F and multipliers in column H
+            // Read columns F and H, rows 1-20 to capture all finish codes
+            $data = xlsxReadRange($path, 'Finish Codes', 'F1', 'H20');
+
+            foreach ($data as $row) {
+                $finishCode = isset($row[0]) ? strtoupper(trim((string) $row[0])) : '';
+                $multiplier = isset($row[2]) ? $row[2] : ''; // Column H is index 2 (F=0, G=1, H=2)
+
+                if ($finishCode !== '' && is_numeric($multiplier)) {
+                    $finishMultipliers[$finishCode] = (float) $multiplier;
+                }
+            }
+
+            // Ensure 0R has a multiplier (use existing value or default to 1.0)
+            if (!isset($finishMultipliers['0R'])) {
+                $finishMultipliers['0R'] = 1.0;
+            }
+        } catch (\Throwable $e) {
+            // Sheet might not exist or structure is different
+            // Return defaults
+            $finishMultipliers = [
+                'C2' => 1.0,
+                'BL' => 1.0,
+                'DB' => 1.0,
+                '0R' => 1.0,
+            ];
+        }
+
+        return $finishMultipliers;
+    }
+}
+
+if (!function_exists('ezEstimateLoadPricingGroupMultipliers')) {
+    /**
+     * Load pricing group multipliers from MULTIPLIERS sheet.
+     * Returns an associative array: [pricing_group => multiplier]
+     *
+     * @return array<string, float>
+     */
+    function ezEstimateLoadPricingGroupMultipliers(?string $templatePath = null): array
+    {
+        $path = $templatePath ?? ezEstimateActiveTemplatePath();
+
+        if (!is_file($path)) {
+            throw new \RuntimeException('No EZ Estimate template is available.');
+        }
+
+        $pricingGroupMultipliers = [];
+
+        try {
+            // Read pricing groups from column B rows 4-12 and multipliers from column E
+            $rows = xlsxReadRange($path, 'MULTIPLIERS', 'B4', 'E12');
+
+            foreach ($rows as $row) {
+                $pricingGroups = isset($row[0]) ? trim((string) $row[0]) : '';
+                $multiplier = isset($row[3]) ? $row[3] : '';
+
+                if ($pricingGroups === '') {
+                    continue;
+                }
+
+                // Convert multiplier to float
+                $multiplierFloat = is_numeric($multiplier) ? (float) $multiplier : 1.0;
+
+                // Column B can contain multiple values per cell, split by comma, slash, semicolon, or whitespace
+                // Example: "A / B" should create entries for both "A" and "B"
+                $groupList = preg_split('/[,;\/\s]+/', $pricingGroups, -1, PREG_SPLIT_NO_EMPTY);
+
+                foreach ($groupList as $group) {
+                    $group = trim($group);
+                    if ($group !== '' && $group !== '/') {
+                        $pricingGroupMultipliers[$group] = $multiplierFloat;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            // Sheet might not exist, return empty array
+        }
+
+        return $pricingGroupMultipliers;
+    }
+}
+
+if (!function_exists('ezEstimateCalculatePartCost')) {
+    /**
+     * Calculate the cost for a given part number and finish.
+     *
+     * @param string $partNumber The part number
+     * @param string $finish The finish code
+     * @param string|null $supplier The supplier name (only calculates for 'Tubelite' parts)
+     * @param string|null $templatePath Optional template path
+     * @return float|null The calculated cost, or null if not applicable/not found
+     */
+    function ezEstimateCalculatePartCost(string $partNumber, string $finish, ?string $supplier = null, ?string $templatePath = null): ?float
+    {
+        // Only calculate for Tubelite supplier parts
+        if ($supplier === null || strcasecmp($supplier, 'Tubelite') !== 0) {
+            return null;
+        }
+
+        $partNumber = trim($partNumber);
+        $finish = strtoupper(trim($finish));
+
+        if ($partNumber === '') {
+            return null;
+        }
+
+        // Check if part number starts with the correct prefixes
+        $prefix = '';
+        foreach (['PTB', 'TU', 'E', 'T', 'A', 'P', 'S'] as $testPrefix) {
+            if (stripos($partNumber, $testPrefix) === 0) {
+                $prefix = strtoupper($testPrefix);
+                break;
+            }
+        }
+
+        if ($prefix === '') {
+            return null;
+        }
+
+        // Determine which sheet to use based on prefix
+        $validSheet = null;
+        if (in_array($prefix, ['E', 'T', 'A', 'TU'], true)) {
+            $validSheet = 'SL Formulas';
+        } elseif (in_array($prefix, ['P', 'PTB', 'S'], true)) {
+            $validSheet = 'P Formulas';
+        }
+
+        if ($validSheet === null) {
+            return null;
+        }
+
+        try {
+            // Load pricing data
+            $pricingData = ezEstimateLoadPricingData($templatePath);
+
+            if (!isset($pricingData[$partNumber])) {
+                return null;
+            }
+
+            $partData = $pricingData[$partNumber];
+
+            // Verify the part is from the correct sheet
+            if ($partData['sheet'] !== $validSheet) {
+                return null;
+            }
+
+            $basePrice = $partData['price'];
+            $pricingGroup = $partData['pricing_group'];
+
+            // Load finish multipliers
+            $finishMultipliers = ezEstimateLoadFinishMultipliers($templatePath);
+            $finishMultiplier = $finishMultipliers[$finish] ?? 1.0;
+
+            // Load pricing group multipliers
+            $pricingGroupMultipliers = ezEstimateLoadPricingGroupMultipliers($templatePath);
+            $groupMultiplier = $pricingGroupMultipliers[$pricingGroup] ?? 1.0;
+
+            // Calculate final cost: base price * finish multiplier * pricing group multiplier
+            $cost = $basePrice * $finishMultiplier * $groupMultiplier;
+
+            return $cost;
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+}
+
+if (!function_exists('ezEstimateCalculatePartCostFromCache')) {
+    /**
+     * Calculate the cost for a given part number and finish using pre-loaded data.
+     * This is much more efficient when calculating costs for multiple parts.
+     *
+     * @param string $partNumber The part number
+     * @param string $finish The finish code
+     * @param string|null $supplier The supplier name (only calculates for 'Tubelite' parts)
+     * @param array<string, array{pricing_group:string,price:float,sheet:string}> $pricingData Pre-loaded pricing data
+     * @param array<string, float> $finishMultipliers Pre-loaded finish multipliers
+     * @param array<string, float> $pricingGroupMultipliers Pre-loaded pricing group multipliers
+     * @return float|null The calculated cost, or null if not applicable/not found
+     */
+    function ezEstimateCalculatePartCostFromCache(
+        string $partNumber,
+        string $finish,
+        ?string $supplier,
+        array $pricingData,
+        array $finishMultipliers,
+        array $pricingGroupMultipliers
+    ): ?float {
+        // Only calculate for Tubelite supplier parts
+        if ($supplier === null || strcasecmp($supplier, 'Tubelite') !== 0) {
+            return null;
+        }
+
+        $partNumber = trim($partNumber);
+        $finish = strtoupper(trim($finish));
+
+        if ($partNumber === '') {
+            return null;
+        }
+
+        // Check if part number starts with the correct prefixes
+        $prefix = '';
+        foreach (['PTB', 'TU', 'E', 'T', 'A', 'P', 'S'] as $testPrefix) {
+            if (stripos($partNumber, $testPrefix) === 0) {
+                $prefix = strtoupper($testPrefix);
+                break;
+            }
+        }
+
+        if ($prefix === '') {
+            return null;
+        }
+
+        // Determine which sheet to use based on prefix
+        $validSheet = null;
+        if (in_array($prefix, ['E', 'T', 'A', 'TU'], true)) {
+            $validSheet = 'SL Formulas';
+        } elseif (in_array($prefix, ['P', 'PTB', 'S'], true)) {
+            $validSheet = 'P Formulas';
+        }
+
+        if ($validSheet === null) {
+            return null;
+        }
+
+        if (!isset($pricingData[$partNumber])) {
+            return null;
+        }
+
+        $partData = $pricingData[$partNumber];
+
+        // Verify the part is from the correct sheet
+        if ($partData['sheet'] !== $validSheet) {
+            return null;
+        }
+
+        $basePrice = $partData['price'];
+        $pricingGroup = $partData['pricing_group'];
+
+        // Get finish multiplier
+        $finishMultiplier = $finishMultipliers[$finish] ?? 1.0;
+
+        // Get pricing group multiplier
+        $groupMultiplier = $pricingGroupMultipliers[$pricingGroup] ?? 1.0;
+
+        // Debug logging for T15141-BL specifically - write to file
+        if ($partNumber === 'T15141' && $finish === 'BL') {
+            $debugFile = __DIR__ . '/../../storage/T15141-BL-debug.txt';
+            $debugContent = "===== Cost Calculation Debug for T15141-BL =====\n";
+            $debugContent .= "Timestamp: " . date('Y-m-d H:i:s') . "\n";
+            $debugContent .= "Base Price: $basePrice\n";
+            $debugContent .= "Pricing Group: $pricingGroup\n";
+            $debugContent .= "Finish Multiplier (BL): $finishMultiplier\n";
+            $debugContent .= "Group Multiplier ($pricingGroup): $groupMultiplier\n";
+            $debugContent .= "Calculation: $basePrice × $finishMultiplier × $groupMultiplier\n";
+            $cost = $basePrice * $finishMultiplier * $groupMultiplier;
+            $debugContent .= "Final Cost: $cost\n";
+            $debugContent .= "Formatted: " . number_format($cost, 2, '.', '') . "\n";
+            $debugContent .= "==============================================\n\n";
+            @file_put_contents($debugFile, $debugContent, FILE_APPEND);
+        }
+
+        // Calculate final cost: base price * finish multiplier * pricing group multiplier
+        $cost = $basePrice * $finishMultiplier * $groupMultiplier;
+
+        return $cost;
+    }
+}
