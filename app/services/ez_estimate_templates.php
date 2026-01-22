@@ -484,7 +484,7 @@ if (!function_exists('abhLoadPricingData')) {
      */
     function abhLoadPricingData(): array
     {
-        $path = __DIR__ . '/../public/storage/abhpricing.xlsx';
+        $path = __DIR__ . '/../../storage/abhpricing.xlsx';
 
         if (!is_file($path)) {
             return []; // File doesn't exist, return empty array
@@ -501,8 +501,8 @@ if (!function_exists('abhLoadPricingData')) {
                     continue;
                 }
 
-                // Column G = index 5 (SKU in format: "PART-FINISH" like "ABC123-BL")
-                // Column D = index 3 (Cost)
+                // Column F = index 5 (SKU in format: "PART-FINISH" like "P3692C-36-BL")
+                // Column D = index 3 (Unit Price/Cost)
                 $sku = isset($row[5]) ? trim((string) $row[5]) : '';
                 $cost = isset($row[3]) ? $row[3] : '';
 
