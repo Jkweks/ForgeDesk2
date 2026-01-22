@@ -60,7 +60,7 @@ header('Content-Disposition: attachment; filename="' . $filename . '"');
 header('Pragma: no-cache');
 header('Expires: 0');
 
-fputcsv($output, ['Part Number', 'SKU', 'Finish', 'Description', 'On Hand', 'Committed', 'On Order', 'Qty in Packs', 'Cost']);
+fputcsv($output, ['Part Number', 'Finish', 'Description', 'Cost', 'Qty in Packs', 'On Hand', 'Committed', 'On Order']);
 
 foreach ($inventory as $row) {
     // Skip discontinued parts
@@ -103,14 +103,13 @@ foreach ($inventory as $row) {
 
     fputcsv($output, [
         $row['part_number'],
-        $row['sku'],
         $row['finish'] ?? '',
         $row['item'],
+        $costFormatted,
+        $qtyInPacks,
         $row['stock'],
         $row['committed_qty'],
         $row['on_order_qty'],
-        $qtyInPacks,
-        $costFormatted,
     ]);
 }
 
