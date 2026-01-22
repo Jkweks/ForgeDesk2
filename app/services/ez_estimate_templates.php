@@ -396,7 +396,7 @@ if (!function_exists('ezEstimateLoadPricingData')) {
         $pricingData = [];
 
         // Load SL Formulas sheet (for parts starting with E, T, A, TU)
-        // Pricing group in A, part number in C, list price in I
+        // Pricing group in A, part number in C, base list price in G
         try {
             $slRows = xlsxReadRows($path, 'SL Formulas');
 
@@ -408,7 +408,7 @@ if (!function_exists('ezEstimateLoadPricingData')) {
 
                 $pricingGroup = isset($row[0]) ? trim((string) $row[0]) : '';
                 $partNumber = isset($row[2]) ? trim((string) $row[2]) : '';
-                $price = isset($row[8]) ? $row[8] : '';
+                $price = isset($row[6]) ? $row[6] : ''; // Column G = index 6
 
                 if ($partNumber === '' || $pricingGroup === '') {
                     continue;
@@ -434,7 +434,7 @@ if (!function_exists('ezEstimateLoadPricingData')) {
         }
 
         // Load P Formulas sheet (for parts starting with P, PTB, S)
-        // Pricing group in A, part number in C, cost in I
+        // Pricing group in A, part number in C, base list price in G
         try {
             $pRows = xlsxReadRows($path, 'P Formulas');
 
@@ -446,7 +446,7 @@ if (!function_exists('ezEstimateLoadPricingData')) {
 
                 $pricingGroup = isset($row[0]) ? trim((string) $row[0]) : '';
                 $partNumber = isset($row[2]) ? trim((string) $row[2]) : '';
-                $cost = isset($row[8]) ? $row[8] : '';
+                $cost = isset($row[6]) ? $row[6] : ''; // Column G = index 6
 
                 if ($partNumber === '' || $pricingGroup === '') {
                     continue;
