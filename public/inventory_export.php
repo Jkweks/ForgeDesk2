@@ -25,6 +25,7 @@ try {
 $pricingData = [];
 $finishMultipliers = [];
 $pricingGroupMultipliers = [];
+$abhPricingData = [];
 
 try {
     $pricingData = ezEstimateLoadPricingData();
@@ -32,6 +33,13 @@ try {
     $pricingGroupMultipliers = ezEstimateLoadPricingGroupMultipliers();
 } catch (\Throwable $e) {
     // If EZ Estimate template is not available, costs will be empty
+}
+
+// Load ABH Hardware pricing data
+try {
+    $abhPricingData = abhLoadPricingData();
+} catch (\Throwable $e) {
+    // If ABH pricing file is not available, costs will be empty
 }
 
 $output = fopen('php://output', 'w');
@@ -55,15 +63,25 @@ header('Expires: 0');
 fputcsv($output, ['Part Number', 'SKU', 'Finish', 'Description', 'On Hand', 'Committed', 'On Order', 'Cost']);
 
 foreach ($inventory as $row) {
-    // Calculate cost for Tubelite parts using cached data
-    $cost = ezEstimateCalculatePartCostFromCache(
-        $row['part_number'],
-        $row['finish'] ?? '',
-        $row['supplier_name'] ?? null,
-        $pricingData,
-        $finishMultipliers,
-        $pricingGroupMultipliers
-    );
+    $cost = null;
+    $supplierName = $row['supplier_name'] ?? null;
+
+    // Check supplier and calculate cost accordingly
+    if ($supplierName !== null && strcasecmp($supplierName, 'ABH Hardware') === 0) {
+        // ABH Hardware - lookup by SKU
+        $sku = $row['sku'];
+        $cost = $abhPricingData[$sku] ?? null;
+    } elseif ($supplierName !== null && strcasecmp($supplierName, 'Tubelite') === 0) {
+        // Tubelite - calculate using part number, finish, and multipliers
+        $cost = ezEstimateCalculatePartCostFromCache(
+            $row['part_number'],
+            $row['finish'] ?? '',
+            $supplierName,
+            $pricingData,
+            $finishMultipliers,
+            $pricingGroupMultipliers
+        );
+    }
 
     // Format cost for CSV (empty if null, otherwise formatted to 2 decimal places)
     $costFormatted = $cost !== null ? number_format($cost, 2, '.', '') : '';

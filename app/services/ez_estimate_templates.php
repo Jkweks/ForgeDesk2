@@ -475,6 +475,56 @@ if (!function_exists('ezEstimateLoadPricingData')) {
     }
 }
 
+if (!function_exists('abhLoadPricingData')) {
+    /**
+     * Load ABH Hardware pricing data from abhpricing.xlsx.
+     * Returns an associative array: [sku => cost]
+     *
+     * @return array<string, float>
+     */
+    function abhLoadPricingData(): array
+    {
+        $path = __DIR__ . '/../../storage/abhpricing.xlsx';
+
+        if (!is_file($path)) {
+            return []; // File doesn't exist, return empty array
+        }
+
+        $pricingData = [];
+
+        try {
+            $rows = xlsxReadRows($path);
+
+            foreach ($rows as $index => $row) {
+                // Skip header row
+                if ($index === 0) {
+                    continue;
+                }
+
+                $sku = isset($row[6]) ? trim((string) $row[6]) : ''; // Column G = index 6
+                $cost = isset($row[3]) ? $row[3] : ''; // Column D = index 3
+
+                if ($sku === '') {
+                    continue;
+                }
+
+                // Convert cost to float
+                $costFloat = is_numeric($cost) ? (float) $cost : 0.0;
+
+                // Only store non-zero costs
+                if ($costFloat > 0) {
+                    $pricingData[$sku] = $costFloat;
+                }
+            }
+        } catch (\Throwable $e) {
+            // File might not exist or be readable
+            return [];
+        }
+
+        return $pricingData;
+    }
+}
+
 if (!function_exists('ezEstimateLoadFinishMultipliers')) {
     /**
      * Load finish multipliers from Finish Codes sheet.
