@@ -63,6 +63,11 @@ header('Expires: 0');
 fputcsv($output, ['Part Number', 'SKU', 'Finish', 'Description', 'On Hand', 'Committed', 'On Order', 'Cost']);
 
 foreach ($inventory as $row) {
+    // Skip discontinued parts
+    if (!empty($row['discontinued'])) {
+        continue;
+    }
+
     $cost = null;
     $supplierName = $row['supplier_name'] ?? null;
 

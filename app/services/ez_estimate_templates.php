@@ -446,7 +446,7 @@ if (!function_exists('ezEstimateLoadPricingData')) {
 
                 $pricingGroup = isset($row[0]) ? trim((string) $row[0]) : '';
                 $partNumber = isset($row[2]) ? trim((string) $row[2]) : '';
-                $cost = isset($row[6]) ? $row[6] : ''; // Column G = index 6
+                $cost = isset($row[8]) ? $row[8] : ''; // Column I = index 8
 
                 if ($partNumber === '' || $pricingGroup === '') {
                     continue;
@@ -703,8 +703,14 @@ if (!function_exists('ezEstimateCalculatePartCost')) {
             $pricingGroupMultipliers = ezEstimateLoadPricingGroupMultipliers($templatePath);
             $groupMultiplier = $pricingGroupMultipliers[$pricingGroup] ?? 1.0;
 
-            // Calculate final cost: base price * finish multiplier * pricing group multiplier
-            $cost = $basePrice * $finishMultiplier * $groupMultiplier;
+            // Calculate final cost
+            // P Formulas parts do NOT get multiplied by finish multipliers (only pricing group multiplier)
+            // SL Formulas parts get multiplied by both finish and pricing group multipliers
+            if ($partData['sheet'] === 'P Formulas') {
+                $cost = $basePrice * $groupMultiplier;
+            } else {
+                $cost = $basePrice * $finishMultiplier * $groupMultiplier;
+            }
 
             return $cost;
         } catch (\Throwable $e) {
@@ -808,8 +814,14 @@ if (!function_exists('ezEstimateCalculatePartCostFromCache')) {
             @file_put_contents($debugFile, $debugContent, FILE_APPEND);
         }
 
-        // Calculate final cost: base price * finish multiplier * pricing group multiplier
-        $cost = $basePrice * $finishMultiplier * $groupMultiplier;
+        // Calculate final cost
+        // P Formulas parts do NOT get multiplied by finish multipliers (only pricing group multiplier)
+        // SL Formulas parts get multiplied by both finish and pricing group multipliers
+        if ($partData['sheet'] === 'P Formulas') {
+            $cost = $basePrice * $groupMultiplier;
+        } else {
+            $cost = $basePrice * $finishMultiplier * $groupMultiplier;
+        }
 
         return $cost;
     }
