@@ -66,7 +66,13 @@ if (!is_string($tmpName) || $tmpName === '') {
     exit;
 }
 
-$paths = estimate_upload_paths($uploadId);
+try {
+    $paths = estimate_upload_paths($uploadId);
+} catch (\Throwable $exception) {
+    http_response_code(500);
+    echo json_encode(['status' => 'error', 'error' => $exception->getMessage()]);
+    exit;
+}
 
 if ($chunkIndex === 0) {
     if (is_file($paths['file'])) {
@@ -117,7 +123,13 @@ $metadata['chunks'] = $totalChunks;
 $metadata['updated_at'] = time();
 $metadata['complete'] = ($chunkIndex + 1) >= $totalChunks;
 
-estimate_upload_store_metadata($uploadId, $metadata);
+try {
+    estimate_upload_store_metadata($uploadId, $metadata);
+} catch (\Throwable $exception) {
+    http_response_code(500);
+    echo json_encode(['status' => 'error', 'error' => $exception->getMessage()]);
+    exit;
+}
 
 echo json_encode([
     'status' => 'ok',

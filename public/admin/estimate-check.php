@@ -316,14 +316,22 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
         };
 
         if ($normalizedUploadId !== null && $errors === []) {
-            $paths = estimate_upload_paths($normalizedUploadId);
-            $metadata = estimate_upload_load_metadata($normalizedUploadId) ?? [];
-            $assembledPath = $paths['file'];
+            try {
+                $paths = estimate_upload_paths($normalizedUploadId);
+            } catch (\Throwable $exception) {
+                $errors[] = 'Upload storage error: ' . $exception->getMessage();
+                $logUpload('Failed to access upload paths: ' . $exception->getMessage());
+                $paths = null;
+            }
 
-            if (!is_file($assembledPath)) {
-                $errors[] = 'The uploaded workbook could not be assembled. Please try again.';
-                $logUpload(sprintf('Chunked upload "%s" is missing the assembled workbook.', $normalizedUploadId));
-            } else {
+            if ($paths !== null) {
+                $metadata = estimate_upload_load_metadata($normalizedUploadId) ?? [];
+                $assembledPath = $paths['file'];
+
+                if (!is_file($assembledPath)) {
+                    $errors[] = 'The uploaded workbook could not be assembled. Please try again.';
+                    $logUpload(sprintf('Chunked upload "%s" is missing the assembled workbook.', $normalizedUploadId));
+                } else {
                 $uploadedName = isset($metadata['name']) && is_string($metadata['name'])
                     ? $metadata['name']
                     : ($uploadedName ?? basename($assembledPath));
@@ -337,11 +345,12 @@ if ($dbError === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
                     ));
                 }
 
-                $logUpload(sprintf('Executing analyzer against chunked upload %s (%s).', $normalizedUploadId, $uploadedName));
-                $runAnalyzer($assembledPath);
-            }
+                    $logUpload(sprintf('Executing analyzer against chunked upload %s (%s).', $normalizedUploadId, $uploadedName));
+                    $runAnalyzer($assembledPath);
+                }
 
-            estimate_upload_cleanup($normalizedUploadId);
+                estimate_upload_cleanup($normalizedUploadId);
+            }
         } elseif ($errors === []) {
             if (!isset($_FILES['estimate'])) {
                 $errors[] = 'Select an EZ Estimate workbook to review.';
