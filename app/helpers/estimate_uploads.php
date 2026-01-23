@@ -26,8 +26,22 @@ if (!function_exists('estimate_upload_storage_dir')) {
 
         if (!is_dir($base)) {
             $previousUmask = umask(0);
-            @mkdir($base, 0770, true);
+            $created = @mkdir($base, 0770, true);
             umask($previousUmask);
+
+            if (!$created && !is_dir($base)) {
+                throw new \RuntimeException(sprintf(
+                    'Failed to create upload directory at %s. Check directory permissions.',
+                    $base
+                ));
+            }
+        }
+
+        if (!is_writable($base)) {
+            throw new \RuntimeException(sprintf(
+                'Upload directory %s is not writable. Check directory permissions.',
+                $base
+            ));
         }
 
         return $base;
@@ -62,7 +76,14 @@ if (!function_exists('estimate_upload_store_metadata')) {
             throw new \RuntimeException('Failed to encode upload metadata.');
         }
 
-        file_put_contents($paths['meta'], $json, LOCK_EX);
+        $result = file_put_contents($paths['meta'], $json, LOCK_EX);
+
+        if ($result === false) {
+            throw new \RuntimeException(sprintf(
+                'Failed to write upload metadata to %s. Check directory permissions.',
+                $paths['meta']
+            ));
+        }
     }
 }
 
