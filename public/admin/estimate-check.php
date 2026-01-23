@@ -728,18 +728,14 @@ $bodyAttributes = ' class="has-sidebar-toggle"';
               body: payload,
             });
 
-            if (!response.ok) {
-              throw new Error('Upload failed with status ' + response.status + '.');
-            }
-
             const json = await response.json().catch(function () {
               return null;
             });
 
-            if (!json || json.status !== 'ok') {
+            if (!response.ok || !json || json.status !== 'ok') {
               const message = json && typeof json.error === 'string'
                 ? json.error
-                : 'Upload failed. Please try again.';
+                : 'Upload failed with status ' + response.status + '. Please try again.';
               throw new Error(message);
             }
           }
