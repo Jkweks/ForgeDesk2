@@ -128,19 +128,23 @@ $printedOn = date('M j, Y');
             <table class="table print-form__table">
                 <thead>
                 <tr>
+                    <th scope="col">Part Number</th>
+                    <th scope="col">Finish</th>
                     <th scope="col">SKU</th>
-                    <th scope="col" class="numeric quantity-committed">Quantity Committed</th>
+                    <th scope="col" class="numeric quantity-committed">Qty Committed</th>
                     <th scope="col">Parts Used</th>
                 </tr>
                 </thead>
                 <tbody>
                 <?php if ($committedItems === []): ?>
                     <tr>
-                        <td colspan="3" class="muted">No committed inventory lines are available for this job.</td>
+                        <td colspan="5" class="muted">No committed inventory lines are available for this job.</td>
                     </tr>
                 <?php else: ?>
                     <?php foreach ($committedItems as $item): ?>
                         <tr>
+                            <td><?= e($item['part_number'] ?? '—') ?></td>
+                            <td><?= e($item['finish'] !== null && $item['finish'] !== '' ? $item['finish'] : '—') ?></td>
                             <td><?= e($item['sku'] !== null && $item['sku'] !== '' ? $item['sku'] : '—') ?></td>
                             <td class="numeric quantity-committed"><?= e(inventoryFormatQuantity((int) $item['committed_qty'])) ?></td>
                             <td><div class="print-form__line" aria-hidden="true"></div></td>
