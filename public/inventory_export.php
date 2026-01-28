@@ -60,7 +60,7 @@ header('Content-Disposition: attachment; filename="' . $filename . '"');
 header('Pragma: no-cache');
 header('Expires: 0');
 
-fputcsv($output, ['Part Number', 'Finish', 'Description', 'Cost', 'Qty in Packs', 'On Hand', 'Committed', 'On Order']);
+fputcsv($output, ['Part Number', 'Finish', 'Description', 'Pack Qty', 'Qty', 'Cost']);
 
 foreach ($inventory as $row) {
     // Skip discontinued parts
@@ -91,25 +91,23 @@ foreach ($inventory as $row) {
     // Format cost for CSV (empty if null, otherwise formatted to 2 decimal places)
     $costFormatted = $cost !== null ? number_format($cost, 2, '.', '') : '';
 
-    // Calculate quantity in packs
-    $qtyInPacks = '';
+    $packQty = '';
     $packSize = $row['pack_size'] ?? 0.0;
-    $stock = $row['stock'];
+    $stock = (float) $row['stock'];
+    $qty = $stock;
 
     if ($packSize > 0) {
-        $qtyInPacks = inventoryEachToUnit((float) $stock, $packSize, 'pack');
-        $qtyInPacks = number_format($qtyInPacks, 2, '.', '');
+        $packQty = number_format((float) $packSize, 2, '.', '');
+        $qty = (int) floor($stock / $packSize);
     }
 
     fputcsv($output, [
         $row['part_number'],
         $row['finish'] ?? '',
         $row['item'],
+        $packQty,
+        $qty,
         $costFormatted,
-        $qtyInPacks,
-        $row['stock'],
-        $row['committed_qty'],
-        $row['on_order_qty'],
     ]);
 }
 
