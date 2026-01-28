@@ -91,22 +91,22 @@ foreach ($inventory as $row) {
     // Format cost for CSV (empty if null, otherwise formatted to 2 decimal places)
     $costFormatted = $cost !== null ? number_format($cost, 2, '.', '') : '';
 
-    // Calculate quantity in packs
-    $qtyInPacks = '';
+    $packQty = '';
     $packSize = $row['pack_size'] ?? 0.0;
-    $stock = $row['stock'];
+    $stock = (float) $row['stock'];
+    $qty = $stock;
 
     if ($packSize > 0) {
-        $qtyInPacks = inventoryEachToUnit((float) $stock, $packSize, 'pack');
-        $qtyInPacks = number_format($qtyInPacks, 2, '.', '');
+        $packQty = number_format((float) $packSize, 2, '.', '');
+        $qty = (int) floor($stock / $packSize);
     }
 
     fputcsv($output, [
         $row['part_number'],
         $row['finish'] ?? '',
         $row['item'],
-        $qtyInPacks,
-        $row['stock'],
+        $packQty,
+        $qty,
         $costFormatted,
     ]);
 }
