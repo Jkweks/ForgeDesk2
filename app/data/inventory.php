@@ -1829,7 +1829,7 @@ if (!function_exists('loadInventory')) {
                 : '';
 
             $statement = $db->query(
-                'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, '
+                'SELECT i.id, i.item, i.sku, i.part_number, i.finish, i.location, i.pack_size, '
                 . $locationSelect . ' AS location_stock, '
                 . $committedSelect . ' AS committed_qty, '
                 . $availableExpr . ' AS available_qty, i.status, i.supplier, i.supplier_contact, '
@@ -1886,6 +1886,7 @@ if (!function_exists('loadInventory')) {
                         'location' => $locationSummary,
                         'location_ids' => $locationIds,
                         'stock' => (int) $row['location_stock'],
+                        'pack_size' => $row['pack_size'] !== null ? (float) $row['pack_size'] : null,
                         'committed_qty' => (int) $row['committed_qty'],
                         'available_qty' => $available,
                         'on_order_qty' => inventoryNormalizeNumericValue($row['on_order_qty'] ?? 0.0),
